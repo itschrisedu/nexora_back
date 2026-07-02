@@ -13,7 +13,7 @@ import { JwtAuthGuard } from '../../../auth/jwt-auth.guard';
 import { RolesGuard } from '../../../shared/guards/roles.guard';
 import { Roles } from '../../../shared/guards/roles.decorator';
 import { Rol, EstadoPedido } from '@prisma/client';
-import { CrearPedidoDto, CancelarPedidoDto } from './dto/pedidos.dto';
+import { CrearPedidoDto, CancelarPedidoDto, ModificarEnTransitoDto } from './dto/pedidos.dto';
 import { CrearPedidoHandler } from '../application/commands/CrearPedido.handler';
 import { CrearPedidoCommand } from '../application/commands/CrearPedido.command';
 import { IniciarPreparacionHandler } from '../application/commands/IniciarPreparacion.handler';
@@ -22,8 +22,13 @@ import { MarcarEnTransitoHandler } from '../application/commands/MarcarEnTransit
 import { MarcarEnTransitoCommand } from '../application/commands/MarcarEnTransito.command';
 import { CancelarPedidoHandler } from '../application/commands/CancelarPedido.handler';
 import { CancelarPedidoCommand } from '../application/commands/CancelarPedido.command';
+import { ConfirmarSeparacionBodegaHandler } from '../application/commands/ConfirmarSeparacionBodega.handler';
+import { RegistrarModificacionEnTransitoHandler } from '../application/commands/RegistrarModificacionEnTransito.handler';
+import { ConfirmarEntregaHandler } from '../application/commands/ConfirmarEntrega.handler';
 import { ComercialQueryService } from '../application/queries/ComercialQueryService';
+import { PrismaService } from '../../../shared/infrastructure/prisma/prisma.service';
 
+// Controlador REST para gestionar operaciones comerciales y pedidos.
 @Controller('pedidos')
 @UseGuards(JwtAuthGuard, RolesGuard)
 export class PedidosController {
@@ -32,7 +37,11 @@ export class PedidosController {
     private readonly iniciarPreparacionHandler: IniciarPreparacionHandler,
     private readonly marcarEnTransitoHandler: MarcarEnTransitoHandler,
     private readonly cancelarPedidoHandler: CancelarPedidoHandler,
+    private readonly confirmarSeparacionHandler: ConfirmarSeparacionBodegaHandler,
+    private readonly modificarEnTransitoHandler: RegistrarModificacionEnTransitoHandler,
+    private readonly confirmarEntregaHandler: ConfirmarEntregaHandler,
     private readonly queryService: ComercialQueryService,
+    private readonly prisma: PrismaService,
   ) {}
 
   // ══════════════════════════════
@@ -68,7 +77,7 @@ export class PedidosController {
   }
 
   // ══════════════════════════════
-  // COMMANDS
+  // COMMANDS — Fase 4A
   // ══════════════════════════════
 
   @Post()
@@ -108,5 +117,59 @@ export class PedidosController {
     const command = new CancelarPedidoCommand(id, dto.motivo);
     await this.cancelarPedidoHandler.execute(command);
     return { message: 'Pedido cancelado con éxito' };
+  }
+
+  // ══════════════════════════════
+  // COMMANDS — Fase 4B (Despacho, Modificación, Entrega)
+  // ══════════════════════════════
+
+  @Post(':id/confirmar-separacion')
+  @Roles(Rol.ROL_ADMIN, Rol.ROL_BODEGUERO)
+  async confirmarSeparacion(@Param('id') id: string, @Req() req: any) {
+    await this.confirmarSeparacionHandler.execute({
+      pedidoId: id,
+      userId: req.user.sub,
+      rol: req.user.rol,
+    });
+    return { message: 'Separación de bodega confirmada. Pedido en tránsito.' };
+  }
+
+  @Post(':id/modificar-en-transito')
+  @Roles(Rol.ROL_ADMIN, Rol.ROL_VENDEDOR)
+  async modificarEnTransito(
+    @Param('id') id: string,
+    @Body() dto: ModificarEnTransitoDto,
+    @Req() req: any,
+  ) {
+    await this.modificarEnTransitoHandler.execute({
+      pedidoId: id,
+      lineasRechazadas: dto.lineasRechazadas,
+      userId: req.user.sub,
+    });
+    return { message: 'Modificación registrada correctamente' };
+  }
+
+  @Post(':id/confirmar-entrega')
+  @Roles(Rol.ROL_ADMIN, Rol.ROL_VENDEDOR, Rol.ROL_BODEGUERO)
+  async confirmarEntrega(@Param('id') id: string, @Req() req: any) {
+    await this.confirmarEntregaHandler.execute({
+      pedidoId: id,
+      userId: req.user.sub,
+    });
+    return { message: 'Pedido entregado exitosamente' };
+  }
+
+  // ══════════════════════════════
+  // QUERIES — Despacho
+  // ══════════════════════════════
+
+  @Get('/despacho/ordenes-pendientes')
+  @Roles(Rol.ROL_ADMIN, Rol.ROL_BODEGUERO)
+  async obtenerOrdenesDespachoPendientes() {
+    return this.prisma.dispatchOrder.findMany({
+      where: { estado: 'PENDIENTE_SEPARACION' },
+      include: { lines: true, order: true },
+      orderBy: { createdAt: 'asc' },
+    });
   }
 }

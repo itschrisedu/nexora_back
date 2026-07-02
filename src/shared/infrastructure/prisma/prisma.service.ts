@@ -8,6 +8,7 @@ import { ConfigService } from '@nestjs/config';
  * Usa driver adapter @prisma/adapter-pg para conectar a PostgreSQL.
  */
 @Injectable()
+// Mapea la base de datos PostgreSQL utilizando Prisma Client.
 export class PrismaService
   extends PrismaClient
   implements OnModuleInit, OnModuleDestroy

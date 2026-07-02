@@ -57,3 +57,25 @@ export class CancelarPedidoDto {
   @IsNotEmpty()
   motivo!: string;
 }
+
+class LineaRechazadaDto {
+  @IsString()
+  @IsNotEmpty()
+  productId!: string;
+
+  @IsString()
+  @IsNotEmpty()
+  tallaId!: string;
+
+  @IsInt()
+  @Min(1)
+  cantidad!: number;
+}
+
+export class ModificarEnTransitoDto {
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => LineaRechazadaDto)
+  lineasRechazadas!: LineaRechazadaDto[];
+}
+

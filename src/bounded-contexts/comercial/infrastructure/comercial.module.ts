@@ -8,12 +8,17 @@ import { PrismaPedidoRepository } from './PrismaPedidoRepository';
 import { PrismaOrderQueueRepository } from './PrismaOrderQueueRepository';
 import { PedidosController } from './pedidos.controller';
 
-// Command Handlers
+// Command Handlers — Fase 4A
 import { CrearPedidoHandler } from '../application/commands/CrearPedido.handler';
 import { IniciarPreparacionHandler } from '../application/commands/IniciarPreparacion.handler';
 import { MarcarEnTransitoHandler } from '../application/commands/MarcarEnTransito.handler';
 import { CancelarPedidoHandler } from '../application/commands/CancelarPedido.handler';
 import { ActivarPedidoEnColaHandler } from '../application/commands/ActivarPedidoEnCola.handler';
+
+// Command Handlers — Fase 4B
+import { ConfirmarSeparacionBodegaHandler } from '../application/commands/ConfirmarSeparacionBodega.handler';
+import { RegistrarModificacionEnTransitoHandler } from '../application/commands/RegistrarModificacionEnTransito.handler';
+import { ConfirmarEntregaHandler } from '../application/commands/ConfirmarEntrega.handler';
 
 // Query Services
 import { ComercialQueryService } from '../application/queries/ComercialQueryService';
@@ -32,12 +37,17 @@ import { ComercialQueryService } from '../application/queries/ComercialQueryServ
       useClass: PrismaOrderQueueRepository,
     },
 
-    // Handlers
+    // Handlers — Fase 4A
     CrearPedidoHandler,
     IniciarPreparacionHandler,
     MarcarEnTransitoHandler,
     CancelarPedidoHandler,
     ActivarPedidoEnColaHandler,
+
+    // Handlers — Fase 4B
+    ConfirmarSeparacionBodegaHandler,
+    RegistrarModificacionEnTransitoHandler,
+    ConfirmarEntregaHandler,
 
     // Queries
     ComercialQueryService,

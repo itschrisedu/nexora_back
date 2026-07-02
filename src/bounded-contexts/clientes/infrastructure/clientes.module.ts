@@ -4,6 +4,7 @@ import { AuthModule } from '../../../auth/auth.module';
 // Infrastructure
 import { PrismaClienteRepository } from './PrismaClienteRepository';
 import { ClientesController } from './clientes.controller';
+import { ClientesPedidoListener } from './listeners/clientes-pedido.listener';
 
 // Application — Command Handlers
 import { RegistrarClienteHandler } from '../application/commands/RegistrarCliente.handler';
@@ -38,6 +39,9 @@ import { ClientesQueryService } from '../application/queries/ClientesQueryServic
 
     // Queries
     ClientesQueryService,
+
+    // Listeners
+    ClientesPedidoListener,
   ],
   exports: [
     'IClienteRepository',

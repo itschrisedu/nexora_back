@@ -12,7 +12,10 @@ import {
   PedidoEnPreparacionEvent,
   PedidoEnTransitoEvent,
   PedidoCanceladoEvent,
+  PedidoModificadoEvent,
+  PedidoEntregadoEvent,
   LineaPedidoPrimitive,
+  LineaRechazadaPrimitive,
 } from './events/PedidoEvents';
 
 export class Pedido extends AggregateRoot {
@@ -22,7 +25,7 @@ export class Pedido extends AggregateRoot {
     private _estado: EstadoPedido,
     private readonly _canal: CanalEntrada,
     private readonly _tipoPago: TipoPago,
-    private readonly _lineas: LineaPedido[],
+    private _lineas: LineaPedido[],
     private _montoTotal: Money,
     private readonly _userId: string,
     private readonly _createdAt: Date,
@@ -113,10 +116,9 @@ export class Pedido extends AggregateRoot {
     return this._createdAt;
   }
 
-  // ── Métodos de Negocio ──────────────────────
+  // ── Métodos de Negocio (Fase 4A) ───────────
 
   confirmar(): void {
-    const anterior = this._estado.value;
     this._estado = this._estado.transicionarA(PrismaEstadoPedido.PENDIENTE);
 
     this.addDomainEvent(
@@ -134,12 +136,7 @@ export class Pedido extends AggregateRoot {
     this.addDomainEvent(new PedidoEnTransitoEvent(this.id));
   }
 
-  entregar(): void {
-    this._estado = this._estado.transicionarA(PrismaEstadoPedido.ENTREGADO);
-  }
-
   cancelar(motivo: string): void {
-    const anterior = this._estado.value;
     this._estado = this._estado.transicionarA(PrismaEstadoPedido.CANCELADO);
 
     this.addDomainEvent(
@@ -150,6 +147,82 @@ export class Pedido extends AggregateRoot {
         this.montoTotal.amount,
         this.tipoPago.value,
         motivo,
+      ),
+    );
+  }
+
+  // ── Métodos de Negocio (Fase 4B) ───────────
+
+  /**
+   * Registra una modificación parcial del pedido cuando el cliente
+   * rechaza algunas líneas durante la entrega en tránsito.
+   * Si rechaza TODAS las líneas, equivale a cancelación total.
+   */
+  registrarModificacionEnTransito(lineasRechazadas: LineaRechazadaPrimitive[]): void {
+    // Verificar si es cancelación total (todas las líneas rechazadas)
+    const todasRechazadas = this._lineas.every((linea) =>
+      lineasRechazadas.some(
+        (r) => r.productId === linea.productId && r.tallaId === linea.tallaId && r.cantidad >= linea.cantidad,
+      ),
+    );
+
+    if (todasRechazadas) {
+      this.cancelar('Rechazo total de mercancía en entrega');
+      return;
+    }
+
+    // Rechazo parcial: transicionar a MODIFICADO
+    const montoOriginal = this._montoTotal.amount;
+
+    // Filtrar líneas activas (las que NO fueron rechazadas completamente)
+    const lineasAceptadas: LineaPedido[] = [];
+    for (const linea of this._lineas) {
+      const rechazo = lineasRechazadas.find(
+        (r) => r.productId === linea.productId && r.tallaId === linea.tallaId,
+      );
+      if (!rechazo || rechazo.cantidad < linea.cantidad) {
+        lineasAceptadas.push(linea);
+      }
+    }
+
+    // Recalcular monto con las líneas aceptadas
+    const nuevoTotal = lineasAceptadas.reduce(
+      (acc, line) => acc.add(line.subtotal),
+      Money.create(0),
+    );
+
+    this._estado = this._estado.transicionarA(PrismaEstadoPedido.MODIFICADO);
+    this._montoTotal = nuevoTotal;
+    this._lineas = lineasAceptadas;
+
+    this.addDomainEvent(
+      new PedidoModificadoEvent(
+        this.id,
+        this.clientId,
+        montoOriginal,
+        nuevoTotal.amount,
+        lineasRechazadas,
+        this.lineasPrimitives,
+        this.tipoPago.value,
+      ),
+    );
+  }
+
+  /**
+   * Confirma la entrega del pedido al cliente.
+   * Solo posible desde EN_TRANSITO o MODIFICADO.
+   */
+  confirmarEntrega(): void {
+    this._estado = this._estado.transicionarA(PrismaEstadoPedido.ENTREGADO);
+
+    this.addDomainEvent(
+      new PedidoEntregadoEvent(
+        this.id,
+        this.clientId,
+        this.montoTotal.amount,
+        this.lineasPrimitives,
+        this.tipoPago.value,
+        this.canal.value,
       ),
     );
   }
@@ -194,3 +267,4 @@ export class Pedido extends AggregateRoot {
     }));
   }
 }
+

@@ -143,7 +143,7 @@ describe('Pedido — Aggregate Root', () => {
       const pedido = crearPedidoPendiente();
       pedido.iniciarPreparacion();
       pedido.marcarEnTransito();
-      pedido.entregar();
+      pedido.confirmarEntrega();
 
       expect(pedido.estado.value).toBe(PrismaEstadoPedido.ENTREGADO);
     });
@@ -191,7 +191,7 @@ describe('Pedido — Aggregate Root', () => {
     it('PENDIENTE → ENTREGADO debe lanzar error', () => {
       const pedido = crearPedidoPendiente();
 
-      expect(() => pedido.entregar()).toThrow(TransicionEstadoInvalidaException);
+      expect(() => pedido.confirmarEntrega()).toThrow(TransicionEstadoInvalidaException);
     });
 
     it('CANCELADO → PENDIENTE debe lanzar error', () => {
@@ -205,7 +205,7 @@ describe('Pedido — Aggregate Root', () => {
       const pedido = crearPedidoPendiente();
       pedido.iniciarPreparacion();
       pedido.marcarEnTransito();
-      pedido.entregar();
+      pedido.confirmarEntrega();
 
       expect(() => pedido.cancelar('intento tardío')).toThrow(TransicionEstadoInvalidaException);
     });
@@ -284,4 +284,124 @@ describe('Pedido — Aggregate Root', () => {
       expect(pedido.domainEvents.length).toBe(0);
     });
   });
+
+  // ── Fase 4B: Modificación en Tránsito y Entrega ──
+
+  describe('Fase 4B — Modificaciones en Tránsito y Confirmación de Entrega', () => {
+    it('debe permitir modificación parcial en tránsito, recalculando el total y transicionando a MODIFICADO', () => {
+      const linea1 = LineaPedido.crear(
+        'line-1',
+        'prod-001',
+        'serie-001',
+        'talla-38',
+        2,
+        Money.create(25),
+        TipoVenta.create(PrismaTipoVenta.SERIE_COMPLETA),
+      );
+      const linea2 = LineaPedido.crear(
+        'line-2',
+        'prod-002',
+        'serie-001',
+        'talla-39',
+        3,
+        Money.create(10),
+        TipoVenta.create(PrismaTipoVenta.SERIE_COMPLETA),
+      );
+
+      const pedido = crearPedidoPendiente([linea1, linea2]);
+      pedido.iniciarPreparacion();
+      pedido.marcarEnTransito();
+
+      // Cliente rechaza la linea 2
+      pedido.registrarModificacionEnTransito([
+        {
+          productId: 'prod-002',
+          tallaId: 'talla-39',
+          cantidad: 3,
+        },
+      ]);
+
+      expect(pedido.estado.value).toBe(PrismaEstadoPedido.MODIFICADO);
+      // El total de linea 1 es 2 * 25 = 50. Linea 2 (3 * 10 = 30) fue rechazada
+      expect(pedido.montoTotal.amount).toBe(50);
+      expect(pedido.lineas.length).toBe(1);
+      expect(pedido.lineas[0].id).toBe('line-1');
+
+      const events = pedido.domainEvents;
+      const modEvent = events.find((e) => e.eventName === 'PedidoModificado');
+      expect(modEvent).toBeDefined();
+    });
+
+    it('debe transicionar a CANCELADO si el cliente rechaza todas las líneas en tránsito', () => {
+      const linea1 = LineaPedido.crear(
+        'line-1',
+        'prod-001',
+        'serie-001',
+        'talla-38',
+        2,
+        Money.create(25),
+        TipoVenta.create(PrismaTipoVenta.SERIE_COMPLETA),
+      );
+
+      const pedido = crearPedidoPendiente([linea1]);
+      pedido.iniciarPreparacion();
+      pedido.marcarEnTransito();
+
+      // Rechaza todas las líneas
+      pedido.registrarModificacionEnTransito([
+        {
+          productId: 'prod-001',
+          tallaId: 'talla-38',
+          cantidad: 2,
+        },
+      ]);
+
+      expect(pedido.estado.value).toBe(PrismaEstadoPedido.CANCELADO);
+      const events = pedido.domainEvents;
+      const cancelEvent = events.find((e) => e.eventName === 'PedidoCancelado');
+      expect(cancelEvent).toBeDefined();
+    });
+
+    it('debe permitir confirmar la entrega de un pedido MODIFICADO', () => {
+      const linea1 = LineaPedido.crear(
+        'line-1',
+        'prod-001',
+        'serie-001',
+        'talla-38',
+        2,
+        Money.create(25),
+        TipoVenta.create(PrismaTipoVenta.SERIE_COMPLETA),
+      );
+      const linea2 = LineaPedido.crear(
+        'line-2',
+        'prod-002',
+        'serie-001',
+        'talla-39',
+        1,
+        Money.create(10),
+        TipoVenta.create(PrismaTipoVenta.SERIE_COMPLETA),
+      );
+
+      const pedido = crearPedidoPendiente([linea1, linea2]);
+      pedido.iniciarPreparacion();
+      pedido.marcarEnTransito();
+
+      // Cliente rechaza linea 2
+      pedido.registrarModificacionEnTransito([
+        {
+          productId: 'prod-002',
+          tallaId: 'talla-39',
+          cantidad: 1,
+        },
+      ]);
+
+      pedido.confirmarEntrega();
+
+      expect(pedido.estado.value).toBe(PrismaEstadoPedido.ENTREGADO);
+      const events = pedido.domainEvents;
+      const entregaEvent = events.find((e) => e.eventName === 'PedidoEntregado');
+      expect(entregaEvent).toBeDefined();
+    });
+  });
 });
+

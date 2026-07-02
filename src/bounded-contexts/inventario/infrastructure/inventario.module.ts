@@ -6,6 +6,7 @@ import { AuthModule } from '../../../auth/auth.module';
 import { PrismaProductoRepository } from './PrismaProductoRepository';
 import { InventarioController } from './inventario.controller';
 import { LimpiarReservasExpiradas } from './jobs/LimpiarReservasExpiradas.job';
+import { InventarioPedidoListener } from './listeners/inventario-pedido.listener';
 
 // Application — Command Handlers
 import { CrearProductoHandler } from '../application/commands/CrearProducto.handler';
@@ -41,6 +42,9 @@ import { InventarioQueryService } from '../application/queries/InventarioQuerySe
 
     // Jobs
     LimpiarReservasExpiradas,
+
+    // Listeners
+    InventarioPedidoListener,
   ],
   exports: [
     'IProductoRepository',

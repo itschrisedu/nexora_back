@@ -316,18 +316,19 @@ enum TipoVenta {
 }
 
 model Order {
-  id         String       @id @default(uuid())
-  clientId   String
-  estado     EstadoPedido @default(PENDIENTE)
-  canal      CanalEntrada
-  tipoPago   TipoPago
-  montoTotal Decimal      @db.Decimal(10, 2)
-  notas      String?
-  userId     String       // quién creó el pedido
-  lines      OrderLine[]
-  queueEntry OrderQueue?
-  createdAt  DateTime     @default(now())
-  updatedAt  DateTime     @updatedAt
+  id            String         @id @default(uuid())
+  clientId      String
+  estado        EstadoPedido   @default(PENDIENTE)
+  canal         CanalEntrada
+  tipoPago      TipoPago
+  montoTotal    Decimal        @db.Decimal(10, 2)
+  notas         String?
+  userId        String         // quién creó el pedido
+  lines         OrderLine[]
+  queueEntry    OrderQueue?
+  dispatchOrder DispatchOrder?
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
 
   @@map("orders")
 }
@@ -360,6 +361,52 @@ model OrderQueue {
 
   @@map("order_queues")
 }
+
+enum DispatchEstado {
+  PENDIENTE_SEPARACION
+  SEPARADO
+  EN_TRANSITO
+}
+
+model DispatchOrder {
+  id              String              @id @default(uuid())
+  orderId         String              @unique
+  estado          DispatchEstado      @default(PENDIENTE_SEPARACION)
+  lines           DispatchOrderLine[]
+  confirmadoPorId String?
+  confirmadoAt    DateTime?
+  createdAt       DateTime            @default(now())
+  order           Order               @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@map("dispatch_orders")
+}
+
+model DispatchOrderLine {
+  id         String        @id @default(uuid())
+  dispatchId String
+  productId  String
+  serieId    String
+  tallaId    String
+  cantidad   Int
+  aceptada   Boolean       @default(true) // false si el cliente rechazó en entrega
+  dispatch   DispatchOrder @relation(fields: [dispatchId], references: [id], onDelete: Cascade)
+
+  @@map("dispatch_order_lines")
+}
+
+model OrderModification {
+  id               String   @id @default(uuid())
+  orderId          String
+  tipoModificacion String   // "RECHAZO_PARCIAL" | "CANCELACION_TOTAL"
+  montoOriginal    Decimal  @db.Decimal(10, 2)
+  montoNuevo       Decimal  @db.Decimal(10, 2)
+  lineasRechazadas Json     // array de { productId, tallaId, cantidad }
+  userId           String
+  createdAt        DateTime @default(now())
+
+  @@map("order_modifications")
+}
+
 
 
 

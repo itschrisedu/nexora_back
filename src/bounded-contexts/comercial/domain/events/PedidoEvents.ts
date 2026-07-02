@@ -152,3 +152,114 @@ export class PedidoEnColaRetenidoPorCreditoEvent extends DomainEvent {
     };
   }
 }
+
+// ══════════════════════════════════════════
+// FASE 4B — Despacho, Modificación y Entrega
+// ══════════════════════════════════════════
+
+export interface LineaRechazadaPrimitive {
+  productId: string;
+  tallaId: string;
+  cantidad: number;
+}
+
+export class PedidoModificadoEvent extends DomainEvent {
+  constructor(
+    public readonly pedidoId: string,
+    public readonly clientId: string,
+    public readonly montoOriginal: number,
+    public readonly montoNuevo: number,
+    public readonly lineasRechazadas: LineaRechazadaPrimitive[],
+    public readonly lineasAceptadas: LineaPedidoPrimitive[],
+    public readonly tipoPago: TipoPago,
+  ) {
+    super('PedidoModificado');
+  }
+
+  toPrimitives(): Record<string, unknown> {
+    return {
+      pedidoId: this.pedidoId,
+      clientId: this.clientId,
+      montoOriginal: this.montoOriginal,
+      montoNuevo: this.montoNuevo,
+      lineasRechazadas: this.lineasRechazadas,
+      lineasAceptadas: this.lineasAceptadas,
+      tipoPago: this.tipoPago,
+    };
+  }
+}
+
+export class PedidoEntregadoEvent extends DomainEvent {
+  constructor(
+    public readonly pedidoId: string,
+    public readonly clientId: string,
+    public readonly montoFinal: number,
+    public readonly lineasEntregadas: LineaPedidoPrimitive[],
+    public readonly tipoPago: TipoPago,
+    public readonly canal: CanalEntrada,
+  ) {
+    super('PedidoEntregado');
+  }
+
+  toPrimitives(): Record<string, unknown> {
+    return {
+      pedidoId: this.pedidoId,
+      clientId: this.clientId,
+      montoFinal: this.montoFinal,
+      lineasEntregadas: this.lineasEntregadas,
+      tipoPago: this.tipoPago,
+      canal: this.canal,
+    };
+  }
+}
+
+export class SeparacionConfirmadaPorBodegaEvent extends DomainEvent {
+  constructor(
+    public readonly pedidoId: string,
+    public readonly dispatchOrderId: string,
+    public readonly userId: string,
+  ) {
+    super('SeparacionConfirmadaPorBodega');
+  }
+
+  toPrimitives(): Record<string, unknown> {
+    return {
+      pedidoId: this.pedidoId,
+      dispatchOrderId: this.dispatchOrderId,
+      userId: this.userId,
+    };
+  }
+}
+
+export class StockLiberadoPorModificacionEvent extends DomainEvent {
+  constructor(
+    public readonly pedidoId: string,
+    public readonly lineas: LineaRechazadaPrimitive[],
+  ) {
+    super('StockLiberadoPorModificacion');
+  }
+
+  toPrimitives(): Record<string, unknown> {
+    return {
+      pedidoId: this.pedidoId,
+      lineas: this.lineas,
+    };
+  }
+}
+
+export class StockLiberadoPorCancelacionEvent extends DomainEvent {
+  constructor(
+    public readonly pedidoId: string,
+    public readonly lineas: LineaRechazadaPrimitive[],
+  ) {
+    super('StockLiberadoPorCancelacion');
+  }
+
+  toPrimitives(): Record<string, unknown> {
+    return {
+      pedidoId: this.pedidoId,
+      lineas: this.lineas,
+    };
+  }
+}
+
