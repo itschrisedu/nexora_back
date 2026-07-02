@@ -3,6 +3,7 @@ import { ConfigModule } from '@nestjs/config';
 import { SharedModule } from './shared/shared.module';
 import { AuthModule } from './auth/auth.module';
 import { ConfiguracionModule } from './configuracion/configuracion.module';
+import { InventarioModule } from './bounded-contexts/inventario/infrastructure/inventario.module';
 
 @Module({
   imports: [
@@ -18,6 +19,9 @@ import { ConfiguracionModule } from './configuracion/configuracion.module';
     // Módulos de la aplicación
     AuthModule,
     ConfiguracionModule,
+
+    // Bounded Contexts
+    InventarioModule,
   ],
 })
 export class AppModule {}
