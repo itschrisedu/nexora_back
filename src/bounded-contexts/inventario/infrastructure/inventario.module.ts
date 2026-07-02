@@ -42,6 +42,11 @@ import { InventarioQueryService } from '../application/queries/InventarioQuerySe
     // Jobs
     LimpiarReservasExpiradas,
   ],
-  exports: ['IProductoRepository', InventarioQueryService],
+  exports: [
+    'IProductoRepository',
+    InventarioQueryService,
+    ReservarStockHandler,
+    LiberarReservaHandler,
+  ],
 })
 export class InventarioModule {}

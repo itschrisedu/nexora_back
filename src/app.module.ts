@@ -1,9 +1,12 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
+import { EventEmitterModule } from '@nestjs/event-emitter';
 import { SharedModule } from './shared/shared.module';
 import { AuthModule } from './auth/auth.module';
 import { ConfiguracionModule } from './configuracion/configuracion.module';
 import { InventarioModule } from './bounded-contexts/inventario/infrastructure/inventario.module';
+import { ClientesModule } from './bounded-contexts/clientes/infrastructure/clientes.module';
+import { ComercialModule } from './bounded-contexts/comercial/infrastructure/comercial.module';
 
 @Module({
   imports: [
@@ -13,8 +16,12 @@ import { InventarioModule } from './bounded-contexts/inventario/infrastructure/i
       envFilePath: '.env',
     }),
 
+    // Habilitar Event Emitter para arquitectura dirigida por eventos
+    EventEmitterModule.forRoot(),
+
     // Módulo global: PrismaService + EncryptionService
     SharedModule,
+
 
     // Módulos de la aplicación
     AuthModule,
@@ -22,6 +29,10 @@ import { InventarioModule } from './bounded-contexts/inventario/infrastructure/i
 
     // Bounded Contexts
     InventarioModule,
+    ClientesModule,
+    ComercialModule,
   ],
 })
 export class AppModule {}
+
+

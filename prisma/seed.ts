@@ -84,6 +84,45 @@ async function main() {
     console.log(`   Tallas ${serieData.tallasDesde}-${serieData.tallasHasta} configuradas`);
   }
 
+  // ══════════════════════════════
+  // 3. CONFIGURACIÓN DE NIVELES DE CRÉDITO (Fase 3)
+  // ══════════════════════════════
+  const creditLevels = [
+    { nivel: 'SIN_CREDITO', comprasRequeridas: 0,  limiteDolares: 0,    plazoDias: 0 },
+    { nivel: 'NIVEL_1',     comprasRequeridas: 10, limiteDolares: 300,  plazoDias: 15 },
+    { nivel: 'NIVEL_2',     comprasRequeridas: 15, limiteDolares: 700,  plazoDias: 30 },
+    { nivel: 'NIVEL_3',     comprasRequeridas: 25, limiteDolares: 1500, plazoDias: 30 },
+    { nivel: 'NIVEL_4',     comprasRequeridas: 40, limiteDolares: 3000, plazoDias: 45 },
+  ];
+
+  for (const level of creditLevels) {
+    const existingLevel = await prisma.creditLevelConfig.findUnique({
+      where: { nivel: level.nivel as any },
+    });
+
+    if (!existingLevel) {
+      await prisma.creditLevelConfig.create({
+        data: {
+          nivel: level.nivel as any,
+          comprasRequeridas: level.comprasRequeridas,
+          limiteDolares: level.limiteDolares,
+          plazoDias: level.plazoDias,
+        },
+      });
+      console.log(`✅ Nivel de crédito creado: ${level.nivel}`);
+    } else {
+      await prisma.creditLevelConfig.update({
+        where: { nivel: level.nivel as any },
+        data: {
+          comprasRequeridas: level.comprasRequeridas,
+          limiteDolares: level.limiteDolares,
+          plazoDias: level.plazoDias,
+        },
+      });
+      console.log(`⏭️  Nivel de crédito actualizado: ${level.nivel}`);
+    }
+  }
+
   console.log('\n🎉 Seed completado exitosamente');
 }
 
@@ -95,3 +134,4 @@ main()
   .finally(async () => {
     await prisma.$disconnect();
   });
+

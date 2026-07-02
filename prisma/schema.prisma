@@ -225,3 +225,141 @@ model PriceHistory {
   @@map("price_history")
 }
 
+// ──────────────────────────────────────────
+// CLIENTES Y SCORING CREDITICIO (Fase 3)
+// ──────────────────────────────────────────
+
+enum NivelCredito {
+  SIN_CREDITO
+  NIVEL_1
+  NIVEL_2
+  NIVEL_3
+  NIVEL_4
+}
+
+model Client {
+  id                 String               @id @default(uuid())
+  nombre             String
+  apellido           String
+  telefono           String
+  email              String?
+  ruc                String?              // Cifrado con AES-256-GCM
+  cedula             String?              // Cifrado con AES-256-GCM
+  direccion          String?
+  notas              String?
+  nivelCredito       NivelCredito         @default(SIN_CREDITO)
+  totalCompras       Int                  @default(0)  // Contador de compras de contado + crédito completadas
+  comprasSinAtraso   Int                  @default(0)  // Racha actual de pagos a tiempo
+  atrasoConsecutivo  Int                  @default(0)  // Atrasos consecutivos sin saldar
+  limiteCredito      Decimal              @db.Decimal(10, 2) @default(0)
+  creditoUtilizado   Decimal              @db.Decimal(10, 2) @default(0)
+  activo             Boolean              @default(true)
+  createdAt          DateTime             @default(now())
+  updatedAt          DateTime             @updatedAt
+  creditScoreHistory CreditScoreHistory[]
+
+  @@map("clients")
+}
+
+model CreditScoreHistory {
+  id            String       @id @default(uuid())
+  clientId      String
+  nivelAnterior NivelCredito
+  nivelNuevo    NivelCredito
+  motivo        String       // "COMPRA_COMPLETADA" | "ATRASO" | "AJUSTE_MANUAL" | "DOS_ATRASOS_CONSECUTIVOS"
+  ajustadoPorId String?      // ID del administrador si es AJUSTE_MANUAL
+  createdAt     DateTime     @default(now())
+  client        Client       @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@map("credit_score_history")
+}
+
+model CreditLevelConfig {
+  id                String       @id @default(uuid())
+  nivel             NivelCredito @unique
+  comprasRequeridas Int
+  limiteDolares     Decimal      @db.Decimal(10, 2)
+  plazoDias         Int
+  updatedAt         DateTime     @updatedAt
+
+  @@map("credit_level_config")
+}
+
+// ──────────────────────────────────────────
+// COMERCIAL — Pedidos y Cola de Prioridad (Fase 4A)
+// ──────────────────────────────────────────
+
+enum EstadoPedido {
+  EN_ESPERA_STOCK
+  PENDIENTE
+  EN_PREPARACION
+  EN_TRANSITO
+  MODIFICADO
+  CANCELADO
+  ENTREGADO
+}
+
+enum CanalEntrada {
+  MANUAL
+  WHATSAPP
+  CATALOGO
+}
+
+enum TipoPago {
+  CONTADO
+  CREDITO
+}
+
+enum TipoVenta {
+  SERIE_COMPLETA
+  TALLA_ESPECIFICA
+}
+
+model Order {
+  id         String       @id @default(uuid())
+  clientId   String
+  estado     EstadoPedido @default(PENDIENTE)
+  canal      CanalEntrada
+  tipoPago   TipoPago
+  montoTotal Decimal      @db.Decimal(10, 2)
+  notas      String?
+  userId     String       // quién creó el pedido
+  lines      OrderLine[]
+  queueEntry OrderQueue?
+  createdAt  DateTime     @default(now())
+  updatedAt  DateTime     @updatedAt
+
+  @@map("orders")
+}
+
+model OrderLine {
+  id             String    @id @default(uuid())
+  orderId        String
+  productId      String
+  serieId        String
+  tallaId        String
+  cantidad       Int
+  precioUnitario Decimal   @db.Decimal(10, 2)
+  tipoVenta      TipoVenta
+  order          Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@map("order_lines")
+}
+
+model OrderQueue {
+  id             String       @id @default(uuid())
+  orderId        String       @unique
+  clientId       String
+  prioridadFifo  DateTime     // timestamp de creación del pedido original
+  nivelCredito   NivelCredito
+  totalHistorico Decimal      @db.Decimal(10, 2) // total histórico de compras del cliente
+  activa         Boolean      @default(true)
+  activadaAt     DateTime?
+  order          Order        @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  createdAt      DateTime     @default(now())
+
+  @@map("order_queues")
+}
+
+
+
