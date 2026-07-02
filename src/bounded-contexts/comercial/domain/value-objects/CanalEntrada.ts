@@ -1,5 +1,7 @@
 import { ValueObject } from '../../../../shared/domain/ValueObject';
 import { CanalEntrada as PrismaCanalEntrada } from '@prisma/client';
+// Exportar para acceso directo desde pruebas sin bypass
+export { CanalEntrada as PrismaCanalEntrada } from '@prisma/client';
 
 export class CanalEntrada extends ValueObject<{ value: PrismaCanalEntrada }> {
   constructor(value: PrismaCanalEntrada) {

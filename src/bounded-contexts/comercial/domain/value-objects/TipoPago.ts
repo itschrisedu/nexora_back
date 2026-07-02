@@ -1,5 +1,6 @@
 import { ValueObject } from '../../../../shared/domain/ValueObject';
 import { TipoPago as PrismaTipoPago } from '@prisma/client';
+export { TipoPago as PrismaTipoPago } from '@prisma/client';
 
 export class TipoPago extends ValueObject<{ value: PrismaTipoPago }> {
   constructor(value: PrismaTipoPago) {

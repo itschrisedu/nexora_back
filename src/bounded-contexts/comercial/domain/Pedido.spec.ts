@@ -1,16 +1,10 @@
 import { Pedido } from './Pedido';
 import { LineaPedido } from './LineaPedido';
-import { CanalEntrada } from './value-objects/CanalEntrada';
-import { TipoPago } from './value-objects/TipoPago';
-import { TipoVenta } from './value-objects/TipoVenta';
+import { CanalEntrada, PrismaCanalEntrada } from './value-objects/CanalEntrada';
+import { TipoPago, PrismaTipoPago } from './value-objects/TipoPago';
+import { TipoVenta, PrismaTipoVenta } from './value-objects/TipoVenta';
 import { Money } from '../../../shared/domain/Money';
-import {
-  EstadoPedido as PrismaEstadoPedido,
-  CanalEntrada as PrismaCanalEntrada,
-  TipoPago as PrismaTipoPago,
-  TipoVenta as PrismaTipoVenta,
-} from '@prisma/client';
-import { TransicionEstadoInvalidaException } from './value-objects/EstadoPedido';
+import { PrismaEstadoPedido, TransicionEstadoInvalidaException } from './value-objects/EstadoPedido';
 
 // ── Helpers de Pruebas ─────────────────────────
 

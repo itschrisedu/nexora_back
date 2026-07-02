@@ -1,5 +1,6 @@
 import { ValueObject } from '../../../../shared/domain/ValueObject';
 import { EstadoPedido as PrismaEstadoPedido } from '@prisma/client';
+export { EstadoPedido as PrismaEstadoPedido } from '@prisma/client';
 import { DomainException } from '../../../../shared/domain/DomainException';
 
 export class TransicionEstadoInvalidaException extends DomainException {
