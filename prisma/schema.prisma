@@ -1,0 +1,127 @@
+// ══════════════════════════════════════════
+// NEXORA — Schema Prisma
+// Fase 1: Fundación e Infraestructura Base
+// ══════════════════════════════════════════
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ──────────────────────────────────────────
+// ENUMS
+// ──────────────────────────────────────────
+
+enum Rol {
+  ROL_ADMIN
+  ROL_VENDEDOR
+  ROL_BODEGUERO
+}
+
+enum SeasonTipo {
+  INICIO_CLASES
+  NAVIDAD
+  FIESTAS_LOCALES
+  OTRA
+}
+
+// ──────────────────────────────────────────
+// AUTH — Usuarios y Tokens
+// ──────────────────────────────────────────
+
+model User {
+  id             String          @id @default(uuid())
+  email          String          @unique
+  passwordHash   String
+  nombre         String
+  rol            Rol
+  activo         Boolean         @default(true)
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  refreshTokens  RefreshToken[]
+  passwordResets PasswordReset[]
+
+  @@map("users")
+}
+
+model RefreshToken {
+  id        String   @id @default(uuid())
+  userId    String
+  token     String   @unique
+  expiresAt DateTime
+  revoked   Boolean  @default(false)
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("refresh_tokens")
+}
+
+model PasswordReset {
+  id        String    @id @default(uuid())
+  userId    String
+  token     String    @unique
+  usedAt    DateTime?
+  expiresAt DateTime
+  createdAt DateTime  @default(now())
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("password_resets")
+}
+
+// ──────────────────────────────────────────
+// CONFIGURACIÓN DEL NEGOCIO
+// ──────────────────────────────────────────
+
+model BusinessConfig {
+  id        String   @id @default(uuid())
+  nombre    String
+  ruc       String   // Cifrado con AES-256-GCM en capa de infraestructura
+  direccion String
+  telefono  String?
+  email     String?
+  logoUrl   String?
+  updatedAt DateTime @updatedAt
+
+  @@map("business_config")
+}
+
+// ──────────────────────────────────────────
+// TEMPORADAS
+// ──────────────────────────────────────────
+
+model Season {
+  id          String     @id @default(uuid())
+  nombre      String
+  tipo        SeasonTipo
+  fechaInicio DateTime
+  fechaFin    DateTime
+  activa      Boolean    @default(false)
+  createdAt   DateTime   @default(now())
+
+  @@map("seasons")
+}
+
+// ──────────────────────────────────────────
+// SERIES Y TALLAS DE CALZADO
+// ──────────────────────────────────────────
+
+model SeriesConfig {
+  id     String        @id @default(uuid())
+  nombre String        @unique // BEBE, NINO_PEQUENO_A, NINO_PEQUENO_B, NINO, JUVENIL, ADULTO, TALLA_GRANDE
+  activa Boolean       @default(true)
+  tallas TallaConfig[]
+
+  @@map("series_config")
+}
+
+model TallaConfig {
+  id      String       @id @default(uuid())
+  numero  Int
+  serieId String
+  serie   SeriesConfig @relation(fields: [serieId], references: [id], onDelete: Cascade)
+
+  @@map("talla_config")
+}
