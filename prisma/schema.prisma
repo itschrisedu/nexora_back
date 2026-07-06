@@ -599,8 +599,21 @@ model MerchandiseEntryLine {
   @@map("merchandise_entry_lines")
 }
 
+// ──────────────────────────────────────────
+// FASE 7 — NOTIFICACIONES
+// ──────────────────────────────────────────
 
+model NotificationLog {
+  id            String   @id @default(uuid())
+  canal         String   // EMAIL | WHATSAPP
+  destinatario  String
+  asunto        String
+  eventoOrigen  String
+  estado        String   @default("ENVIADO") // ENVIADO | FALLIDO
+  error         String?
+  createdAt     DateTime @default(now())
 
-
+  @@map("notification_logs")
+}
 
 

@@ -9,6 +9,7 @@ import { ClientesModule } from './bounded-contexts/clientes/infrastructure/clien
 import { ComercialModule } from './bounded-contexts/comercial/infrastructure/comercial.module';
 import { FinancieroModule } from './bounded-contexts/financiero/infrastructure/financiero.module';
 import { ProveedoresModule } from './bounded-contexts/proveedores/infrastructure/proveedores.module';
+import { NotificacionesModule } from './bounded-contexts/notificaciones/infrastructure/notificaciones.module';
 
 @Module({
   imports: [
@@ -35,8 +36,10 @@ import { ProveedoresModule } from './bounded-contexts/proveedores/infrastructure
     ComercialModule,
     FinancieroModule,
     ProveedoresModule,
+    NotificacionesModule,
   ],
 })
 export class AppModule {}
+
 
 
