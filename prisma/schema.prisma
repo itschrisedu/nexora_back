@@ -407,6 +407,118 @@ model OrderModification {
   @@map("order_modifications")
 }
 
+// ══════════════════════════════════════════
+// FASE 5 — NOTAS DE VENTA + BC FINANCIERO
+// ══════════════════════════════════════════
+
+model SaleNote {
+  id        String         @id @default(uuid())
+  numero    Int            @unique @default(autoincrement())
+  orderId   String
+  clientId  String
+  lines     SaleNoteLine[]
+  subtotal  Decimal        @db.Decimal(10, 2)
+  descuento Decimal        @db.Decimal(10, 2) @default(0)
+  total     Decimal        @db.Decimal(10, 2)
+  pdfUrl    String?
+  enviada   Boolean        @default(false)
+  cobro     Cobro?
+  createdAt DateTime       @default(now())
+
+  @@map("sale_notes")
+}
+
+model SaleNoteLine {
+  id             String   @id @default(uuid())
+  saleNoteId     String
+  productId      String
+  nombre         String
+  serie          String
+  talla          String
+  cantidad       Int
+  precioUnitario Decimal  @db.Decimal(10, 2)
+  subtotal       Decimal  @db.Decimal(10, 2)
+  saleNote       SaleNote @relation(fields: [saleNoteId], references: [id], onDelete: Cascade)
+
+  @@map("sale_note_lines")
+}
+
+enum TipoCobro {
+  CONTADO
+  CREDITO
+}
+
+enum CobroEstado {
+  PENDIENTE
+  PARCIALMENTE_PAGADO
+  SALDADO
+}
+
+model Cobro {
+  id               String      @id @default(uuid())
+  saleNoteId       String      @unique
+  clientId         String
+  tipo             TipoCobro
+  montoTotal       Decimal     @db.Decimal(10, 2)
+  saldoPendiente   Decimal     @db.Decimal(10, 2)
+  fechaVencimiento DateTime?
+  estado           CobroEstado @default(PENDIENTE)
+  abonos           CobroAbono[]
+  saleNote         SaleNote    @relation(fields: [saleNoteId], references: [id], onDelete: Cascade)
+  createdAt        DateTime    @default(now())
+  updatedAt        DateTime    @updatedAt
+
+  @@map("cobros")
+}
+
+model CobroAbono {
+  id        String   @id @default(uuid())
+  cobroId   String
+  monto     Decimal  @db.Decimal(10, 2)
+  metodo    String   // "EFECTIVO" | "TRANSFERENCIA" | "CHEQUE"
+  notas     String?
+  userId    String
+  cobro     Cobro    @relation(fields: [cobroId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@map("cobro_abonos")
+}
+
+enum DeudaEstado {
+  PENDIENTE
+  PARCIALMENTE_PAGADO
+  SALDADO
+}
+
+model DeudaProveedor {
+  id               String      @id @default(uuid())
+  supplierId       String      // FK a Supplier (se agrega en Fase 6A)
+  entradaId        String      @unique // merchandise_entry_id
+  montoTotal       Decimal     @db.Decimal(10, 2)
+  saldoPendiente   Decimal     @db.Decimal(10, 2)
+  fechaVencimiento DateTime
+  estado           DeudaEstado @default(PENDIENTE)
+  pagos            DeudaPago[]
+  createdAt        DateTime    @default(now())
+  updatedAt        DateTime    @updatedAt
+
+  @@map("deudas_proveedor")
+}
+
+model DeudaPago {
+  id        String         @id @default(uuid())
+  deudaId   String
+  monto     Decimal        @db.Decimal(10, 2)
+  metodo    String
+  notas     String?
+  userId    String
+  deuda     DeudaProveedor @relation(fields: [deudaId], references: [id], onDelete: Cascade)
+  createdAt DateTime       @default(now())
+
+  @@map("deuda_pagos")
+}
+
+
 
 
 

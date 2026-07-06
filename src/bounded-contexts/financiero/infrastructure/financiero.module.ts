@@ -1,0 +1,57 @@
+import { Module } from '@nestjs/common';
+import { AuthModule } from '../../../auth/auth.module';
+import { ClientesModule } from '../../clientes/infrastructure/clientes.module';
+
+// Infrastructure
+import { FinancieroController } from './financiero.controller';
+import { PrismaCobroRepository } from './PrismaCobroRepository';
+import { PrismaDeudaProveedorRepository } from './PrismaDeudaProveedorRepository';
+import { PdfGeneratorService } from './pdf/pdf-generator.service';
+
+// Listeners
+import { PedidoEntregadoFinancieroListener } from './listeners/pedido-entregado-financiero.listener';
+import { DeudaSaldadaClientesListener } from './listeners/deuda-saldada-clientes.listener';
+
+// Application — Command Handlers
+import { RegistrarAbonoHandler } from '../application/commands/RegistrarAbono.handler';
+import { RegistrarPagoProveedorHandler } from '../application/commands/RegistrarPagoProveedor.handler';
+
+// Application — Queries
+import { FinancieroQueryService } from '../application/queries/FinancieroQueryService';
+
+@Module({
+  imports: [AuthModule, ClientesModule],
+  controllers: [FinancieroController],
+  providers: [
+    // Repositories
+    {
+      provide: 'ICobroRepository',
+      useClass: PrismaCobroRepository,
+    },
+    {
+      provide: 'IDeudaProveedorRepository',
+      useClass: PrismaDeudaProveedorRepository,
+    },
+
+    // Infrastructure Services
+    PdfGeneratorService,
+
+    // Command Handlers
+    RegistrarAbonoHandler,
+    RegistrarPagoProveedorHandler,
+
+    // Queries
+    FinancieroQueryService,
+
+    // Listeners
+    PedidoEntregadoFinancieroListener,
+    DeudaSaldadaClientesListener,
+  ],
+  exports: [
+    FinancieroQueryService,
+    PdfGeneratorService,
+    RegistrarAbonoHandler,
+    RegistrarPagoProveedorHandler,
+  ],
+})
+export class FinancieroModule {}

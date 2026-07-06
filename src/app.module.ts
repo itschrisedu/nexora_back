@@ -7,6 +7,7 @@ import { ConfiguracionModule } from './configuracion/configuracion.module';
 import { InventarioModule } from './bounded-contexts/inventario/infrastructure/inventario.module';
 import { ClientesModule } from './bounded-contexts/clientes/infrastructure/clientes.module';
 import { ComercialModule } from './bounded-contexts/comercial/infrastructure/comercial.module';
+import { FinancieroModule } from './bounded-contexts/financiero/infrastructure/financiero.module';
 
 @Module({
   imports: [
@@ -31,6 +32,7 @@ import { ComercialModule } from './bounded-contexts/comercial/infrastructure/com
     InventarioModule,
     ClientesModule,
     ComercialModule,
+    FinancieroModule,
   ],
 })
 export class AppModule {}
