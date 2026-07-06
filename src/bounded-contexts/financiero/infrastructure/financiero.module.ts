@@ -15,6 +15,7 @@ import { DeudaSaldadaClientesListener } from './listeners/deuda-saldada-clientes
 // Application — Command Handlers
 import { RegistrarAbonoHandler } from '../application/commands/RegistrarAbono.handler';
 import { RegistrarPagoProveedorHandler } from '../application/commands/RegistrarPagoProveedor.handler';
+import { CrearDeudaProveedorHandler } from '../application/commands/CrearDeudaProveedor.handler';
 
 // Application — Queries
 import { FinancieroQueryService } from '../application/queries/FinancieroQueryService';
@@ -39,6 +40,7 @@ import { FinancieroQueryService } from '../application/queries/FinancieroQuerySe
     // Command Handlers
     RegistrarAbonoHandler,
     RegistrarPagoProveedorHandler,
+    CrearDeudaProveedorHandler,
 
     // Queries
     FinancieroQueryService,
@@ -52,6 +54,7 @@ import { FinancieroQueryService } from '../application/queries/FinancieroQuerySe
     PdfGeneratorService,
     RegistrarAbonoHandler,
     RegistrarPagoProveedorHandler,
+    CrearDeudaProveedorHandler,
   ],
 })
 export class FinancieroModule {}

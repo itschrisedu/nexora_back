@@ -8,6 +8,7 @@ import { InventarioModule } from './bounded-contexts/inventario/infrastructure/i
 import { ClientesModule } from './bounded-contexts/clientes/infrastructure/clientes.module';
 import { ComercialModule } from './bounded-contexts/comercial/infrastructure/comercial.module';
 import { FinancieroModule } from './bounded-contexts/financiero/infrastructure/financiero.module';
+import { ProveedoresModule } from './bounded-contexts/proveedores/infrastructure/proveedores.module';
 
 @Module({
   imports: [
@@ -33,6 +34,7 @@ import { FinancieroModule } from './bounded-contexts/financiero/infrastructure/f
     ClientesModule,
     ComercialModule,
     FinancieroModule,
+    ProveedoresModule,
   ],
 })
 export class AppModule {}
