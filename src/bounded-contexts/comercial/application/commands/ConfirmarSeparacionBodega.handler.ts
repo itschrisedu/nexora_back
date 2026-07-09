@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import { IPedidoRepository } from '../../domain/IPedidoRepository';
 import { PrismaService } from '../../../../shared/infrastructure/prisma/prisma.service';
 import { OrdenDespacho, DispatchLineProps } from '../../domain/OrdenDespacho';
@@ -11,6 +11,7 @@ import { OrdenDespacho, DispatchLineProps } from '../../domain/OrdenDespacho';
 @Injectable()
 export class ConfirmarSeparacionBodegaHandler {
   constructor(
+    @Inject('IPedidoRepository')
     private readonly pedidoRepo: IPedidoRepository,
     private readonly prisma: PrismaService,
   ) {}

@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import { IPedidoRepository } from '../../domain/IPedidoRepository';
 import { EventBus } from '../../../../shared/infrastructure/event-bus/event-bus.service';
 
@@ -11,6 +11,7 @@ import { EventBus } from '../../../../shared/infrastructure/event-bus/event-bus.
 @Injectable()
 export class ConfirmarEntregaHandler {
   constructor(
+    @Inject('IPedidoRepository')
     private readonly pedidoRepo: IPedidoRepository,
     private readonly eventBus: EventBus,
   ) {}

@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import { IPedidoRepository } from '../../domain/IPedidoRepository';
 import { PrismaService } from '../../../../shared/infrastructure/prisma/prisma.service';
 import { LineaRechazadaPrimitive } from '../../domain/events/PedidoEvents';
@@ -13,6 +13,7 @@ import { EventBus } from '../../../../shared/infrastructure/event-bus/event-bus.
 @Injectable()
 export class RegistrarModificacionEnTransitoHandler {
   constructor(
+    @Inject('IPedidoRepository')
     private readonly pedidoRepo: IPedidoRepository,
     private readonly prisma: PrismaService,
     private readonly eventBus: EventBus,

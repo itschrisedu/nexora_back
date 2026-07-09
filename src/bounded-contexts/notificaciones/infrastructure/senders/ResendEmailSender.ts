@@ -10,16 +10,27 @@ import { NotificationPayload } from '../../domain/NotificationPayload';
 @Injectable()
 export class ResendEmailSender implements INotificationSender {
   private readonly logger = new Logger(ResendEmailSender.name);
-  private readonly resend: Resend;
+  private readonly resend: Resend | null = null;
   private readonly fromEmail: string;
 
   constructor(private readonly config: ConfigService) {
     const apiKey = this.config.get<string>('RESEND_API_KEY', '');
-    this.resend = new Resend(apiKey);
     this.fromEmail = this.config.get<string>('NOTIFICATIONS_FROM_EMAIL', 'nexora@example.com');
+    
+    if (apiKey && apiKey !== '') {
+      this.resend = new Resend(apiKey);
+    } else {
+      this.logger.warn('⚠️ RESEND_API_KEY no configurada. El envío de correos se simulará en la consola.');
+    }
   }
 
   async send(payload: NotificationPayload): Promise<{ success: boolean; error?: string }> {
+    if (!this.resend) {
+      this.logger.log(`[SIMULADO EMAIL] De: ${this.fromEmail} | Para: ${payload.destinatario} | Asunto: ${payload.asunto}`);
+      this.logger.debug(`[SIMULADO EMAIL CUERPO]: ${payload.cuerpoHtml}`);
+      return { success: true };
+    }
+
     try {
       const response = await this.resend.emails.send({
         from: this.fromEmail,
@@ -40,3 +51,4 @@ export class ResendEmailSender implements INotificationSender {
     }
   }
 }
+
