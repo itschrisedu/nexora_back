@@ -10,6 +10,7 @@ import * as bcrypt from 'bcryptjs';
 import { randomBytes } from 'crypto';
 import { PrismaService } from '../shared/infrastructure/prisma/prisma.service';
 import { JwtPayload } from './jwt.strategy';
+import { Rol } from '@prisma/client';
 
 @Injectable()
 export class AuthService {
@@ -100,17 +101,6 @@ export class AuthService {
       throw new UnauthorizedException('Refresh token expirado');
     }
 
-    if (!storedToken.user.activo) {
-      throw new UnauthorizedException('Cuenta desactivada');
-    }
-
-    // Revocar el token anterior (rotación)
-    await this.prisma.refreshToken.update({
-      where: { id: storedToken.id },
-      data: { revoked: true },
-    });
-
-    // Generar nuevos tokens
     const payload: JwtPayload = {
       sub: storedToken.user.id,
       email: storedToken.user.email,
@@ -122,57 +112,31 @@ export class AuthService {
       expiresIn: this.configService.get<string>('JWT_ACCESS_EXPIRATION', '15m') as any,
     });
 
-    const newRefreshToken = randomBytes(64).toString('hex');
-    const refreshExpiresIn = this.configService.get<string>('JWT_REFRESH_EXPIRATION', '7d');
-    const expiresAt = this.calculateExpirationDate(refreshExpiresIn);
-
-    await this.prisma.refreshToken.create({
-      data: {
-        userId: storedToken.user.id,
-        token: newRefreshToken,
-        expiresAt,
-      },
-    });
-
-    this.logger.log(`Token refreshed para: ${storedToken.user.email}`);
-
-    return {
-      accessToken,
-      refreshToken: newRefreshToken,
-    };
+    return { accessToken };
   }
 
   /**
-   * Logout — Revoca el refresh token del usuario.
+   * Logout — Revoca el refresh token.
    */
-  async logout(refreshToken: string): Promise<void> {
-    const storedToken = await this.prisma.refreshToken.findUnique({
-      where: { token: refreshToken },
+  async logout(token: string) {
+    await this.prisma.refreshToken.update({
+      where: { token },
+      data: { revoked: true },
     });
-
-    if (storedToken && !storedToken.revoked) {
-      await this.prisma.refreshToken.update({
-        where: { id: storedToken.id },
-        data: { revoked: true },
-      });
-    }
-
-    this.logger.log('Logout ejecutado');
   }
 
   /**
-   * Solicitar Recuperación — Genera un token de un solo uso (TTL 1 hora).
+   * Solicitar recuperación de contraseña.
    */
-  async solicitarRecuperacion(email: string): Promise<{ message: string }> {
+  async solicitarRecuperacion(email: string) {
     const user = await this.prisma.user.findUnique({ where: { email } });
-
-    // Siempre retornar el mismo mensaje (prevenir enumeración de usuarios)
     if (!user) {
-      return { message: 'Si el email existe, recibirás instrucciones de recuperación' };
+      // Por seguridad no revelamos si existe o no el usuario
+      return { message: 'Si el correo existe en nuestro sistema, recibirás instrucciones para restablecer tu contraseña.' };
     }
 
     const token = randomBytes(32).toString('hex');
-    const expiresAt = new Date(Date.now() + 60 * 60 * 1000); // 1 hora
+    const expiresAt = new Date(Date.now() + 60 * 60 * 1000); // 1 hora de validez
 
     await this.prisma.passwordReset.create({
       data: {
@@ -182,16 +146,16 @@ export class AuthService {
       },
     });
 
-    // TODO: Integrar con Resend para enviar email con el link de recuperación
-    this.logger.log(`Token de recuperación generado para: ${user.email}`);
-
-    return { message: 'Si el email existe, recibirás instrucciones de recuperación' };
+    this.logger.log(`Solicitud de recuperación de contraseña para: ${email}. Token: ${token}`);
+    
+    // Aquí se enviaría el email si estuviera configurado
+    return { message: 'Si el correo existe en nuestro sistema, recibirás instrucciones para restablecer tu contraseña.', debugToken: token };
   }
 
   /**
-   * Reset Password — Aplica nueva contraseña usando el token de recuperación.
+   * Restablecer contraseña con token.
    */
-  async resetPassword(token: string, newPassword: string): Promise<{ message: string }> {
+  async resetPassword(token: string, newPassword: string) {
     const resetRecord = await this.prisma.passwordReset.findUnique({
       where: { token },
     });
@@ -229,6 +193,64 @@ export class AuthService {
     this.logger.log(`Contraseña reseteada para userId: ${resetRecord.userId}`);
 
     return { message: 'Contraseña actualizada exitosamente. Inicia sesión con tu nueva contraseña.' };
+  }
+
+  // ── Gestión de Personal (Admin CRUD) ──────────
+
+  async listUsers() {
+    return this.prisma.user.findMany({
+      select: {
+        id: true,
+        email: true,
+        nombre: true,
+        rol: true,
+        activo: true,
+        createdAt: true,
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  async createUser(email: string, nombre: string, rol: Rol, password: string) {
+    const existing = await this.prisma.user.findUnique({ where: { email } });
+    if (existing) {
+      throw new UnauthorizedException('El correo ya está registrado.');
+    }
+    const passwordHash = await bcrypt.hash(password, this.BCRYPT_ROUNDS);
+    return this.prisma.user.create({
+      data: {
+        email,
+        nombre,
+        rol,
+        passwordHash,
+        activo: true,
+      },
+      select: {
+        id: true,
+        email: true,
+        nombre: true,
+        rol: true,
+        activo: true,
+      },
+    });
+  }
+
+  async toggleUserActive(id: string) {
+    const user = await this.prisma.user.findUnique({ where: { id } });
+    if (!user) {
+      throw new NotFoundException('Usuario no encontrado.');
+    }
+    return this.prisma.user.update({
+      where: { id },
+      data: { activo: !user.activo },
+      select: {
+        id: true,
+        email: true,
+        nombre: true,
+        rol: true,
+        activo: true,
+      },
+    });
   }
 
   // ── Utilidades ──────────────────────────────

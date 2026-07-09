@@ -4,10 +4,18 @@ import {
   HttpCode,
   HttpStatus,
   Post,
+  Get,
+  Patch,
+  Param,
   Logger,
+  UseGuards,
 } from '@nestjs/common';
 import { AuthService } from './auth.service';
-import { LoginDto, RecuperarContrasenaDto, ResetContrasenaDto } from './dto/auth.dto';
+import { LoginDto, RecuperarContrasenaDto, ResetContrasenaDto, CrearUsuarioDto } from './dto/auth.dto';
+import { JwtAuthGuard } from './jwt-auth.guard';
+import { RolesGuard } from '../shared/guards/roles.guard';
+import { Roles } from '../shared/guards/roles.decorator';
+import { Rol } from '@prisma/client';
 
 @Controller('auth')
 export class AuthController {
@@ -58,11 +66,39 @@ export class AuthController {
 
   /**
    * POST /auth/reset-contrasena
-   * Aplica nueva contraseña usando el token de recuperación.
+   * Para nueva contraseña usando el token de recuperación.
    */
   @Post('reset-contrasena')
   @HttpCode(HttpStatus.OK)
   async resetContrasena(@Body() dto: ResetContrasenaDto) {
     return this.authService.resetPassword(dto.token, dto.newPassword);
   }
+
+  // ══════════════════════════════════════════
+  // GESTIÓN DE PERSONAL (ADMIN ONLY)
+  // ══════════════════════════════════════════
+
+  @Get('usuarios')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Rol.ROL_ADMIN)
+  async listarUsuarios() {
+    return this.authService.listUsers();
+  }
+
+  @Post('usuarios')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Rol.ROL_ADMIN)
+  async crearUsuario(@Body() dto: CrearUsuarioDto) {
+    const user = await this.authService.createUser(dto.email, dto.nombre, dto.rol, dto.password);
+    return { ok: true, user, message: 'Usuario registrado correctamente.' };
+  }
+
+  @Patch('usuarios/:id/toggle')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Rol.ROL_ADMIN)
+  async toggleUsuario(@Param('id') id: string) {
+    const user = await this.authService.toggleUserActive(id);
+    return { ok: true, user, message: 'Estado del usuario actualizado.' };
+  }
 }
+
