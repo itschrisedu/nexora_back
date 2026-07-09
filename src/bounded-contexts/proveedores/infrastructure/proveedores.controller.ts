@@ -57,12 +57,6 @@ export class ProveedoresController {
     return this.queryService.buscarProveedores(q);
   }
 
-  @Get(':id')
-  @Roles(Rol.ROL_ADMIN)
-  async obtenerProveedor(@Param('id') id: string) {
-    return this.queryService.obtenerProveedor(id);
-  }
-
   // ══════════════════════════════════════════
   // ÓRDENES DE COMPRA (SUPPLIER ORDERS)
   // ══════════════════════════════════════════
@@ -111,5 +105,16 @@ export class ProveedoresController {
   @Roles(Rol.ROL_ADMIN, Rol.ROL_BODEGUERO)
   async obtenerEntradaMercancia(@Param('id') id: string) {
     return this.queryService.obtenerEntradaMercancia(id);
+  }
+
+  // ══════════════════════════════════════════
+  // OBTENER UN PROVEEDOR POR ID
+  // (debe ir AL FINAL para no interceptar rutas literales)
+  // ══════════════════════════════════════════
+
+  @Get(':id')
+  @Roles(Rol.ROL_ADMIN)
+  async obtenerProveedor(@Param('id') id: string) {
+    return this.queryService.obtenerProveedor(id);
   }
 }
