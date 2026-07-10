@@ -102,6 +102,14 @@ export class PrismaProductoRepository extends IProductoRepository {
       });
     }
 
+    const serieConfig = await this.prisma.seriesConfig.findUnique({
+      where: { nombre: producto.serie.value }
+    });
+
+    if (!serieConfig) {
+      throw new Error(`Serie ${producto.serie.value} no encontrada en la base de datos`);
+    }
+
     await this.prisma.product.create({
       data: {
         id: producto.id,
@@ -113,7 +121,7 @@ export class PrismaProductoRepository extends IProductoRepository {
         fotoUrl: producto.fotoUrl,
         precioCosto: producto.precioCosto.amount,
         precioVenta: producto.precioVenta.amount,
-        serieId: producto.serie.value,
+        serieId: serieConfig.id,
         activo: producto.activo,
         stockByTalla: {
           createMany: { data: stockEntries },
