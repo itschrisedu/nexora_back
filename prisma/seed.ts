@@ -46,13 +46,12 @@ async function main() {
   // 2. SERIES Y TALLAS DE CALZADO
   // ══════════════════════════════
   const seriesData: { nombre: string; tallasDesde: number; tallasHasta: number }[] = [
-    { nombre: 'BEBE',           tallasDesde: 18, tallasHasta: 20 },
-    { nombre: 'NINO_PEQUENO_A', tallasDesde: 21, tallasHasta: 26 },
-    { nombre: 'NINO_PEQUENO_B', tallasDesde: 21, tallasHasta: 26 },
-    { nombre: 'NINO',           tallasDesde: 27, tallasHasta: 32 },
+    { nombre: 'ADULTO',         tallasDesde: 37, tallasHasta: 42 },
     { nombre: 'JUVENIL',        tallasDesde: 34, tallasHasta: 38 },
-    { nombre: 'ADULTO',         tallasDesde: 38, tallasHasta: 42 },
-    { nombre: 'TALLA_GRANDE',   tallasDesde: 43, tallasHasta: 46 },
+    { nombre: 'NINO',           tallasDesde: 27, tallasHasta: 32 },
+    { nombre: 'NINO_PEQUENO_A', tallasDesde: 21, tallasHasta: 26 },
+    { nombre: 'BEBE',           tallasDesde: 18, tallasHasta: 20 },
+    { nombre: 'TALLA_GRANDE',   tallasDesde: 43, tallasHasta: 45 },
   ];
 
   for (const serieData of seriesData) {
@@ -66,7 +65,7 @@ async function main() {
       });
       console.log(`✅ Serie creada: ${serieData.nombre}`);
     } else {
-      console.log(`⏭️  Serie ya existe: ${serieData.nombre}`);
+      console.log(`Log: Serie ya existe en base de datos: ${serieData.nombre}`);
     }
 
     // Crear tallas para esta serie
@@ -82,6 +81,17 @@ async function main() {
       }
     }
     console.log(`   Tallas ${serieData.tallasDesde}-${serieData.tallasHasta} configuradas`);
+  }
+
+  // Eliminar NINO_PEQUENO_B si existe para no duplicar Niño A y Niño B
+  try {
+    const bExists = await prisma.seriesConfig.findUnique({ where: { nombre: 'NINO_PEQUENO_B' } });
+    if (bExists) {
+      await prisma.seriesConfig.delete({ where: { nombre: 'NINO_PEQUENO_B' } });
+      console.log('🗑️  Serie duplicada NINO_PEQUENO_B eliminada.');
+    }
+  } catch (err) {
+    console.log('NINO_PEQUENO_B no se pudo eliminar o no existe:', err);
   }
 
   // ══════════════════════════════
