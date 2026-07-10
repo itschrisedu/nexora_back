@@ -57,16 +57,16 @@ export class CrearPedidoHandler {
       const stockTalla = prod.stockByTalla.find((s) => s.tallaId === lineaInput.tallaId);
       if (!stockTalla) {
         throw new BadRequestException(
-          `La talla con ID "${lineaInput.tallaId}" no está configurada para el producto "${prod.codigo}"`,
+          `La talla con ID "${lineaInput.tallaId}" no está configurada para el producto "${prod.code}"`,
         );
       }
 
-      const disponible = stockTalla.cantidad - stockTalla.cantidadReservada;
+      const disponible = stockTalla.quantity - stockTalla.reservedQuantity;
       if (disponible < lineaInput.cantidad) {
         tieneStockParaTodo = false;
       }
 
-      const precioUnit = Money.create(Number(prod.precioVenta));
+      const precioUnit = Money.create(Number(prod.salePrice));
       totalAcumulado += precioUnit.amount * lineaInput.cantidad;
 
       lineasProducto.push({

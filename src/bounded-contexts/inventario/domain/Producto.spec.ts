@@ -20,11 +20,9 @@ describe('Producto Aggregate Root', () => {
   it('debe crear un producto correctamente con datos válidos', () => {
     const producto = Producto.crear(
       'prod-uuid',
+      'model-uuid',
       'COD-001',
-      'Zapato Infantil Lindo',
-      'Venus',
-      'Deportivo-X',
-      'Cuero',
+      'Blanco',
       'http://imagen.jpg',
       Money.create(15.5),
       Money.create(25.99),
@@ -44,11 +42,9 @@ describe('Producto Aggregate Root', () => {
     expect(() =>
       Producto.crear(
         'prod-uuid',
+        'model-uuid',
         'COD-001',
-        'Zapato',
-        'Marca',
-        'Modelo',
-        null,
+        'Blanco',
         null,
         Money.create(0),
         Money.create(10),
@@ -73,11 +69,9 @@ describe('Producto Aggregate Root', () => {
   it('debe cambiar de precio y registrarlo en el historial de precios', () => {
     const producto = Producto.crear(
       'prod-uuid',
+      'model-uuid',
       'COD-001',
-      'Zapato',
-      'Marca',
-      'Modelo',
-      null,
+      'Blanco',
       null,
       Money.create(10),
       Money.create(20),
@@ -90,18 +84,16 @@ describe('Producto Aggregate Root', () => {
     expect(producto.precioVenta.amount).toBe(24);
     expect(producto.precioCosto.amount).toBe(12);
     expect(producto.priceHistory).toHaveLength(1);
-    expect(producto.priceHistory[0].precioVentaNuevo.amount).toBe(24);
-    expect(producto.priceHistory[0].motivo).toBe('Ajuste de inflación');
+    expect(producto.priceHistory[0].newSalePrice.amount).toBe(24);
+    expect(producto.priceHistory[0].reason).toBe('Ajuste de inflación');
   });
 
   it('debe permitir reservar stock si hay disponibilidad física suficiente', () => {
     const producto = Producto.crear(
       'prod-uuid',
+      'model-uuid',
       'COD-001',
-      'Zapato',
-      'Marca',
-      'Modelo',
-      null,
+      'Blanco',
       null,
       Money.create(10),
       Money.create(20),
@@ -119,11 +111,9 @@ describe('Producto Aggregate Root', () => {
   it('debe lanzar excepcion si se reserva mas stock del disponible', () => {
     const producto = Producto.crear(
       'prod-uuid',
+      'model-uuid',
       'COD-001',
-      'Zapato',
-      'Marca',
-      'Modelo',
-      null,
+      'Blanco',
       null,
       Money.create(10),
       Money.create(20),

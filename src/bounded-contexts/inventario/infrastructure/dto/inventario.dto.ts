@@ -1,6 +1,5 @@
 import {
   IsArray,
-  IsDecimal,
   IsInt,
   IsNotEmpty,
   IsNumber,
@@ -11,65 +10,63 @@ import {
 } from 'class-validator';
 import { Type } from 'class-transformer';
 
-// ── Stock por talla para la creación ──
+// ── Color/Variante para la creación ──
 
-class TallaStockDto {
+class ColorVariantDto {
   @IsString()
   @IsNotEmpty()
-  tallaId!: string;
+  color!: string;
 
-  @IsInt()
-  @Min(0)
-  stockInicial!: number;
-
-  @IsInt()
-  @Min(0)
-  stockMinimo!: number;
+  @IsString()
+  @IsOptional()
+  imageUrl?: string;
 }
 
-// ── Crear producto ──
+// ── Crear modelo con variantes ──
 
-export class CrearProductoDto {
+export class CrearModeloDto {
   @IsString()
   @IsNotEmpty()
-  codigo!: string;
-
-  @IsString()
-  @IsNotEmpty()
-  nombre!: string;
+  baseCode!: string;
 
   @IsString()
   @IsNotEmpty()
-  marca!: string;
+  name!: string;
 
   @IsString()
   @IsNotEmpty()
-  modelo!: string;
+  brand!: string;
 
   @IsString()
   @IsOptional()
   material?: string;
 
-  @IsString()
-  @IsOptional()
-  fotoUrl?: string;
+  @IsNumber()
+  @Min(0.01)
+  costPrice!: number;
 
   @IsNumber()
   @Min(0.01)
-  precioCosto!: number;
-
-  @IsNumber()
-  @Min(0.01)
-  precioVenta!: number;
-
-  @IsString()
-  @IsNotEmpty()
-  serieId!: string;
+  salePrice!: number;
 
   @IsArray()
   @ValidateNested({ each: true })
-  @Type(() => TallaStockDto)
-  tallas!: TallaStockDto[];
+  @Type(() => ColorVariantDto)
+  colors!: ColorVariantDto[];
+
+  @IsArray()
+  @IsString({ each: true })
+  serieIds!: string[];
+
+  @IsInt()
+  @Min(0)
+  @IsOptional()
+  stockInicial?: number;
+
+  @IsInt()
+  @Min(0)
+  @IsOptional()
+  stockMinimo?: number;
 }
 
 // ── Cambiar precio ──

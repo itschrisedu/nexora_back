@@ -38,7 +38,7 @@ export class ActivarPedidoEnColaHandler {
         where: { productId_tallaId: { productId: line.productId, tallaId: line.tallaId } },
       });
 
-      if (!stockTalla || (stockTalla.cantidad - stockTalla.cantidadReservada) < line.cantidad) {
+      if (!stockTalla || (stockTalla.quantity - stockTalla.reservedQuantity) < line.cantidad) {
         this.logger.warn(`Pedido ${pedido.id} no puede activarse por stock insuficiente en talla ${line.tallaId}`);
         return false; // No hay stock suficiente, permanece en cola
       }

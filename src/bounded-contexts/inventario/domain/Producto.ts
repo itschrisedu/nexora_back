@@ -15,48 +15,49 @@ import {
 import { StockInsuficienteException } from './exceptions/StockInsuficienteException';
 
 export interface PriceHistoryEntry {
-  precioCostoAnterior: Money;
-  precioVentaAnterior: Money;
-  precioCostoNuevo: Money;
-  precioVentaNuevo: Money;
-  cambiadoPorId: string;
-  motivo: string | null;
+  previousCostPrice: Money;
+  previousSalePrice: Money;
+  newCostPrice: Money;
+  newSalePrice: Money;
+  changedById: string;
+  reason: string | null;
   createdAt: Date;
 }
 
 export class Producto extends AggregateRoot {
   private constructor(
     private readonly _id: string,
-    private _codigo: string,
-    private _nombre: string,
-    private _marca: string,
-    private _modelo: string,
-    private _material: string | null,
-    private _fotoUrl: string | null,
-    private _precioCosto: Money,
-    private _precioVenta: Money,
+    private _modelId: string,
+    private _code: string,
+    private _color: string,
+    private _imageUrl: string | null,
+    private _costPrice: Money,
+    private _salePrice: Money,
     private _serie: Serie,
     private _stockPorTalla: Map<string, StockPorTalla>,
     private _priceHistory: PriceHistoryEntry[] = [],
-    private _activo: boolean = true,
+    private _active: boolean = true,
+    // Campos del modelo padre (para lectura, cargados desde el JOIN)
+    private _modelName: string = '',
+    private _modelBrand: string = '',
+    private _modelBaseCode: string = '',
+    private _modelMaterial: string | null = null,
   ) {
     super();
   }
 
   static crear(
     id: string,
-    codigo: string,
-    nombre: string,
-    marca: string,
-    modelo: string,
-    material: string | null,
-    fotoUrl: string | null,
-    precioCosto: Money,
-    precioVenta: Money,
+    modelId: string,
+    code: string,
+    color: string,
+    imageUrl: string | null,
+    costPrice: Money,
+    salePrice: Money,
     serie: Serie,
     stockPorTallaList: StockPorTalla[],
   ): Producto {
-    if (precioCosto.amount <= 0 || precioVenta.amount <= 0) {
+    if (costPrice.amount <= 0 || salePrice.amount <= 0) {
       throw new Error('Los precios de costo y venta deben ser mayores que cero');
     }
 
@@ -65,21 +66,19 @@ export class Producto extends AggregateRoot {
 
     const producto = new Producto(
       id,
-      codigo,
-      nombre,
-      marca,
-      modelo,
-      material,
-      fotoUrl,
-      precioCosto,
-      precioVenta,
+      modelId,
+      code,
+      color,
+      imageUrl,
+      costPrice,
+      salePrice,
       serie,
       stockMap,
       [],
       true,
     );
 
-    producto.addDomainEvent(new ProductoCreado(id, codigo, serie.value));
+    producto.addDomainEvent(new ProductoCreado(id, code, serie.value));
 
     return producto;
   }
@@ -90,36 +89,48 @@ export class Producto extends AggregateRoot {
     return this._id;
   }
 
+  get modelId(): string {
+    return this._modelId;
+  }
+
+  get code(): string {
+    return this._code;
+  }
+
+  /** @deprecated Use code instead */
   get codigo(): string {
-    return this._codigo;
+    return this._code;
   }
 
-  get nombre(): string {
-    return this._nombre;
+  get color(): string {
+    return this._color;
   }
 
-  get marca(): string {
-    return this._marca;
+  get imageUrl(): string | null {
+    return this._imageUrl;
   }
 
-  get modelo(): string {
-    return this._modelo;
-  }
-
-  get material(): string | null {
-    return this._material;
-  }
-
+  /** @deprecated Use imageUrl instead */
   get fotoUrl(): string | null {
-    return this._fotoUrl;
+    return this._imageUrl;
   }
 
+  get costPrice(): Money {
+    return this._costPrice;
+  }
+
+  /** @deprecated Use costPrice instead */
   get precioCosto(): Money {
-    return this._precioCosto;
+    return this._costPrice;
   }
 
+  get salePrice(): Money {
+    return this._salePrice;
+  }
+
+  /** @deprecated Use salePrice instead */
   get precioVenta(): Money {
-    return this._precioVenta;
+    return this._salePrice;
   }
 
   get serie(): Serie {
@@ -134,8 +145,30 @@ export class Producto extends AggregateRoot {
     return this._priceHistory;
   }
 
+  get active(): boolean {
+    return this._active;
+  }
+
+  /** @deprecated Use active instead */
   get activo(): boolean {
-    return this._activo;
+    return this._active;
+  }
+
+  // Getters del modelo padre (solo lectura, poblados desde el JOIN)
+  get nombre(): string {
+    return this._modelName;
+  }
+
+  get marca(): string {
+    return this._modelBrand;
+  }
+
+  get modelo(): string {
+    return this._modelBaseCode;
+  }
+
+  get material(): string | null {
+    return this._modelMaterial;
   }
 
   // ── Métodos de Negocio ──────────────────────
@@ -150,19 +183,19 @@ export class Producto extends AggregateRoot {
       throw new Error('Los nuevos precios deben ser mayores que cero');
     }
 
-    const anteriorCosto = this._precioCosto;
-    const anteriorVenta = this._precioVenta;
+    const anteriorCosto = this._costPrice;
+    const anteriorVenta = this._salePrice;
 
-    this._precioCosto = nuevoPrecioCosto;
-    this._precioVenta = nuevoPrecioVenta;
+    this._costPrice = nuevoPrecioCosto;
+    this._salePrice = nuevoPrecioVenta;
 
     this._priceHistory.push({
-      precioCostoAnterior: anteriorCosto,
-      precioVentaAnterior: anteriorVenta,
-      precioCostoNuevo: nuevoPrecioCosto,
-      precioVentaNuevo: nuevoPrecioVenta,
-      cambiadoPorId: userId,
-      motivo: motivo || null,
+      previousCostPrice: anteriorCosto,
+      previousSalePrice: anteriorVenta,
+      newCostPrice: nuevoPrecioCosto,
+      newSalePrice: nuevoPrecioVenta,
+      changedById: userId,
+      reason: motivo || null,
       createdAt: new Date(),
     });
 
@@ -278,36 +311,40 @@ export class Producto extends AggregateRoot {
 
   static reconstruir(
     id: string,
-    codigo: string,
-    nombre: string,
-    marca: string,
-    modelo: string,
-    material: string | null,
-    fotoUrl: string | null,
-    precioCosto: Money,
-    precioVenta: Money,
+    modelId: string,
+    code: string,
+    color: string,
+    imageUrl: string | null,
+    costPrice: Money,
+    salePrice: Money,
     serie: Serie,
     stockPorTallaList: StockPorTalla[],
     historial: PriceHistoryEntry[],
-    activo: boolean,
+    active: boolean,
+    modelName: string = '',
+    modelBrand: string = '',
+    modelBaseCode: string = '',
+    modelMaterial: string | null = null,
   ): Producto {
     const stockMap = new Map<string, StockPorTalla>();
     stockPorTallaList.forEach((s) => stockMap.set(s.tallaId, s));
 
     return new Producto(
       id,
-      codigo,
-      nombre,
-      marca,
-      modelo,
-      material,
-      fotoUrl,
-      precioCosto,
-      precioVenta,
+      modelId,
+      code,
+      color,
+      imageUrl,
+      costPrice,
+      salePrice,
       serie,
       stockMap,
       historial,
-      activo,
+      active,
+      modelName,
+      modelBrand,
+      modelBaseCode,
+      modelMaterial,
     );
   }
 

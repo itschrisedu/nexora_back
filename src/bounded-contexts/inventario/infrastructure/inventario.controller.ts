@@ -15,14 +15,14 @@ import { RolesGuard } from '../../../shared/guards/roles.guard';
 import { Roles } from '../../../shared/guards/roles.decorator';
 import { Rol } from '@prisma/client';
 import {
-  CrearProductoDto,
+  CrearModeloDto,
   CambiarPrecioDto,
   ReservarStockDto,
   MovimientoStockDto,
   BuscarProductosDto,
 } from './dto/inventario.dto';
 import { CrearProductoHandler } from '../application/commands/CrearProducto.handler';
-import { CrearProductoCommand } from '../application/commands/CrearProducto.command';
+import { CrearModeloCommand } from '../application/commands/CrearProducto.command';
 import { CambiarPrecioHandler } from '../application/commands/CambiarPrecio.handler';
 import { CambiarPrecioCommand } from '../application/commands/CambiarPrecio.command';
 import { ReservarStockHandler } from '../application/commands/ReservarStock.handler';
@@ -82,27 +82,33 @@ export class InventarioController {
     return this.queryService.obtenerMovimientos(id);
   }
 
+  @Get('modelos')
+  @Roles(Rol.ROL_ADMIN, Rol.ROL_VENDEDOR, Rol.ROL_BODEGUERO)
+  async listarModelos() {
+    return this.queryService.listarModelos();
+  }
+
   // ══════════════════════════════
   // COMMANDS
   // ══════════════════════════════
 
-  @Post('productos')
+  @Post('modelos')
   @Roles(Rol.ROL_ADMIN)
-  async crearProducto(@Body() dto: CrearProductoDto) {
-    const command = new CrearProductoCommand(
-      dto.codigo,
-      dto.nombre,
-      dto.marca,
-      dto.modelo,
+  async crearModelo(@Body() dto: CrearModeloDto) {
+    const command = new CrearModeloCommand(
+      dto.baseCode,
+      dto.name,
+      dto.brand,
       dto.material ?? null,
-      dto.fotoUrl ?? null,
-      dto.precioCosto,
-      dto.precioVenta,
-      dto.serieId,
-      dto.tallas,
+      dto.costPrice,
+      dto.salePrice,
+      dto.colors.map(c => ({ color: c.color, imageUrl: c.imageUrl ?? null })),
+      dto.serieIds,
+      dto.stockInicial ?? 1,
+      dto.stockMinimo ?? 0,
     );
-    const id = await this.crearProductoHandler.execute(command);
-    return { id, message: 'Producto creado exitosamente' };
+    const result = await this.crearProductoHandler.execute(command);
+    return { ...result, message: 'Modelo y variantes creados exitosamente' };
   }
 
   @Patch('productos/:id/precio')

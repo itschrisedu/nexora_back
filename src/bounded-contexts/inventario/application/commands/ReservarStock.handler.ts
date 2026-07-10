@@ -29,11 +29,11 @@ export class ReservarStockHandler {
         id: reservaId,
         productId: command.productoId,
         tallaId: command.tallaId,
-        cantidad: command.cantidad,
-        motivo: command.motivo,
+        quantity: command.cantidad,
+        reason: command.motivo,
         referenceId: command.referenceId,
         expiresAt,
-        cancelada: false,
+        canceled: false,
       },
     });
 

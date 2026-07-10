@@ -26,9 +26,9 @@ export class AumentarStockHandler {
       data: {
         productId: command.productoId,
         tallaId: command.tallaId,
-        tipo: MovimientoTipo.ENTRADA_MERCANCIA, // Aumentar suele ser por entrada
-        cantidad: command.cantidad, // Positivo para entradas
-        motivo: command.motivo,
+        type: MovimientoTipo.ENTRADA_MERCANCIA,
+        quantity: command.cantidad,
+        reason: command.motivo,
         referenceId: command.referenceId,
         userId: command.userId,
       },

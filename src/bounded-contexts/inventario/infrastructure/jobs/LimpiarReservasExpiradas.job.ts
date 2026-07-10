@@ -22,7 +22,7 @@ export class LimpiarReservasExpiradas {
   async handleCron() {
     const reservasExpiradas = await this.prisma.stockReservation.findMany({
       where: {
-        cancelada: false,
+        canceled: false,
         expiresAt: { lt: new Date() },
       },
     });

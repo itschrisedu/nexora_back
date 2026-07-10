@@ -20,7 +20,7 @@ export class LiberarReservaHandler {
       throw new NotFoundException(`La reserva con ID "${command.reservaId}" no existe`);
     }
 
-    if (reservation.cancelada) {
+    if (reservation.canceled) {
       throw new BadRequestException(`La reserva con ID "${command.reservaId}" ya fue liberada`);
     }
 
@@ -30,12 +30,12 @@ export class LiberarReservaHandler {
     }
 
     // Ejecutar lógica en el aggregate root
-    producto.liberarReserva(reservation.tallaId, reservation.cantidad, reservation.id);
+    producto.liberarReserva(reservation.tallaId, reservation.quantity, reservation.id);
 
     // Marcar la reserva como cancelada en la BD
     await this.prisma.stockReservation.update({
       where: { id: reservation.id },
-      data: { cancelada: true },
+      data: { canceled: true },
     });
 
     // Actualizar el producto agregador

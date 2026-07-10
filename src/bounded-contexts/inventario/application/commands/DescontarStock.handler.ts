@@ -26,9 +26,9 @@ export class DescontarStockHandler {
       data: {
         productId: command.productoId,
         tallaId: command.tallaId,
-        tipo: MovimientoTipo.VENTA, // Descontar suele ser por venta
-        cantidad: -command.cantidad, // Negativo para salidas
-        motivo: command.motivo,
+        type: MovimientoTipo.VENTA,
+        quantity: -command.cantidad,
+        reason: command.motivo,
         referenceId: command.referenceId,
         userId: command.userId,
       },

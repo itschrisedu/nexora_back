@@ -24,7 +24,7 @@ export class InventarioPedidoListener {
       const reservas = await this.prisma.stockReservation.findMany({
         where: {
           referenceId: payload.pedidoId,
-          cancelada: false,
+          canceled: false,
         },
       });
 
@@ -51,7 +51,7 @@ export class InventarioPedidoListener {
             referenceId: payload.pedidoId,
             productId: rechazo.productId,
             tallaId: rechazo.tallaId,
-            cancelada: false,
+            canceled: false,
           },
         });
 
@@ -76,7 +76,7 @@ export class InventarioPedidoListener {
       const reservas = await this.prisma.stockReservation.findMany({
         where: {
           referenceId: payload.pedidoId,
-          cancelada: false,
+          canceled: false,
         },
       });
 

@@ -44,7 +44,7 @@ export class CancelarPedidoHandler {
         where: {
           productId: { in: pedido.lineas.map((l) => l.productId) },
           referenceId: pedido.id,
-          cancelada: false,
+          canceled: false,
         },
       });
 

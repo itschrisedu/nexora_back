@@ -18,6 +18,7 @@ export class PrismaProductoRepository extends IProductoRepository {
     const record = await this.prisma.product.findUnique({
       where: { id },
       include: {
+        model: true,
         serie: true,
         stockByTalla: true,
         priceHistory: { orderBy: { createdAt: 'desc' } },
@@ -30,8 +31,9 @@ export class PrismaProductoRepository extends IProductoRepository {
 
   async findByCodigo(codigo: string): Promise<Producto | null> {
     const record = await this.prisma.product.findUnique({
-      where: { codigo },
+      where: { code: codigo },
       include: {
+        model: true,
         serie: true,
         stockByTalla: true,
         priceHistory: { orderBy: { createdAt: 'desc' } },
@@ -46,11 +48,12 @@ export class PrismaProductoRepository extends IProductoRepository {
     const records = await this.prisma.product.findMany({
       where: { serie: { nombre: serieNombre } },
       include: {
+        model: true,
         serie: true,
         stockByTalla: true,
         priceHistory: { orderBy: { createdAt: 'desc' } },
       },
-      orderBy: { nombre: 'asc' },
+      orderBy: { code: 'asc' },
     });
 
     return Promise.all(records.map((r: any) => this.toDomain(r)));
@@ -59,14 +62,15 @@ export class PrismaProductoRepository extends IProductoRepository {
   async findConStockBajo(): Promise<Producto[]> {
     const records = await this.prisma.product.findMany({
       where: {
-        activo: true,
+        active: true,
         stockByTalla: {
           some: {
-            cantidad: { gt: 0 },
+            quantity: { gt: 0 },
           },
         },
       },
       include: {
+        model: true,
         serie: true,
         stockByTalla: true,
         priceHistory: { orderBy: { createdAt: 'desc' } },
@@ -88,17 +92,17 @@ export class PrismaProductoRepository extends IProductoRepository {
   async save(producto: Producto): Promise<void> {
     const stockEntries: {
       tallaId: string;
-      cantidad: number;
-      cantidadReservada: number;
-      stockMinimo: number;
+      quantity: number;
+      reservedQuantity: number;
+      minStock: number;
     }[] = [];
 
     for (const [tallaId, stock] of producto.stockPorTalla) {
       stockEntries.push({
         tallaId,
-        cantidad: stock.cantidad,
-        cantidadReservada: stock.cantidadReservada,
-        stockMinimo: stock.stockMinimo,
+        quantity: stock.cantidad,
+        reservedQuantity: stock.cantidadReservada,
+        minStock: stock.stockMinimo,
       });
     }
 
@@ -113,37 +117,32 @@ export class PrismaProductoRepository extends IProductoRepository {
     await this.prisma.product.create({
       data: {
         id: producto.id,
-        codigo: producto.codigo,
-        nombre: producto.nombre,
-        marca: producto.marca,
-        modelo: producto.modelo,
-        material: producto.material,
-        fotoUrl: producto.fotoUrl,
-        precioCosto: producto.precioCosto.amount,
-        precioVenta: producto.precioVenta.amount,
+        modelId: producto.modelId,
+        code: producto.code,
+        color: producto.color,
+        imageUrl: producto.imageUrl,
+        costPrice: producto.costPrice.amount,
+        salePrice: producto.salePrice.amount,
         serieId: serieConfig.id,
-        activo: producto.activo,
+        active: producto.active,
         stockByTalla: {
           createMany: { data: stockEntries },
         },
       },
     });
 
-    this.logger.log(`Producto guardado: ${producto.codigo}`);
+    this.logger.log(`Producto guardado: ${producto.code}`);
   }
 
   async update(producto: Producto): Promise<void> {
     await this.prisma.product.update({
       where: { id: producto.id },
       data: {
-        nombre: producto.nombre,
-        marca: producto.marca,
-        modelo: producto.modelo,
-        material: producto.material,
-        fotoUrl: producto.fotoUrl,
-        precioCosto: producto.precioCosto.amount,
-        precioVenta: producto.precioVenta.amount,
-        activo: producto.activo,
+        color: producto.color,
+        imageUrl: producto.imageUrl,
+        costPrice: producto.costPrice.amount,
+        salePrice: producto.salePrice.amount,
+        active: producto.active,
       },
     });
 
@@ -156,16 +155,16 @@ export class PrismaProductoRepository extends IProductoRepository {
           },
         },
         update: {
-          cantidad: stock.cantidad,
-          cantidadReservada: stock.cantidadReservada,
-          stockMinimo: stock.stockMinimo,
+          quantity: stock.cantidad,
+          reservedQuantity: stock.cantidadReservada,
+          minStock: stock.stockMinimo,
         },
         create: {
           productId: producto.id,
           tallaId,
-          cantidad: stock.cantidad,
-          cantidadReservada: stock.cantidadReservada,
-          stockMinimo: stock.stockMinimo,
+          quantity: stock.cantidad,
+          reservedQuantity: stock.cantidadReservada,
+          minStock: stock.stockMinimo,
         },
       });
     }
@@ -182,19 +181,19 @@ export class PrismaProductoRepository extends IProductoRepository {
         await this.prisma.priceHistory.create({
           data: {
             productId: producto.id,
-            precioCostoAnterior: entry.precioCostoAnterior.amount,
-            precioVentaAnterior: entry.precioVentaAnterior.amount,
-            precioCostoNuevo: entry.precioCostoNuevo.amount,
-            precioVentaNuevo: entry.precioVentaNuevo.amount,
-            cambiadoPorId: entry.cambiadoPorId,
-            motivo: entry.motivo,
+            previousCostPrice: entry.previousCostPrice.amount,
+            previousSalePrice: entry.previousSalePrice.amount,
+            newCostPrice: entry.newCostPrice.amount,
+            newSalePrice: entry.newSalePrice.amount,
+            changedById: entry.changedById,
+            reason: entry.reason,
             createdAt: entry.createdAt,
           },
         });
       }
     }
 
-    this.logger.log(`Producto actualizado: ${producto.codigo}`);
+    this.logger.log(`Producto actualizado: ${producto.code}`);
   }
 
   // ── Mapper Prisma → Domain ──────────────────
@@ -206,38 +205,40 @@ export class PrismaProductoRepository extends IProductoRepository {
       (s: any) =>
         StockPorTalla.create(
           s.tallaId,
-          s.cantidad,
-          s.cantidadReservada,
-          s.stockMinimo,
+          s.quantity,
+          s.reservedQuantity,
+          s.minStock,
         ),
     );
 
     const historial: PriceHistoryEntry[] = record.priceHistory.map(
       (h: any) => ({
-        precioCostoAnterior: Money.create(Number(h.precioCostoAnterior)),
-        precioVentaAnterior: Money.create(Number(h.precioVentaAnterior)),
-        precioCostoNuevo: Money.create(Number(h.precioCostoNuevo)),
-        precioVentaNuevo: Money.create(Number(h.precioVentaNuevo)),
-        cambiadoPorId: h.cambiadoPorId,
-        motivo: h.motivo,
+        previousCostPrice: Money.create(Number(h.previousCostPrice)),
+        previousSalePrice: Money.create(Number(h.previousSalePrice)),
+        newCostPrice: Money.create(Number(h.newCostPrice)),
+        newSalePrice: Money.create(Number(h.newSalePrice)),
+        changedById: h.changedById,
+        reason: h.reason,
         createdAt: h.createdAt,
       }),
     );
 
     return Producto.reconstruir(
       record.id,
-      record.codigo,
-      record.nombre,
-      record.marca,
-      record.modelo,
-      record.material,
-      record.fotoUrl,
-      Money.create(Number(record.precioCosto)),
-      Money.create(Number(record.precioVenta)),
+      record.modelId,
+      record.code,
+      record.color,
+      record.imageUrl,
+      Money.create(Number(record.costPrice)),
+      Money.create(Number(record.salePrice)),
       serie,
       stockPorTallaList,
       historial,
-      record.activo,
+      record.active,
+      record.model?.name || '',
+      record.model?.brand || '',
+      record.model?.baseCode || '',
+      record.model?.material || null,
     );
   }
 }

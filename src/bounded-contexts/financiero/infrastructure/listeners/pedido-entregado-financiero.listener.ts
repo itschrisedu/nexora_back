@@ -53,7 +53,7 @@ export class PedidoEntregadoFinancieroListener {
         payload.lineasEntregadas.map(async (l) => {
           const prod = await this.prisma.product.findUnique({
             where: { id: l.productId },
-            include: { serie: true },
+            include: { serie: true, model: true },
           });
           // TallaConfig tiene campo 'numero' (entero), no 'nombre'
           const tallaConfig = await this.prisma.tallaConfig.findUnique({ where: { id: l.tallaId } });
@@ -61,7 +61,7 @@ export class PedidoEntregadoFinancieroListener {
           return {
             saleNoteId,
             productId: l.productId,
-            nombre: prod?.nombre ?? 'Producto',
+            nombre: prod?.model?.name ?? 'Producto',
             serie: prod?.serie?.nombre ?? '—',
             talla: tallaConfig ? String(tallaConfig.numero) : l.tallaId,
             cantidad: l.cantidad,

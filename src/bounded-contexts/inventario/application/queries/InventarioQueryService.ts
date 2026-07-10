@@ -14,6 +14,7 @@ export class InventarioQueryService {
     const producto = await this.prisma.product.findUnique({
       where: { id },
       include: {
+        model: true,
         serie: true,
         stockByTalla: {
           include: { talla: true },
@@ -35,13 +36,15 @@ export class InventarioQueryService {
     serie?: string;
     marca?: string;
   }) {
-    const where: any = { activo: true };
+    const where: any = { active: true };
 
     if (filtros.q) {
       where.OR = [
-        { nombre: { contains: filtros.q, mode: 'insensitive' } },
-        { codigo: { contains: filtros.q, mode: 'insensitive' } },
-        { modelo: { contains: filtros.q, mode: 'insensitive' } },
+        { code: { contains: filtros.q, mode: 'insensitive' } },
+        { color: { contains: filtros.q, mode: 'insensitive' } },
+        { model: { name: { contains: filtros.q, mode: 'insensitive' } } },
+        { model: { brand: { contains: filtros.q, mode: 'insensitive' } } },
+        { model: { baseCode: { contains: filtros.q, mode: 'insensitive' } } },
       ];
     }
 
@@ -50,19 +53,20 @@ export class InventarioQueryService {
     }
 
     if (filtros.marca) {
-      where.marca = { contains: filtros.marca, mode: 'insensitive' };
+      where.model = { brand: { contains: filtros.marca, mode: 'insensitive' } };
     }
 
     const productos = await this.prisma.product.findMany({
       where,
       include: {
+        model: true,
         serie: true,
         stockByTalla: {
           include: { talla: true },
           orderBy: { talla: { numero: 'asc' } },
         },
       },
-      orderBy: { nombre: 'asc' },
+      orderBy: { code: 'asc' },
     });
 
     return productos.map((p: any) => this.formatProducto(p));
@@ -70,15 +74,16 @@ export class InventarioQueryService {
 
   async obtenerProductosPorSerie(serieNombre: string) {
     const productos = await this.prisma.product.findMany({
-      where: { serie: { nombre: serieNombre }, activo: true },
+      where: { serie: { nombre: serieNombre }, active: true },
       include: {
+        model: true,
         serie: true,
         stockByTalla: {
           include: { talla: true },
           orderBy: { talla: { numero: 'asc' } },
         },
       },
-      orderBy: { nombre: 'asc' },
+      orderBy: { code: 'asc' },
     });
 
     return productos.map((p: any) => this.formatProducto(p));
@@ -87,14 +92,15 @@ export class InventarioQueryService {
   async obtenerStockBajo() {
     const productos = await this.prisma.product.findMany({
       where: {
-        activo: true,
+        active: true,
         stockByTalla: {
           some: {
-            stockMinimo: { gt: 0 },
+            minStock: { gt: 0 },
           },
         },
       },
       include: {
+        model: true,
         serie: true,
         stockByTalla: {
           include: { talla: true },
@@ -105,7 +111,7 @@ export class InventarioQueryService {
 
     const conStockBajo = productos.filter((p: any) =>
       p.stockByTalla.some(
-        (s: any) => s.stockMinimo > 0 && s.cantidad - s.cantidadReservada < s.stockMinimo,
+        (s: any) => s.minStock > 0 && s.quantity - s.reservedQuantity < s.minStock,
       ),
     );
 
@@ -122,39 +128,74 @@ export class InventarioQueryService {
     return movimientos;
   }
 
+  async listarModelos() {
+    const modelos = await this.prisma.productModel.findMany({
+      where: { active: true },
+      include: {
+        products: {
+          where: { active: true },
+          include: {
+            serie: true,
+            stockByTalla: {
+              include: { talla: true },
+              orderBy: { talla: { numero: 'asc' } },
+            },
+          },
+          orderBy: { code: 'asc' },
+        },
+      },
+      orderBy: { name: 'asc' },
+    });
+
+    return modelos.map((m: any) => ({
+      id: m.id,
+      baseCode: m.baseCode,
+      name: m.name,
+      brand: m.brand,
+      material: m.material,
+      active: m.active,
+      createdAt: m.createdAt,
+      products: m.products.map((p: any) => this.formatProducto(p, m)),
+    }));
+  }
+
   // ── Formatear respuesta ─────────────────────
 
-  private formatProducto(record: any) {
+  private formatProducto(record: any, modelo?: any) {
+    const mdl = modelo || record.model;
     return {
       id: record.id,
-      codigo: record.codigo,
-      nombre: record.nombre,
-      marca: record.marca,
-      modelo: record.modelo,
-      material: record.material,
-      fotoUrl: record.fotoUrl,
-      precioCosto: Number(record.precioCosto),
-      precioVenta: Number(record.precioVenta),
-      serie: record.serie?.nombre ?? null,
-      activo: record.activo,
+      codigo: record.code,
+      nombre: mdl?.name ?? '',
+      marca: mdl?.brand ?? '',
+      modelo: mdl?.baseCode ?? '',
+      material: mdl?.material ?? null,
+      color: record.color,
+      fotoUrl: record.imageUrl,
+      precioCosto: Number(record.costPrice),
+      precioVenta: Number(record.salePrice),
+      serie: record.serie
+        ? { id: record.serie.id, nombre: record.serie.nombre }
+        : null,
+      activo: record.active,
       createdAt: record.createdAt,
       updatedAt: record.updatedAt,
       stockPorTalla: record.stockByTalla?.map((s: any) => ({
         tallaId: s.tallaId,
         numero: s.talla?.numero,
-        cantidad: s.cantidad,
-        cantidadReservada: s.cantidadReservada,
-        disponible: s.cantidad - s.cantidadReservada,
-        stockMinimo: s.stockMinimo,
+        cantidad: s.quantity,
+        cantidadReservada: s.reservedQuantity,
+        disponible: s.quantity - s.reservedQuantity,
+        stockMinimo: s.minStock,
         bajoPorMinimo:
-          s.stockMinimo > 0 && s.cantidad - s.cantidadReservada < s.stockMinimo,
+          s.minStock > 0 && s.quantity - s.reservedQuantity < s.minStock,
       })),
       priceHistory: record.priceHistory?.map((h: any) => ({
-        precioCostoAnterior: Number(h.precioCostoAnterior),
-        precioVentaAnterior: Number(h.precioVentaAnterior),
-        precioCostoNuevo: Number(h.precioCostoNuevo),
-        precioVentaNuevo: Number(h.precioVentaNuevo),
-        motivo: h.motivo,
+        precioCostoAnterior: Number(h.previousCostPrice),
+        precioVentaAnterior: Number(h.previousSalePrice),
+        precioCostoNuevo: Number(h.newCostPrice),
+        precioVentaNuevo: Number(h.newSalePrice),
+        motivo: h.reason,
         createdAt: h.createdAt,
       })),
     };

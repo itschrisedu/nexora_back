@@ -132,19 +132,32 @@ model TallaConfig {
 // INVENTARIO — Productos y Stock (Fase 2)
 // ──────────────────────────────────────────
 
+model ProductModel {
+  id        String    @id @default(uuid())
+  baseCode  String    @unique
+  name      String
+  brand     String
+  material  String?
+  active    Boolean   @default(true)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  products  Product[]
+
+  @@map("product_models")
+}
+
 model Product {
   id                String             @id @default(uuid())
-  codigo            String             @unique
-  nombre            String
-  marca             String
-  modelo            String
-  material          String?
-  fotoUrl           String?
-  precioCosto       Decimal            @db.Decimal(10, 2)
-  precioVenta       Decimal            @db.Decimal(10, 2)
+  modelId           String
+  model             ProductModel       @relation(fields: [modelId], references: [id], onDelete: Cascade)
+  code              String             @unique
+  color             String
+  imageUrl          String?
+  costPrice         Decimal            @db.Decimal(10, 2)
+  salePrice         Decimal            @db.Decimal(10, 2)
   serieId           String
   serie             SeriesConfig       @relation(fields: [serieId], references: [id])
-  activo            Boolean            @default(true)
+  active            Boolean            @default(true)
   createdAt         DateTime           @default(now())
   updatedAt         DateTime           @updatedAt
   stockByTalla      StockByTalla[]
@@ -156,14 +169,14 @@ model Product {
 }
 
 model StockByTalla {
-  id                String      @id @default(uuid())
-  productId         String
-  tallaId           String
-  cantidad          Int         @default(0) // stock físico real
-  cantidadReservada Int         @default(0) // suma de reservas activas
-  stockMinimo       Int         @default(0)
-  product           Product     @relation(fields: [productId], references: [id], onDelete: Cascade)
-  talla             TallaConfig @relation(fields: [tallaId], references: [id], onDelete: Cascade)
+  id               String      @id @default(uuid())
+  productId        String
+  tallaId          String
+  quantity         Int         @default(0) // stock físico real
+  reservedQuantity Int         @default(0) // suma de reservas activas
+  minStock         Int         @default(0)
+  product          Product     @relation(fields: [productId], references: [id], onDelete: Cascade)
+  talla            TallaConfig @relation(fields: [tallaId], references: [id], onDelete: Cascade)
 
   @@unique([productId, tallaId])
   @@map("stock_by_talla")
@@ -173,11 +186,11 @@ model StockReservation {
   id          String   @id @default(uuid())
   productId   String
   tallaId     String
-  cantidad    Int
-  motivo      String   // "PEDIDO", "MUESTRA", "ANTICIPO"
+  quantity    Int
+  reason      String   // "PEDIDO", "MUESTRA", "ANTICIPO"
   referenceId String?  // ID de referencia (pedidoId, etc.)
   expiresAt   DateTime
-  cancelada   Boolean  @default(false)
+  canceled    Boolean  @default(false)
   createdAt   DateTime @default(now())
   product     Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
 
@@ -188,9 +201,9 @@ model StockMovement {
   id          String         @id @default(uuid())
   productId   String
   tallaId     String
-  tipo        MovimientoTipo
-  cantidad    Int            // Positivo = entrada, Negativo = salida
-  motivo      String
+  type        MovimientoTipo
+  quantity    Int            // Positivo = entrada, Negativo = salida
+  reason      String
   referenceId String?
   userId      String
   createdAt   DateTime       @default(now())
@@ -211,16 +224,16 @@ enum MovimientoTipo {
 }
 
 model PriceHistory {
-  id                  String   @id @default(uuid())
-  productId           String
-  precioCostoAnterior Decimal  @db.Decimal(10, 2)
-  precioVentaAnterior Decimal  @db.Decimal(10, 2)
-  precioCostoNuevo    Decimal  @db.Decimal(10, 2)
-  precioVentaNuevo    Decimal  @db.Decimal(10, 2)
-  cambiadoPorId       String
-  motivo              String?
-  createdAt           DateTime @default(now())
-  product             Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  id                String   @id @default(uuid())
+  productId         String
+  previousCostPrice Decimal  @db.Decimal(10, 2)
+  previousSalePrice Decimal  @db.Decimal(10, 2)
+  newCostPrice      Decimal  @db.Decimal(10, 2)
+  newSalePrice      Decimal  @db.Decimal(10, 2)
+  changedById       String
+  reason            String?
+  createdAt         DateTime @default(now())
+  product           Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
 
   @@map("price_history")
 }
