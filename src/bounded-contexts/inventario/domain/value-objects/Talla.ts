@@ -13,8 +13,8 @@ export const RANGOS_SERIE: Record<string, { min: number; max: number }> = {
   NINO_PEQUENO_B: { min: 21, max: 26 },
   NINO: { min: 27, max: 32 },
   JUVENIL: { min: 34, max: 38 },
-  ADULTO: { min: 38, max: 42 },
-  TALLA_GRANDE: { min: 43, max: 46 },
+  ADULTO: { min: 37, max: 43 },
+  TALLA_GRANDE: { min: 43, max: 45 },
 };
 
 export class Talla extends ValueObject<TallaProps> {
