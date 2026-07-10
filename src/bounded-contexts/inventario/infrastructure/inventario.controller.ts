@@ -9,6 +9,7 @@ import {
   Query,
   Req,
   UseGuards,
+  NotFoundException,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../../../auth/jwt-auth.guard';
 import { RolesGuard } from '../../../shared/guards/roles.guard';
@@ -34,6 +35,7 @@ import { AumentarStockCommand } from '../application/commands/AumentarStock.comm
 import { DescontarStockHandler } from '../application/commands/DescontarStock.handler';
 import { DescontarStockCommand } from '../application/commands/DescontarStock.command';
 import { InventarioQueryService } from '../application/queries/InventarioQueryService';
+import { PrismaService } from '../../../shared/infrastructure/prisma/prisma.service';
 
 @Controller('inventario')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -46,6 +48,7 @@ export class InventarioController {
     private readonly aumentarStockHandler: AumentarStockHandler,
     private readonly descontarStockHandler: DescontarStockHandler,
     private readonly queryService: InventarioQueryService,
+    private readonly prisma: PrismaService,
   ) {}
 
   // ══════════════════════════════

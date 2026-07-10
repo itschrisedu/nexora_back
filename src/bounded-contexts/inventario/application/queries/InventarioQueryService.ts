@@ -130,10 +130,8 @@ export class InventarioQueryService {
 
   async listarModelos() {
     const modelos = await this.prisma.productModel.findMany({
-      where: { active: true },
       include: {
         products: {
-          where: { active: true },
           include: {
             serie: true,
             stockByTalla: {
