@@ -1,0 +1,296 @@
+import { Injectable, Logger, BadRequestException, NotFoundException } from '@nestjs/common';
+import { PrismaService } from '../../../shared/infrastructure/prisma/prisma.service';
+import { EncryptionService } from '../../../shared/infrastructure/encryption/encryption.service';
+import { CanalEntrada, EstadoPedido, TipoPago, TipoVenta, MovimientoTipo, TipoCobro, CobroEstado } from '@prisma/client';
+
+export interface AbrirCajaDto {
+  montoInicial: number;
+  notas?: string;
+}
+
+export interface RegistrarVentaPosDto {
+  clienteId?: string;
+  metodoPago: 'EFECTIVO' | 'TARJETA' | 'TRANSFERENCIA';
+  lineas: {
+    productId: string;
+    serieId: string;
+    tallaId: string;
+    cantidad: number;
+    precioUnitario: number;
+  }[];
+  notas?: string;
+}
+
+export interface CerrarCajaDto {
+  montoRealEfectivo: number;
+  notas?: string;
+}
+
+@Injectable()
+export class PosService {
+  private readonly logger = new Logger(PosService.name);
+
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly encryption: EncryptionService,
+  ) {}
+
+  /**
+   * Abrir una nueva sesión de Caja / Turno POS
+   */
+  async abrirCaja(tenantId: string, userId: string, dto: AbrirCajaDto) {
+    const cajaAbierta = await this.prisma.cierreCaja.findFirst({
+      where: { tenantId, estado: 'ABIERTA' },
+    });
+
+    if (cajaAbierta) {
+      return cajaAbierta;
+    }
+
+    const nuevaCaja = await this.prisma.cierreCaja.create({
+      data: {
+        tenantId,
+        userId,
+        montoInicial: dto.montoInicial,
+        montoEsperadoEfectivo: dto.montoInicial,
+        notas: dto.notas || 'Apertura de turno mostrador POS',
+      },
+    });
+
+    this.logger.log(`Caja abierta por usuario ${userId} con monto inicial $${dto.montoInicial}`);
+    return nuevaCaja;
+  }
+
+  /**
+   * Consulta el estado de la caja actualmente abierta y sus acumulados
+   */
+  async obtenerEstadoCaja(tenantId: string) {
+    const cajaAbierta = await this.prisma.cierreCaja.findFirst({
+      where: { tenantId, estado: 'ABIERTA' },
+      orderBy: { fechaApertura: 'desc' },
+    });
+
+    if (!cajaAbierta) {
+      return { abierta: false, caja: null };
+    }
+
+    return {
+      abierta: true,
+      caja: {
+        ...cajaAbierta,
+        montoInicial: Number(cajaAbierta.montoInicial),
+        ventasEfectivo: Number(cajaAbierta.ventasEfectivo),
+        ventasTarjeta: Number(cajaAbierta.ventasTarjeta),
+        ventasTransferencia: Number(cajaAbierta.ventasTransferencia),
+        totalVentas: Number(cajaAbierta.totalVentas),
+        montoEsperadoEfectivo: Number(cajaAbierta.montoEsperadoEfectivo),
+      },
+    };
+  }
+
+  /**
+   * Registra una Venta Directa en Mostrador (POS) con cobro e inventario inmediato
+   */
+  async registrarVentaDirectaPOS(tenantId: string, userId: string, dto: RegistrarVentaPosDto) {
+    if (!dto.lineas || dto.lineas.length === 0) {
+      throw new BadRequestException('Debe incluir al menos un artículo para la venta.');
+    }
+
+    // 1. Obtener o asignar Consumidor Final por defecto
+    let clienteId = dto.clienteId;
+    if (!clienteId) {
+      let consumidorFinal = await this.prisma.client.findFirst({
+        where: { tenantId, nombre: 'Consumidor Final' },
+      });
+      if (!consumidorFinal) {
+        consumidorFinal = await this.prisma.client.create({
+          data: {
+            tenantId,
+            nombre: 'Consumidor Final',
+            apellido: '',
+            telefono: '9999999999',
+            ruc: this.encryption.encrypt('9999999999999'),
+            direccion: 'Mostrador POS',
+          },
+        });
+      }
+      clienteId = consumidorFinal.id;
+    }
+
+    // 2. Calcular monto total
+    const montoTotal = dto.lineas.reduce(
+      (acc, item) => acc + item.cantidad * item.precioUnitario,
+      0,
+    );
+
+    // 3. Ejecutar transacción de venta (Pedido + Stock + Nota + Cobro + Caja)
+    const resultado = await this.prisma.$transaction(async (tx) => {
+      // A. Descontar Stock y validar existencias
+      for (const linea of dto.lineas) {
+        const stockTalla = await tx.stockByTalla.findFirst({
+          where: { productId: linea.productId, tallaId: linea.tallaId },
+        });
+
+        if (!stockTalla || stockTalla.quantity < linea.cantidad) {
+          throw new BadRequestException(
+            `Stock insuficiente para el producto seleccionado en la talla. Disponible: ${stockTalla?.quantity || 0}`,
+          );
+        }
+
+        await tx.stockByTalla.update({
+          where: { id: stockTalla.id },
+          data: { quantity: stockTalla.quantity - linea.cantidad },
+        });
+
+        await tx.stockMovement.create({
+          data: {
+            productId: linea.productId,
+            tallaId: linea.tallaId,
+            type: MovimientoTipo.VENTA,
+            quantity: -linea.cantidad,
+            reason: 'Venta directa en mostrador POS',
+            userId,
+          },
+        });
+      }
+
+      // B. Crear Pedido ENTREGADO
+      const order = await tx.order.create({
+        data: {
+          tenantId,
+          clientId: clienteId,
+          userId,
+          estado: EstadoPedido.ENTREGADO,
+          canal: CanalEntrada.MANUAL,
+          tipoPago: TipoPago.CONTADO,
+          montoTotal,
+          notas: dto.notas || 'Venta directa mostrador POS',
+          lines: {
+            create: dto.lineas.map((l) => ({
+              productId: l.productId,
+              serieId: l.serieId,
+              tallaId: l.tallaId,
+              cantidad: l.cantidad,
+              precioUnitario: l.precioUnitario,
+              tipoVenta: TipoVenta.TALLA_ESPECIFICA,
+            })),
+          },
+        },
+      });
+
+      // C. Crear Nota de Venta
+      const saleNote = await tx.saleNote.create({
+        data: {
+          tenantId,
+          orderId: order.id,
+          clientId: clienteId,
+          subtotal: montoTotal,
+          descuento: 0,
+          total: montoTotal,
+          lines: {
+            create: dto.lineas.map((l) => ({
+              productId: l.productId,
+              nombre: 'Calzado Mostrador POS',
+              serie: l.serieId,
+              talla: l.tallaId,
+              cantidad: l.cantidad,
+              precioUnitario: l.precioUnitario,
+              subtotal: l.cantidad * l.precioUnitario,
+            })),
+          },
+        },
+      });
+
+      // D. Crear Registro de Cobro Saldado
+      const cobro = await tx.cobro.create({
+        data: {
+          tenantId,
+          clientId: clienteId,
+          saleNoteId: saleNote.id,
+          tipo: TipoCobro.CONTADO,
+          montoTotal,
+          saldoPendiente: 0,
+          estado: CobroEstado.SALDADO,
+          abonos: {
+            create: {
+              monto: montoTotal,
+              metodo: dto.metodoPago,
+              userId,
+              notas: `Cobro en mostrador POS via ${dto.metodoPago}`,
+            },
+          },
+        },
+      });
+
+      // E. Actualizar acumulación en Cierre de Caja activo si existe
+      const cajaAbierta = await tx.cierreCaja.findFirst({
+        where: { tenantId, estado: 'ABIERTA' },
+      });
+
+      if (cajaAbierta) {
+        const updateData: any = {
+          totalVentas: Number(cajaAbierta.totalVentas) + montoTotal,
+        };
+
+        if (dto.metodoPago === 'EFECTIVO') {
+          updateData.ventasEfectivo = Number(cajaAbierta.ventasEfectivo) + montoTotal;
+          updateData.montoEsperadoEfectivo = Number(cajaAbierta.montoEsperadoEfectivo) + montoTotal;
+        } else if (dto.metodoPago === 'TARJETA') {
+          updateData.ventasTarjeta = Number(cajaAbierta.ventasTarjeta) + montoTotal;
+        } else if (dto.metodoPago === 'TRANSFERENCIA') {
+          updateData.ventasTransferencia = Number(cajaAbierta.ventasTransferencia) + montoTotal;
+        }
+
+        await tx.cierreCaja.update({
+          where: { id: cajaAbierta.id },
+          data: updateData,
+        });
+      }
+
+      return { order, saleNote, cobro };
+    });
+
+    this.logger.log(`Venta POS registrada por $${montoTotal} (${dto.metodoPago})`);
+    return resultado;
+  }
+
+  /**
+   * Cierre de Caja y Arqueo de Período (Cuadre de Turno)
+   */
+  async cerrarCajaArqueo(tenantId: string, userId: string, dto: CerrarCajaDto) {
+    const cajaAbierta = await this.prisma.cierreCaja.findFirst({
+      where: { tenantId, estado: 'ABIERTA' },
+    });
+
+    if (!cajaAbierta) {
+      throw new NotFoundException('No existe una caja abierta para realizar el arqueo.');
+    }
+
+    const montoEsperado = Number(cajaAbierta.montoEsperadoEfectivo);
+    const diferencia = dto.montoRealEfectivo - montoEsperado;
+
+    const cajaCerrada = await this.prisma.cierreCaja.update({
+      where: { id: cajaAbierta.id },
+      data: {
+        estado: 'CERRADA',
+        fechaCierre: new Date(),
+        montoRealEfectivo: dto.montoRealEfectivo,
+        diferencia,
+        notas: dto.notas ? `${cajaAbierta.notas || ''} | ${dto.notas}` : cajaAbierta.notas,
+      },
+    });
+
+    this.logger.log(
+      `Caja cerrada. Esperado: $${montoEsperado}, Real: $${dto.montoRealEfectivo}, Diferencia: $${diferencia}`,
+    );
+
+    return {
+      ...cajaCerrada,
+      montoInicial: Number(cajaCerrada.montoInicial),
+      totalVentas: Number(cajaCerrada.totalVentas),
+      montoEsperadoEfectivo: montoEsperado,
+      montoRealEfectivo: dto.montoRealEfectivo,
+      diferencia,
+    };
+  }
+}

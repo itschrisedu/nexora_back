@@ -8,7 +8,9 @@ import { PrismaPedidoRepository } from './PrismaPedidoRepository';
 import { PrismaOrderQueueRepository } from './PrismaOrderQueueRepository';
 import { PedidosController } from './pedidos.controller';
 import { CatalogoController } from './catalogo.controller';
+import { PosController } from './pos.controller';
 import { CatalogoService } from '../application/CatalogoService';
+import { PosService } from '../application/PosService';
 
 // Command Handlers — Fase 4A
 import { CrearPedidoHandler } from '../application/commands/CrearPedido.handler';
@@ -27,7 +29,7 @@ import { ComercialQueryService } from '../application/queries/ComercialQueryServ
 
 @Module({
   imports: [AuthModule, ClientesModule, InventarioModule],
-  controllers: [PedidosController, CatalogoController],
+  controllers: [PedidosController, CatalogoController, PosController],
   providers: [
     // Repositories
     {
@@ -53,6 +55,7 @@ import { ComercialQueryService } from '../application/queries/ComercialQueryServ
 
     // Services
     CatalogoService,
+    PosService,
 
     // Queries
     ComercialQueryService,
@@ -63,6 +66,7 @@ import { ComercialQueryService } from '../application/queries/ComercialQueryServ
     ComercialQueryService,
     ActivarPedidoEnColaHandler,
     CatalogoService,
+    PosService,
   ],
 })
 export class ComercialModule {}

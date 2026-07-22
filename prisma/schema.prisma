@@ -52,6 +52,7 @@ model Tenant {
   clienteDevoluciones ClienteDevolucion[]
   proveedorDevoluciones ProveedorDevolucion[]
   facturasElectronicas FacturaElectronica[]
+  cierresCaja    CierreCaja[]
 
   @@map("tenants")
 }
@@ -770,6 +771,32 @@ model FacturaElectronica {
   tenant            Tenant   @relation(fields: [tenantId], references: [id])
 
   @@map("facturas_electronicas")
+}
+
+// ──────────────────────────────────────────
+// FASE 14 — POS MOSTRADOR Y CIERRE DE CAJA / PERÍODO
+// ──────────────────────────────────────────
+
+model CierreCaja {
+  id                   String    @id @default(uuid())
+  tenantId             String
+  userId               String    // Cajero / Vendedor que realizó el turno
+  fechaApertura        DateTime  @default(now())
+  fechaCierre          DateTime?
+  montoInicial         Decimal   @db.Decimal(10, 2) // Efectivo base en caja al abrir
+  ventasEfectivo       Decimal   @default(0) @db.Decimal(10, 2)
+  ventasTarjeta        Decimal   @default(0) @db.Decimal(10, 2)
+  ventasTransferencia  Decimal   @default(0) @db.Decimal(10, 2)
+  totalVentas          Decimal   @default(0) @db.Decimal(10, 2)
+  montoEsperadoEfectivo Decimal  @default(0) @db.Decimal(10, 2)
+  montoRealEfectivo    Decimal?  @db.Decimal(10, 2) // Ingresado por el usuario en el arqueo
+  diferencia           Decimal?  @db.Decimal(10, 2) // Sobrante (+) o Faltante (-)
+  estado               String    @default("ABIERTA") // ABIERTA | CERRADA
+  notas                String?
+
+  tenant               Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@map("cierres_caja")
 }
 
 
