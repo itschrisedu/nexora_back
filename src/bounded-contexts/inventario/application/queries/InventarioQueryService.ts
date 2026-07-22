@@ -35,16 +35,21 @@ export class InventarioQueryService {
     q?: string;
     serie?: string;
     marca?: string;
-  }) {
+  }, tenantId?: string | null) {
     const where: any = { active: true };
+
+    // Filtro multi-tenant
+    if (tenantId) {
+      where.model = { ...where.model, tenantId };
+    }
 
     if (filtros.q) {
       where.OR = [
         { code: { contains: filtros.q, mode: 'insensitive' } },
         { color: { contains: filtros.q, mode: 'insensitive' } },
-        { model: { name: { contains: filtros.q, mode: 'insensitive' } } },
-        { model: { brand: { contains: filtros.q, mode: 'insensitive' } } },
-        { model: { baseCode: { contains: filtros.q, mode: 'insensitive' } } },
+        { model: { name: { contains: filtros.q, mode: 'insensitive' }, ...(tenantId ? { tenantId } : {}) } },
+        { model: { brand: { contains: filtros.q, mode: 'insensitive' }, ...(tenantId ? { tenantId } : {}) } },
+        { model: { baseCode: { contains: filtros.q, mode: 'insensitive' }, ...(tenantId ? { tenantId } : {}) } },
       ];
     }
 
@@ -53,7 +58,7 @@ export class InventarioQueryService {
     }
 
     if (filtros.marca) {
-      where.model = { brand: { contains: filtros.marca, mode: 'insensitive' } };
+      where.model = { ...where.model, brand: { contains: filtros.marca, mode: 'insensitive' } };
     }
 
     const productos = await this.prisma.product.findMany({
@@ -72,9 +77,14 @@ export class InventarioQueryService {
     return productos.map((p: any) => this.formatProducto(p));
   }
 
-  async obtenerProductosPorSerie(serieNombre: string) {
+  async obtenerProductosPorSerie(serieNombre: string, tenantId?: string | null) {
+    const where: any = { serie: { nombre: serieNombre }, active: true };
+    if (tenantId) {
+      where.model = { tenantId };
+    }
+
     const productos = await this.prisma.product.findMany({
-      where: { serie: { nombre: serieNombre }, active: true },
+      where,
       include: {
         model: true,
         serie: true,
@@ -89,16 +99,21 @@ export class InventarioQueryService {
     return productos.map((p: any) => this.formatProducto(p));
   }
 
-  async obtenerStockBajo() {
-    const productos = await this.prisma.product.findMany({
-      where: {
-        active: true,
-        stockByTalla: {
-          some: {
-            minStock: { gt: 0 },
-          },
+  async obtenerStockBajo(tenantId?: string | null) {
+    const where: any = {
+      active: true,
+      stockByTalla: {
+        some: {
+          minStock: { gt: 0 },
         },
       },
+    };
+    if (tenantId) {
+      where.model = { tenantId };
+    }
+
+    const productos = await this.prisma.product.findMany({
+      where,
       include: {
         model: true,
         serie: true,
@@ -128,8 +143,14 @@ export class InventarioQueryService {
     return movimientos;
   }
 
-  async listarModelos() {
+  async listarModelos(tenantId?: string | null) {
+    const where: any = {};
+    if (tenantId) {
+      where.tenantId = tenantId;
+    }
+
     const modelos = await this.prisma.productModel.findMany({
+      where,
       include: {
         products: {
           include: {

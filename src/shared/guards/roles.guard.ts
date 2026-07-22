@@ -34,6 +34,11 @@ export class RolesGuard implements CanActivate {
       throw new ForbiddenException('No se encontró información de rol del usuario');
     }
 
+    // Super Admin tiene acceso implícito a todos los endpoints
+    if (user.rol === 'ROL_SUPER_ADMIN') {
+      return true;
+    }
+
     const hasRole = requiredRoles.includes(user.rol);
     if (!hasRole) {
       throw new ForbiddenException(

@@ -14,6 +14,7 @@ export class CrearPedidoCommand {
     public readonly tipoPago: TipoPago,
     public readonly lineas: LineaPedidoInput[],
     public readonly userId: string,
+    public readonly tenantId: string,
     public readonly notas?: string,
   ) {}
 }

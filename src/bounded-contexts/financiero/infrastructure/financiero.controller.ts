@@ -31,8 +31,8 @@ export class FinancieroController {
 
   @Get('resumen')
   @Roles(Rol.ROL_ADMIN)
-  resumen() {
-    return this.queryService.resumenFinanciero();
+  resumen(@Req() req: any) {
+    return this.queryService.resumenFinanciero(req.user.tenantId);
   }
 
   // ══════════════════════════════════════════
@@ -41,20 +41,20 @@ export class FinancieroController {
 
   @Get('cobros/vencidos')
   @Roles(Rol.ROL_ADMIN)
-  cobrosVencidos() {
-    return this.queryService.listarCobrosVencidos();
+  cobrosVencidos(@Req() req: any) {
+    return this.queryService.listarCobrosVencidos(req.user.tenantId);
   }
 
   @Get('cobros/proximos-a-vencer')
   @Roles(Rol.ROL_ADMIN, Rol.ROL_VENDEDOR)
-  cobrosProximosAVencer(@Query('dias') dias?: string) {
-    return this.queryService.listarCobrosProximosAVencer(dias ? parseInt(dias) : 7);
+  cobrosProximosAVencer(@Req() req: any, @Query('dias') dias?: string) {
+    return this.queryService.listarCobrosProximosAVencer(dias ? parseInt(dias) : 7, req.user.tenantId);
   }
 
   @Get('cobros/cliente/:clientId')
   @Roles(Rol.ROL_ADMIN, Rol.ROL_VENDEDOR)
-  cobrosCliente(@Param('clientId') clientId: string) {
-    return this.queryService.listarCobrosCliente(clientId);
+  cobrosCliente(@Param('clientId') clientId: string, @Req() req: any) {
+    return this.queryService.listarCobrosCliente(clientId, req.user.tenantId);
   }
 
   @Get('cobros/:id')
@@ -86,8 +86,8 @@ export class FinancieroController {
 
   @Get('notas-venta/cliente/:clientId')
   @Roles(Rol.ROL_ADMIN, Rol.ROL_VENDEDOR)
-  notasVentaCliente(@Param('clientId') clientId: string) {
-    return this.queryService.listarNotasVentaCliente(clientId);
+  notasVentaCliente(@Param('clientId') clientId: string, @Req() req: any) {
+    return this.queryService.listarNotasVentaCliente(clientId, req.user.tenantId);
   }
 
   @Get('notas-venta/:id')
@@ -102,14 +102,14 @@ export class FinancieroController {
 
   @Get('deudas-proveedor')
   @Roles(Rol.ROL_ADMIN)
-  listarDeudas(@Query('supplierId') supplierId?: string) {
-    return this.queryService.listarDeudasProveedor(supplierId);
+  listarDeudas(@Req() req: any, @Query('supplierId') supplierId?: string) {
+    return this.queryService.listarDeudasProveedor(supplierId, req.user.tenantId);
   }
 
   @Get('deudas-proveedor/vencidas')
   @Roles(Rol.ROL_ADMIN)
-  deudasVencidas() {
-    return this.queryService.listarDeudasVencidas();
+  deudasVencidas(@Req() req: any) {
+    return this.queryService.listarDeudasVencidas(req.user.tenantId);
   }
 
   @Get('deudas-proveedor/:id')

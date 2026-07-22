@@ -42,10 +42,20 @@ export class PedidoEntregadoFinancieroListener {
       `;
       const numero = Number(seqResult[0].nextval);
 
-      // 2. Obtener datos del cliente (nombre para el PDF)
-      const cliente = await this.prisma.client.findUnique({
-        where: { id: payload.clientId },
-      });
+      // 2. Obtener datos del cliente y de la orden para obtener el tenantId
+      const [cliente, order] = await Promise.all([
+        this.prisma.client.findUnique({
+          where: { id: payload.clientId },
+        }),
+        this.prisma.order.findUnique({
+          where: { id: payload.pedidoId },
+        }),
+      ]);
+
+      if (!order) {
+        throw new Error(`Pedido con ID ${payload.pedidoId} no encontrado`);
+      }
+      const tenantId = order.tenantId;
 
       // 3. Obtener datos de productos para snapshots de nombre/serie/talla
       const saleNoteId = crypto.randomUUID();
@@ -76,7 +86,7 @@ export class PedidoEntregadoFinancieroListener {
       const descuento = Math.max(0, subtotal - total);
 
       // 4. Generar PDF
-      const negocioConfig = await this.prisma.businessConfig.findFirst();
+      const negocioConfig = await this.prisma.businessConfig.findFirst({ where: { tenantId } });
       const pdfData = {
         numero,
         fecha: new Date(),
@@ -107,6 +117,7 @@ export class PedidoEntregadoFinancieroListener {
       await this.prisma.saleNote.create({
         data: {
           id: saleNoteId,
+          tenantId,
           numero,
           orderId: payload.pedidoId,
           clientId: payload.clientId,
@@ -141,7 +152,7 @@ export class PedidoEntregadoFinancieroListener {
         cobro = Cobro.crearCredito(cobroId, saleNoteId, payload.clientId, Money.create(total), vencimiento);
       }
 
-      await this.cobroRepo.save(cobro);
+      await this.cobroRepo.save(cobro, tenantId);
 
       // 7. Emitir NotaVentaGenerada
       this.eventBus.publish(

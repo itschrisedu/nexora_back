@@ -6,6 +6,7 @@ import {
   Post,
   Query,
   UseGuards,
+  Req,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../../../auth/jwt-auth.guard';
 import { RolesGuard } from '../../../shared/guards/roles.guard';
@@ -38,11 +39,12 @@ export class ProveedoresController {
 
   @Post()
   @Roles(Rol.ROL_ADMIN)
-  async registrarProveedor(@Body() dto: RegistrarSupplierDto) {
+  async registrarProveedor(@Body() dto: RegistrarSupplierDto, @Req() req: any) {
     const id = await this.registrarSupplierHandler.execute(
       new RegistrarSupplierCommand(
         dto.ruc,
         dto.razonSocial,
+        req.user.tenantId,
         dto.contacto,
         dto.direccion,
         dto.email,
@@ -53,8 +55,8 @@ export class ProveedoresController {
 
   @Get()
   @Roles(Rol.ROL_ADMIN, Rol.ROL_VENDEDOR, Rol.ROL_BODEGUERO)
-  async listarProveedores(@Query('q') q?: string) {
-    return this.queryService.buscarProveedores(q);
+  async listarProveedores(@Req() req: any, @Query('q') q?: string) {
+    return this.queryService.buscarProveedores(req.user.tenantId, q);
   }
 
   // ══════════════════════════════════════════
@@ -72,8 +74,8 @@ export class ProveedoresController {
 
   @Get('ordenes-compra')
   @Roles(Rol.ROL_ADMIN)
-  async listarOrdenesCompra(@Query('supplierId') supplierId?: string) {
-    return this.queryService.listarOrdenesCompra(supplierId);
+  async listarOrdenesCompra(@Req() req: any, @Query('supplierId') supplierId?: string) {
+    return this.queryService.listarOrdenesCompra(supplierId, req.user.tenantId);
   }
 
   @Get('ordenes-compra/:id')
@@ -97,8 +99,8 @@ export class ProveedoresController {
 
   @Get('entradas')
   @Roles(Rol.ROL_ADMIN, Rol.ROL_BODEGUERO)
-  async listarEntradasMercancia(@Query('supplierId') supplierId?: string) {
-    return this.queryService.listarEntradasMercancia(supplierId);
+  async listarEntradasMercancia(@Req() req: any, @Query('supplierId') supplierId?: string) {
+    return this.queryService.listarEntradasMercancia(supplierId, req.user.tenantId);
   }
 
   @Get('entradas/:id')

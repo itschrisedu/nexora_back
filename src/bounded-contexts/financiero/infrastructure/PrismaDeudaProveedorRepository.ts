@@ -57,10 +57,11 @@ export class PrismaDeudaProveedorRepository implements IDeudaProveedorRepository
     return raws.map((r) => this.toDomain(r));
   }
 
-  async save(deuda: DeudaProveedor): Promise<void> {
+  async save(deuda: DeudaProveedor, tenantId?: string): Promise<void> {
     await this.prisma.deudaProveedor.create({
       data: {
         id: deuda.id,
+        tenantId: tenantId!,
         supplierId: deuda.supplierId,
         entradaId: deuda.entradaId,
         montoTotal: deuda.montoTotal.amount,

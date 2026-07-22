@@ -149,7 +149,7 @@ export class CrearPedidoHandler {
     );
 
     // Persistir el pedido
-    await this.pedidoRepository.save(pedido);
+    await this.pedidoRepository.save(pedido, command.tenantId);
 
     // 6. Si falta stock, registrar en la cola de prioridad
     if (estadoInicial === PrismaEstadoPedido.EN_ESPERA_STOCK) {

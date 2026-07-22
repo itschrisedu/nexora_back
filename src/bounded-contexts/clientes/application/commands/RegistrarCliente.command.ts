@@ -8,5 +8,6 @@ export class RegistrarClienteCommand {
     public readonly cedula: string | null,
     public readonly direccion: string | null,
     public readonly notas: string | null,
+    public readonly tenantId: string,
   ) {}
 }

@@ -46,6 +46,7 @@ export class AuthService {
       sub: user.id,
       email: user.email,
       rol: user.rol,
+      tenantId: user.tenantId,
     };
 
     const accessToken = this.jwtService.sign(payload, {
@@ -75,6 +76,7 @@ export class AuthService {
         email: user.email,
         nombre: user.nombre,
         rol: user.rol,
+        tenantId: user.tenantId,
       },
     };
   }
@@ -105,6 +107,7 @@ export class AuthService {
       sub: storedToken.user.id,
       email: storedToken.user.email,
       rol: storedToken.user.rol,
+      tenantId: storedToken.user.tenantId,
     };
 
     const accessToken = this.jwtService.sign(payload, {
@@ -197,25 +200,70 @@ export class AuthService {
 
   // ── Gestión de Personal (Admin CRUD) ──────────
 
-  async listUsers() {
+  async listUsers(requestUser: { id: string; rol: string; tenantId: string | null }) {
+    const where: any = {};
+
+    if (requestUser.rol === 'ROL_SUPER_ADMIN') {
+      // Super Admin ve todos los usuarios
+    } else if (requestUser.rol === 'ROL_ADMIN') {
+      // Admin ve solo a los usuarios de su tenant (excluyéndose a sí mismo opcionalmente)
+      where.tenantId = requestUser.tenantId;
+      where.rol = { in: [Rol.ROL_VENDEDOR, Rol.ROL_BODEGUERO, Rol.ROL_ADMIN] };
+    } else {
+      // Vendedores y bodegueros no deberían listar usuarios
+      return [];
+    }
+
     return this.prisma.user.findMany({
+      where,
       select: {
         id: true,
         email: true,
         nombre: true,
         rol: true,
         activo: true,
+        tenantId: true,
         createdAt: true,
       },
       orderBy: { createdAt: 'desc' },
     });
   }
 
-  async createUser(email: string, nombre: string, rol: Rol, password: string) {
+  async createUser(
+    email: string,
+    nombre: string,
+    rol: Rol,
+    password: string,
+    requestUser: { id: string; rol: string; tenantId: string | null },
+    explicitTenantId?: string,
+  ) {
+    // Validación de permisos: solo Super Admin puede crear Admins
+    if (rol === Rol.ROL_ADMIN && requestUser.rol !== 'ROL_SUPER_ADMIN') {
+      throw new UnauthorizedException('Solo un Super Admin puede crear administradores.');
+    }
+    if (rol === Rol.ROL_SUPER_ADMIN) {
+      throw new UnauthorizedException('No se puede crear otro Super Admin.');
+    }
+
     const existing = await this.prisma.user.findUnique({ where: { email } });
     if (existing) {
       throw new UnauthorizedException('El correo ya está registrado.');
     }
+
+    // Determinar el tenantId del nuevo usuario
+    let tenantId: string | null = null;
+    if (requestUser.rol === 'ROL_SUPER_ADMIN') {
+      // Super Admin puede asignar a un tenant específico mediante explicitTenantId
+      if (explicitTenantId) {
+        tenantId = explicitTenantId;
+      } else {
+        tenantId = requestUser.tenantId;
+      }
+    } else {
+      // Admin crea personal en su propio tenant
+      tenantId = requestUser.tenantId;
+    }
+
     const passwordHash = await bcrypt.hash(password, this.BCRYPT_ROUNDS);
     return this.prisma.user.create({
       data: {
@@ -224,6 +272,8 @@ export class AuthService {
         rol,
         passwordHash,
         activo: true,
+        tenantId,
+        parentId: requestUser.id,
       },
       select: {
         id: true,
@@ -231,6 +281,7 @@ export class AuthService {
         nombre: true,
         rol: true,
         activo: true,
+        tenantId: true,
       },
     });
   }

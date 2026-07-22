@@ -27,10 +27,11 @@ export class PrismaSupplierRepository extends ISupplierRepository {
     return this.toDomain(raw);
   }
 
-  async save(supplier: Supplier): Promise<void> {
+  async save(supplier: Supplier, tenantId?: string): Promise<void> {
     await this.prisma.supplier.create({
       data: {
         id: supplier.id,
+        tenantId: tenantId!,
         ruc: supplier.ruc,
         razonSocial: supplier.razonSocial,
         contacto: supplier.contacto,

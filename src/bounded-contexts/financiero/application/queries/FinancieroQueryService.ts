@@ -17,33 +17,39 @@ export class FinancieroQueryService {
     return cobro;
   }
 
-  async listarCobrosCliente(clientId: string) {
+  async listarCobrosCliente(clientId: string, tenantId?: string | null) {
+    const where: any = { clientId };
+    if (tenantId) where.tenantId = tenantId;
     return this.prisma.cobro.findMany({
-      where: { clientId },
+      where,
       include: { saleNote: { select: { numero: true, total: true, pdfUrl: true } } },
       orderBy: { createdAt: 'desc' },
     });
   }
 
-  async listarCobrosVencidos() {
+  async listarCobrosVencidos(tenantId?: string | null) {
+    const where: any = {
+      fechaVencimiento: { lt: new Date() },
+      estado: { not: CobroEstado.SALDADO },
+    };
+    if (tenantId) where.tenantId = tenantId;
     return this.prisma.cobro.findMany({
-      where: {
-        fechaVencimiento: { lt: new Date() },
-        estado: { not: CobroEstado.SALDADO },
-      },
+      where,
       include: { saleNote: true },
       orderBy: { fechaVencimiento: 'asc' },
     });
   }
 
-  async listarCobrosProximosAVencer(diasAntelacion: number = 7) {
+  async listarCobrosProximosAVencer(diasAntelacion: number = 7, tenantId?: string | null) {
     const limite = new Date();
     limite.setDate(limite.getDate() + diasAntelacion);
+    const where: any = {
+      fechaVencimiento: { gte: new Date(), lte: limite },
+      estado: { not: CobroEstado.SALDADO },
+    };
+    if (tenantId) where.tenantId = tenantId;
     return this.prisma.cobro.findMany({
-      where: {
-        fechaVencimiento: { gte: new Date(), lte: limite },
-        estado: { not: CobroEstado.SALDADO },
-      },
+      where,
       include: { saleNote: true },
       orderBy: { fechaVencimiento: 'asc' },
     });
@@ -60,26 +66,42 @@ export class FinancieroQueryService {
     return nota;
   }
 
-  async listarNotasVentaCliente(clientId: string) {
+  async listarNotasVentaCliente(clientId: string, tenantId?: string | null) {
+    const where: any = { clientId };
+    if (tenantId) where.tenantId = tenantId;
     return this.prisma.saleNote.findMany({
-      where: { clientId },
+      where,
       include: { cobro: { select: { estado: true, tipo: true, saldoPendiente: true } } },
       orderBy: { createdAt: 'desc' },
     });
   }
 
-  async resumenFinanciero() {
+  async resumenFinanciero(tenantId?: string | null) {
+    const filter: any = tenantId ? { tenantId } : {};
     const [totalCobros, cobrosVencidos, cobrosPendientes, deudas] = await Promise.all([
-      this.prisma.cobro.aggregate({ _sum: { montoTotal: true } }),
+      this.prisma.cobro.aggregate({
+        where: filter,
+        _sum: { montoTotal: true },
+      }),
       this.prisma.cobro.count({
-        where: { fechaVencimiento: { lt: new Date() }, estado: { not: CobroEstado.SALDADO } },
+        where: {
+          fechaVencimiento: { lt: new Date() },
+          estado: { not: CobroEstado.SALDADO },
+          ...filter,
+        },
       }),
       this.prisma.cobro.aggregate({
-        where: { estado: { not: CobroEstado.SALDADO } },
+        where: {
+          estado: { not: CobroEstado.SALDADO },
+          ...filter,
+        },
         _sum: { saldoPendiente: true },
       }),
       this.prisma.deudaProveedor.aggregate({
-        where: { estado: { not: DeudaEstado.SALDADO } },
+        where: {
+          estado: { not: DeudaEstado.SALDADO },
+          ...filter,
+        },
         _sum: { saldoPendiente: true },
       }),
     ]);
@@ -103,20 +125,25 @@ export class FinancieroQueryService {
     return deuda;
   }
 
-  async listarDeudasProveedor(supplierId?: string) {
+  async listarDeudasProveedor(supplierId?: string, tenantId?: string | null) {
+    const where: any = {};
+    if (supplierId) where.supplierId = supplierId;
+    if (tenantId) where.tenantId = tenantId;
     return this.prisma.deudaProveedor.findMany({
-      where: supplierId ? { supplierId } : undefined,
+      where,
       include: { pagos: true },
       orderBy: { fechaVencimiento: 'asc' },
     });
   }
 
-  async listarDeudasVencidas() {
+  async listarDeudasVencidas(tenantId?: string | null) {
+    const where: any = {
+      fechaVencimiento: { lt: new Date() },
+      estado: { not: DeudaEstado.SALDADO },
+    };
+    if (tenantId) where.tenantId = tenantId;
     return this.prisma.deudaProveedor.findMany({
-      where: {
-        fechaVencimiento: { lt: new Date() },
-        estado: { not: DeudaEstado.SALDADO },
-      },
+      where,
       orderBy: { fechaVencimiento: 'asc' },
     });
   }

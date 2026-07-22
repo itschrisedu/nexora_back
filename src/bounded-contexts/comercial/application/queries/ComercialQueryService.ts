@@ -26,9 +26,13 @@ export class ComercialQueryService {
     return this.formatPedido(order);
   }
 
-  async obtenerPedidosPorEstado(estado: PrismaEstadoPedido) {
+  async obtenerPedidosPorEstado(estado: PrismaEstadoPedido, tenantId?: string | null) {
+    const where: any = { estado };
+    if (tenantId) {
+      where.tenantId = tenantId;
+    }
     const orders = await this.prisma.order.findMany({
-      where: { estado },
+      where,
       include: { lines: true, queueEntry: true },
       orderBy: { createdAt: 'desc' },
     });
@@ -36,9 +40,13 @@ export class ComercialQueryService {
     return orders.map((o) => this.formatPedido(o));
   }
 
-  async obtenerPedidosPorCliente(clientId: string) {
+  async obtenerPedidosPorCliente(clientId: string, tenantId?: string | null) {
+    const where: any = { clientId };
+    if (tenantId) {
+      where.tenantId = tenantId;
+    }
     const orders = await this.prisma.order.findMany({
-      where: { clientId },
+      where,
       include: { lines: true, queueEntry: true },
       orderBy: { createdAt: 'desc' },
     });
@@ -46,9 +54,13 @@ export class ComercialQueryService {
     return orders.map((o) => this.formatPedido(o));
   }
 
-  async obtenerPedidosEnCola() {
+  async obtenerPedidosEnCola(tenantId?: string | null) {
+    const where: any = { activa: true };
+    if (tenantId) {
+      where.order = { tenantId };
+    }
     const queue = await this.prisma.orderQueue.findMany({
-      where: { activa: true },
+      where,
       orderBy: [
         { prioridadFifo: 'asc' },      // Criterio 1: Primero en pedir (FIFO)
         { nivelCredito: 'desc' },      // Criterio 2: Mayor nivel crediticio

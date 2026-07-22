@@ -16,6 +16,7 @@ datasource db {
 // ──────────────────────────────────────────
 
 enum Rol {
+  ROL_SUPER_ADMIN
   ROL_ADMIN
   ROL_VENDEDOR
   ROL_BODEGUERO
@@ -29,6 +30,30 @@ enum SeasonTipo {
 }
 
 // ──────────────────────────────────────────
+// SAAS — Tenants
+// ──────────────────────────────────────────
+
+model Tenant {
+  id             String           @id @default(uuid())
+  name           String
+  active         Boolean          @default(true)
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+  users          User[]
+  businessConfig BusinessConfig?
+  productModels  ProductModel[]
+  clients        Client[]
+  orders         Order[]
+  suppliers      Supplier[]
+  seasons        Season[]
+  saleNotes      SaleNote[]
+  cobros         Cobro[]
+  deudas         DeudaProveedor[]
+
+  @@map("tenants")
+}
+
+// ──────────────────────────────────────────
 // AUTH — Usuarios y Tokens
 // ──────────────────────────────────────────
 
@@ -39,8 +64,13 @@ model User {
   nombre         String
   rol            Rol
   activo         Boolean         @default(true)
+  tenantId       String?
+  parentId       String?
   createdAt      DateTime        @default(now())
   updatedAt      DateTime        @updatedAt
+  tenant         Tenant?         @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  parent         User?           @relation("UserHierarchy", fields: [parentId], references: [id], onDelete: SetNull)
+  children       User[]          @relation("UserHierarchy")
   refreshTokens  RefreshToken[]
   passwordResets PasswordReset[]
 
@@ -77,6 +107,7 @@ model PasswordReset {
 
 model BusinessConfig {
   id        String   @id @default(uuid())
+  tenantId  String   @unique
   nombre    String
   ruc       String   // Cifrado con AES-256-GCM en capa de infraestructura
   direccion String
@@ -84,6 +115,7 @@ model BusinessConfig {
   email     String?
   logoUrl   String?
   updatedAt DateTime @updatedAt
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   @@map("business_config")
 }
@@ -94,12 +126,14 @@ model BusinessConfig {
 
 model Season {
   id          String     @id @default(uuid())
+  tenantId    String
   nombre      String
   tipo        SeasonTipo
   fechaInicio DateTime
   fechaFin    DateTime
   activa      Boolean    @default(false)
   createdAt   DateTime   @default(now())
+  tenant      Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   @@map("seasons")
 }
@@ -134,6 +168,7 @@ model TallaConfig {
 
 model ProductModel {
   id        String    @id @default(uuid())
+  tenantId  String
   baseCode  String    @unique
   name      String
   brand     String
@@ -142,6 +177,7 @@ model ProductModel {
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
   products  Product[]
+  tenant    Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   @@map("product_models")
 }
@@ -252,6 +288,7 @@ enum NivelCredito {
 
 model Client {
   id                 String               @id @default(uuid())
+  tenantId           String
   nombre             String
   apellido           String
   telefono           String
@@ -270,6 +307,7 @@ model Client {
   createdAt          DateTime             @default(now())
   updatedAt          DateTime             @updatedAt
   creditScoreHistory CreditScoreHistory[]
+  tenant             Tenant               @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   @@map("clients")
 }
@@ -330,6 +368,7 @@ enum TipoVenta {
 
 model Order {
   id            String         @id @default(uuid())
+  tenantId      String
   clientId      String
   estado        EstadoPedido   @default(PENDIENTE)
   canal         CanalEntrada
@@ -342,6 +381,7 @@ model Order {
   dispatchOrder DispatchOrder?
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
+  tenant        Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   @@map("orders")
 }
@@ -426,6 +466,7 @@ model OrderModification {
 
 model SaleNote {
   id        String         @id @default(uuid())
+  tenantId  String
   numero    Int            @unique @default(autoincrement())
   orderId   String
   clientId  String
@@ -437,6 +478,7 @@ model SaleNote {
   enviada   Boolean        @default(false)
   cobro     Cobro?
   createdAt DateTime       @default(now())
+  tenant    Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   @@map("sale_notes")
 }
@@ -469,6 +511,7 @@ enum CobroEstado {
 
 model Cobro {
   id               String      @id @default(uuid())
+  tenantId         String
   saleNoteId       String      @unique
   clientId         String
   tipo             TipoCobro
@@ -480,6 +523,7 @@ model Cobro {
   saleNote         SaleNote    @relation(fields: [saleNoteId], references: [id], onDelete: Cascade)
   createdAt        DateTime    @default(now())
   updatedAt        DateTime    @updatedAt
+  tenant           Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   @@map("cobros")
 }
@@ -505,6 +549,7 @@ enum DeudaEstado {
 
 model DeudaProveedor {
   id               String      @id @default(uuid())
+  tenantId         String
   supplierId       String      // FK a Supplier (se agrega en Fase 6A)
   entradaId        String      @unique // merchandise_entry_id
   montoTotal       Decimal     @db.Decimal(10, 2)
@@ -514,6 +559,7 @@ model DeudaProveedor {
   pagos            DeudaPago[]
   createdAt        DateTime    @default(now())
   updatedAt        DateTime    @updatedAt
+  tenant           Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   @@map("deudas_proveedor")
 }
@@ -543,6 +589,7 @@ enum SupplierOrderStatus {
 
 model Supplier {
   id          String             @id @default(uuid())
+  tenantId    String
   ruc         String             @unique // Cifrado AES-256-GCM en infraestructura
   razonSocial String
   contacto    String?
@@ -553,6 +600,7 @@ model Supplier {
   entries     MerchandiseEntry[]
   createdAt   DateTime           @default(now())
   updatedAt   DateTime           @updatedAt
+  tenant      Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   @@map("suppliers")
 }

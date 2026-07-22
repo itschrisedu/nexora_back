@@ -10,6 +10,6 @@ export interface PedidoFilters {
 export abstract class IPedidoRepository {
   abstract findById(id: string): Promise<Pedido | null>;
   abstract findAll(filters?: PedidoFilters): Promise<Pedido[]>;
-  abstract save(pedido: Pedido): Promise<void>;
+  abstract save(pedido: Pedido, tenantId?: string): Promise<void>;
   abstract update(pedido: Pedido): Promise<void>;
 }

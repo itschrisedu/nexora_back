@@ -6,6 +6,6 @@ export abstract class IDeudaProveedorRepository {
   abstract findBySupplierId(supplierId: string): Promise<DeudaProveedor[]>;
   abstract findPendientes(): Promise<DeudaProveedor[]>;
   abstract findProximasAVencer(diasAntelacion: number): Promise<DeudaProveedor[]>;
-  abstract save(deuda: DeudaProveedor): Promise<void>;
+  abstract save(deuda: DeudaProveedor, tenantId?: string): Promise<void>;
   abstract update(deuda: DeudaProveedor): Promise<void>;
 }

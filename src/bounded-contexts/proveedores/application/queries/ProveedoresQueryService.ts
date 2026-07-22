@@ -19,8 +19,11 @@ export class ProveedoresQueryService {
     return this.formatSupplier(raw);
   }
 
-  async buscarProveedores(q?: string) {
+  async buscarProveedores(tenantId?: string | null, q?: string) {
     const where: any = {};
+    if (tenantId) {
+      where.tenantId = tenantId;
+    }
     const suppliers = await this.prisma.supplier.findMany({
       where,
       orderBy: { razonSocial: 'asc' },
@@ -61,9 +64,16 @@ export class ProveedoresQueryService {
     };
   }
 
-  async listarOrdenesCompra(supplierId?: string) {
+  async listarOrdenesCompra(supplierId?: string, tenantId?: string | null) {
+    const where: any = {};
+    if (supplierId) {
+      where.supplierId = supplierId;
+    }
+    if (tenantId) {
+      where.supplier = { tenantId };
+    }
     const orders = await this.prisma.supplierOrder.findMany({
-      where: supplierId ? { supplierId } : undefined,
+      where,
       include: { supplier: true },
       orderBy: { createdAt: 'desc' },
     });
@@ -94,9 +104,16 @@ export class ProveedoresQueryService {
     };
   }
 
-  async listarEntradasMercancia(supplierId?: string) {
+  async listarEntradasMercancia(supplierId?: string, tenantId?: string | null) {
+    const where: any = {};
+    if (supplierId) {
+      where.supplierId = supplierId;
+    }
+    if (tenantId) {
+      where.supplier = { tenantId };
+    }
     const entries = await this.prisma.merchandiseEntry.findMany({
-      where: supplierId ? { supplierId } : undefined,
+      where,
       include: { supplier: true },
       orderBy: { fechaIngreso: 'desc' },
     });

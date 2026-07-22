@@ -27,8 +27,8 @@ export class ConfiguracionService {
   // BUSINESS CONFIG
   // ══════════════════════════════
 
-  async getBusinessConfig() {
-    const config = await this.prisma.businessConfig.findFirst();
+  async getBusinessConfig(tenantId: string) {
+    const config = await this.prisma.businessConfig.findUnique({ where: { tenantId } });
     if (!config) return null;
 
     return {
@@ -37,9 +37,9 @@ export class ConfiguracionService {
     };
   }
 
-  async upsertBusinessConfig(dto: UpdateBusinessConfigDto) {
+  async upsertBusinessConfig(dto: UpdateBusinessConfigDto, tenantId: string) {
     const encryptedRuc = this.encryption.encrypt(dto.ruc);
-    const existing = await this.prisma.businessConfig.findFirst();
+    const existing = await this.prisma.businessConfig.findUnique({ where: { tenantId } });
 
     if (existing) {
       const updated = await this.prisma.businessConfig.update({
@@ -51,7 +51,7 @@ export class ConfiguracionService {
     }
 
     const created = await this.prisma.businessConfig.create({
-      data: { ...dto, ruc: encryptedRuc },
+      data: { ...dto, ruc: encryptedRuc, tenantId },
     });
     this.logger.log('Configuración del negocio creada');
     return { ...created, ruc: dto.ruc };
@@ -61,17 +61,22 @@ export class ConfiguracionService {
   // SEASONS (Temporadas)
   // ══════════════════════════════
 
-  async getAllSeasons() {
-    return this.prisma.season.findMany({ orderBy: { fechaInicio: 'desc' } });
+  async getAllSeasons(tenantId?: string | null) {
+    const where: any = {};
+    if (tenantId) {
+      where.tenantId = tenantId;
+    }
+    return this.prisma.season.findMany({ where, orderBy: { fechaInicio: 'desc' } });
   }
 
-  async createSeason(dto: CreateSeasonDto) {
+  async createSeason(dto: CreateSeasonDto, tenantId: string) {
     const season = await this.prisma.season.create({
       data: {
         nombre: dto.nombre,
         tipo: dto.tipo,
         fechaInicio: new Date(dto.fechaInicio),
         fechaFin: new Date(dto.fechaFin),
+        tenantId,
       },
     });
     this.logger.log(`Temporada creada: ${season.nombre}`);

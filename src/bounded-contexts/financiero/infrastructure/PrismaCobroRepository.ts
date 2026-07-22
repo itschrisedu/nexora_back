@@ -59,10 +59,11 @@ export class PrismaCobroRepository implements ICobroRepository {
     return raws.map((r) => this.toDomain(r));
   }
 
-  async save(cobro: Cobro): Promise<void> {
+  async save(cobro: Cobro, tenantId?: string): Promise<void> {
     await this.prisma.cobro.create({
       data: {
         id: cobro.id,
+        tenantId: tenantId!,
         saleNoteId: cobro.saleNoteId,
         clientId: cobro.clientId,
         tipo: cobro.tipo,

@@ -39,7 +39,7 @@ export class RegistrarSupplierHandler {
       command.email,
     );
 
-    await this.supplierRepository.save(supplier);
+    await this.supplierRepository.save(supplier, command.tenantId);
 
     // Publicar eventos
     this.eventBus.publishAll(supplier.clearDomainEvents());

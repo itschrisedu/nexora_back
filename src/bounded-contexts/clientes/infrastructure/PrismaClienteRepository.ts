@@ -58,10 +58,11 @@ export class PrismaClienteRepository extends IClienteRepository {
     return records.map((r) => this.toDomain(r));
   }
 
-  async save(cliente: Cliente): Promise<void> {
+  async save(cliente: Cliente, tenantId?: string): Promise<void> {
     await this.prisma.client.create({
       data: {
         id: cliente.id,
+        tenantId: tenantId!,
         nombre: cliente.nombre,
         apellido: cliente.apellido,
         telefono: cliente.telefono,

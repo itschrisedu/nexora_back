@@ -13,5 +13,6 @@ export class CrearModeloCommand {
     public readonly serieIds: string[],
     public readonly stockInicial: number = 1,
     public readonly stockMinimo: number = 0,
+    public readonly tenantId: string | null = null,
   ) {}
 }

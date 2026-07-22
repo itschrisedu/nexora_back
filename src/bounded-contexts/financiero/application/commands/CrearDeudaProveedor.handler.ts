@@ -4,6 +4,7 @@ import { DeudaProveedor } from '../../domain/DeudaProveedor';
 import { Money } from '../../../../shared/domain/Money';
 import { CrearDeudaProveedorCommand } from './CrearDeudaProveedor.command';
 import { EventBus } from '../../../../shared/infrastructure/event-bus/event-bus.service';
+import { PrismaService } from '../../../../shared/infrastructure/prisma/prisma.service';
 
 @Injectable()
 export class CrearDeudaProveedorHandler {
@@ -11,12 +12,20 @@ export class CrearDeudaProveedorHandler {
     @Inject('IDeudaProveedorRepository')
     private readonly deudaRepository: IDeudaProveedorRepository,
     private readonly eventBus: EventBus,
+    private readonly prisma: PrismaService,
   ) {}
 
   async execute(command: CrearDeudaProveedorCommand): Promise<string> {
     const existe = await this.deudaRepository.findByEntradaId(command.entradaId);
     if (existe) {
       throw new ConflictException(`Ya existe una cuenta por pagar asociada al ingreso de mercancía "${command.entradaId}"`);
+    }
+
+    const supplier = await this.prisma.supplier.findUnique({
+      where: { id: command.supplierId },
+    });
+    if (!supplier) {
+      throw new ConflictException(`Proveedor con ID "${command.supplierId}" no encontrado`);
     }
 
     const deudaId = crypto.randomUUID();
@@ -28,7 +37,7 @@ export class CrearDeudaProveedorHandler {
       command.fechaVencimiento,
     );
 
-    await this.deudaRepository.save(deuda);
+    await this.deudaRepository.save(deuda, supplier.tenantId);
 
     // Publicar eventos (DeudaProveedorCreada)
     this.eventBus.publishAll(deuda.clearDomainEvents());

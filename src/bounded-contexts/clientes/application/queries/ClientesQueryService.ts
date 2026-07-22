@@ -22,8 +22,15 @@ export class ClientesQueryService {
     return this.formatCliente(client);
   }
 
-  async buscarClientes(filtros: { q?: string; nivelCredito?: PrismaNivelCredito; activo?: boolean }) {
+  async buscarClientes(
+    filtros: { q?: string; nivelCredito?: PrismaNivelCredito; activo?: boolean },
+    tenantId?: string | null,
+  ) {
     const where: any = {};
+
+    if (tenantId) {
+      where.tenantId = tenantId;
+    }
 
     if (filtros.q) {
       where.OR = [

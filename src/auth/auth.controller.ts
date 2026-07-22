@@ -9,6 +9,7 @@ import {
   Param,
   Logger,
   UseGuards,
+  Req,
 } from '@nestjs/common';
 import { AuthService } from './auth.service';
 import { LoginDto, RecuperarContrasenaDto, ResetContrasenaDto, CrearUsuarioDto } from './dto/auth.dto';
@@ -75,30 +76,29 @@ export class AuthController {
   }
 
   // ══════════════════════════════════════════
-  // GESTIÓN DE PERSONAL (ADMIN ONLY)
+  // GESTIÓN DE PERSONAL (ADMIN / SUPER ADMIN)
   // ══════════════════════════════════════════
 
   @Get('usuarios')
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Rol.ROL_ADMIN)
-  async listarUsuarios() {
-    return this.authService.listUsers();
+  @Roles(Rol.ROL_ADMIN, Rol.ROL_SUPER_ADMIN)
+  async listarUsuarios(@Req() req: any) {
+    return this.authService.listUsers(req.user);
   }
 
   @Post('usuarios')
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Rol.ROL_ADMIN)
-  async crearUsuario(@Body() dto: CrearUsuarioDto) {
-    const user = await this.authService.createUser(dto.email, dto.nombre, dto.rol, dto.password);
+  @Roles(Rol.ROL_ADMIN, Rol.ROL_SUPER_ADMIN)
+  async crearUsuario(@Body() dto: CrearUsuarioDto, @Req() req: any) {
+    const user = await this.authService.createUser(dto.email, dto.nombre, dto.rol, dto.password, req.user, dto.tenantId);
     return { ok: true, user, message: 'Usuario registrado correctamente.' };
   }
 
   @Patch('usuarios/:id/toggle')
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Rol.ROL_ADMIN)
+  @Roles(Rol.ROL_ADMIN, Rol.ROL_SUPER_ADMIN)
   async toggleUsuario(@Param('id') id: string) {
     const user = await this.authService.toggleUserActive(id);
     return { ok: true, user, message: 'Estado del usuario actualizado.' };
   }
 }
-

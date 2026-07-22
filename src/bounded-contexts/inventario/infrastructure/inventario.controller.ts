@@ -57,20 +57,20 @@ export class InventarioController {
 
   @Get('productos')
   @Roles(Rol.ROL_ADMIN, Rol.ROL_VENDEDOR, Rol.ROL_BODEGUERO)
-  async buscarProductos(@Query() query: BuscarProductosDto) {
-    return this.queryService.buscarProductos(query);
+  async buscarProductos(@Query() query: BuscarProductosDto, @Req() req: any) {
+    return this.queryService.buscarProductos(query, req.user.tenantId);
   }
 
   @Get('productos/stock-bajo')
   @Roles(Rol.ROL_ADMIN, Rol.ROL_BODEGUERO)
-  async obtenerStockBajo() {
-    return this.queryService.obtenerStockBajo();
+  async obtenerStockBajo(@Req() req: any) {
+    return this.queryService.obtenerStockBajo(req.user.tenantId);
   }
 
   @Get('productos/serie/:serie')
   @Roles(Rol.ROL_ADMIN, Rol.ROL_VENDEDOR, Rol.ROL_BODEGUERO)
-  async obtenerPorSerie(@Param('serie') serie: string) {
-    return this.queryService.obtenerProductosPorSerie(serie);
+  async obtenerPorSerie(@Param('serie') serie: string, @Req() req: any) {
+    return this.queryService.obtenerProductosPorSerie(serie, req.user.tenantId);
   }
 
   @Get('productos/:id')
@@ -87,8 +87,8 @@ export class InventarioController {
 
   @Get('modelos')
   @Roles(Rol.ROL_ADMIN, Rol.ROL_VENDEDOR, Rol.ROL_BODEGUERO)
-  async listarModelos() {
-    return this.queryService.listarModelos();
+  async listarModelos(@Req() req: any) {
+    return this.queryService.listarModelos(req.user.tenantId);
   }
 
   // ══════════════════════════════
@@ -97,7 +97,7 @@ export class InventarioController {
 
   @Post('modelos')
   @Roles(Rol.ROL_ADMIN)
-  async crearModelo(@Body() dto: CrearModeloDto) {
+  async crearModelo(@Body() dto: CrearModeloDto, @Req() req: any) {
     const command = new CrearModeloCommand(
       dto.baseCode,
       dto.name,
@@ -109,6 +109,7 @@ export class InventarioController {
       dto.serieIds,
       dto.stockInicial ?? 1,
       dto.stockMinimo ?? 0,
+      req.user.tenantId,
     );
     const result = await this.crearProductoHandler.execute(command);
     return { ...result, message: 'Modelo y variantes creados exitosamente' };
@@ -192,5 +193,41 @@ export class InventarioController {
     );
     await this.descontarStockHandler.execute(command);
     return { message: 'Stock descontado exitosamente' };
+  }
+
+  @Patch('modelos/:id/toggle')
+  @Roles(Rol.ROL_ADMIN)
+  async toggleModelo(@Param('id') id: string) {
+    const model = await this.prisma.productModel.findUnique({ where: { id } });
+    if (!model) throw new NotFoundException(`Modelo con ID ${id} no encontrado`);
+    const nuevoEstado = !model.active;
+
+    await this.prisma.$transaction([
+      this.prisma.productModel.update({
+        where: { id },
+        data: { active: nuevoEstado },
+      }),
+      this.prisma.product.updateMany({
+        where: { modelId: id },
+        data: { active: nuevoEstado },
+      }),
+    ]);
+
+    return { active: nuevoEstado, message: `Modelo ${nuevoEstado ? 'habilitado' : 'deshabilitado'} exitosamente` };
+  }
+
+  @Patch('productos/:id/toggle')
+  @Roles(Rol.ROL_ADMIN)
+  async toggleProducto(@Param('id') id: string) {
+    const product = await this.prisma.product.findUnique({ where: { id } });
+    if (!product) throw new NotFoundException(`Producto con ID ${id} no encontrado`);
+    const nuevoEstado = !product.active;
+
+    await this.prisma.product.update({
+      where: { id },
+      data: { active: nuevoEstado },
+    });
+
+    return { active: nuevoEstado, message: `Variante ${nuevoEstado ? 'habilitada' : 'deshabilitada'} exitosamente` };
   }
 }

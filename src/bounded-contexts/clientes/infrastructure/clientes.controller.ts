@@ -44,8 +44,8 @@ export class ClientesController {
 
   @Get()
   @Roles(Rol.ROL_ADMIN, Rol.ROL_VENDEDOR)
-  async buscarClientes(@Query() query: BuscarClientesDto) {
-    return this.queryService.buscarClientes(query);
+  async buscarClientes(@Query() query: BuscarClientesDto, @Req() req: any) {
+    return this.queryService.buscarClientes(query, req.user.tenantId);
   }
 
   @Get(':id')
@@ -75,7 +75,7 @@ export class ClientesController {
 
   @Post()
   @Roles(Rol.ROL_ADMIN, Rol.ROL_VENDEDOR)
-  async registrarCliente(@Body() dto: RegistrarClienteDto) {
+  async registrarCliente(@Body() dto: RegistrarClienteDto, @Req() req: any) {
     const command = new RegistrarClienteCommand(
       dto.nombre,
       dto.apellido,
@@ -85,6 +85,7 @@ export class ClientesController {
       dto.cedula ?? null,
       dto.direccion ?? null,
       dto.notas ?? null,
+      req.user.tenantId,
     );
     const id = await this.registrarClienteHandler.execute(command);
     return { id, message: 'Cliente registrado exitosamente' };

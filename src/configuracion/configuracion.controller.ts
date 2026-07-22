@@ -8,6 +8,7 @@ import {
   Post,
   Put,
   UseGuards,
+  Req,
 } from '@nestjs/common';
 import { ConfiguracionService } from './configuracion.service';
 import {
@@ -33,14 +34,14 @@ export class ConfiguracionController {
 
   @Get('negocio')
   @Roles(Rol.ROL_ADMIN)
-  async getBusinessConfig() {
-    return this.configuracionService.getBusinessConfig();
+  async getBusinessConfig(@Req() req: any) {
+    return this.configuracionService.getBusinessConfig(req.user.tenantId);
   }
 
   @Put('negocio')
   @Roles(Rol.ROL_ADMIN)
-  async upsertBusinessConfig(@Body() dto: UpdateBusinessConfigDto) {
-    return this.configuracionService.upsertBusinessConfig(dto);
+  async upsertBusinessConfig(@Body() dto: UpdateBusinessConfigDto, @Req() req: any) {
+    return this.configuracionService.upsertBusinessConfig(dto, req.user.tenantId);
   }
 
   // ══════════════════════════════
@@ -49,14 +50,14 @@ export class ConfiguracionController {
 
   @Get('temporadas')
   @Roles(Rol.ROL_ADMIN)
-  async getAllSeasons() {
-    return this.configuracionService.getAllSeasons();
+  async getAllSeasons(@Req() req: any) {
+    return this.configuracionService.getAllSeasons(req.user.tenantId);
   }
 
   @Post('temporadas')
   @Roles(Rol.ROL_ADMIN)
-  async createSeason(@Body() dto: CreateSeasonDto) {
-    return this.configuracionService.createSeason(dto);
+  async createSeason(@Body() dto: CreateSeasonDto, @Req() req: any) {
+    return this.configuracionService.createSeason(dto, req.user.tenantId);
   }
 
   @Patch('temporadas/:id')

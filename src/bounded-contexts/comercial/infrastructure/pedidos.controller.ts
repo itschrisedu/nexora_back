@@ -51,23 +51,24 @@ export class PedidosController {
   @Get()
   @Roles(Rol.ROL_ADMIN, Rol.ROL_VENDEDOR, Rol.ROL_BODEGUERO)
   async buscarPedidos(
+    @Req() req: any,
     @Query('clientId') clientId?: string,
     @Query('estado') estado?: EstadoPedido,
   ) {
     if (estado) {
-      return this.queryService.obtenerPedidosPorEstado(estado);
+      return this.queryService.obtenerPedidosPorEstado(estado, req.user.tenantId);
     }
     if (clientId) {
-      return this.queryService.obtenerPedidosPorCliente(clientId);
+      return this.queryService.obtenerPedidosPorCliente(clientId, req.user.tenantId);
     }
     // Si no hay filtros, podemos retornar todos los pendientes por defecto
-    return this.queryService.obtenerPedidosPorEstado(EstadoPedido.PENDIENTE);
+    return this.queryService.obtenerPedidosPorEstado(EstadoPedido.PENDIENTE, req.user.tenantId);
   }
 
   @Get('cola/pendiente')
   @Roles(Rol.ROL_ADMIN, Rol.ROL_VENDEDOR, Rol.ROL_BODEGUERO)
-  async obtenerPedidosEnCola() {
-    return this.queryService.obtenerPedidosEnCola();
+  async obtenerPedidosEnCola(@Req() req: any) {
+    return this.queryService.obtenerPedidosEnCola(req.user.tenantId);
   }
 
   @Get(':id')
@@ -89,6 +90,7 @@ export class PedidosController {
       dto.tipoPago,
       dto.lineas,
       req.user.sub,
+      req.user.tenantId,
       dto.notas,
     );
     const id = await this.crearPedidoHandler.execute(command);

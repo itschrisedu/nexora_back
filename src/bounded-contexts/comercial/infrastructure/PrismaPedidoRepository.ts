@@ -51,7 +51,7 @@ export class PrismaPedidoRepository extends IPedidoRepository {
     return records.map((r) => this.toDomain(r));
   }
 
-  async save(pedido: Pedido): Promise<void> {
+  async save(pedido: Pedido, tenantId?: string): Promise<void> {
     const linesData = pedido.lineas.map((line) => ({
       id: line.id,
       productId: line.productId,
@@ -65,6 +65,7 @@ export class PrismaPedidoRepository extends IPedidoRepository {
     await this.prisma.order.create({
       data: {
         id: pedido.id,
+        tenantId: tenantId!,
         clientId: pedido.clientId,
         estado: pedido.estado.value,
         canal: pedido.canal.value,

@@ -22,22 +22,73 @@ async function main() {
   console.log('🌱 Iniciando seed de NEXORA...\n');
 
   // ══════════════════════════════
-  // 1. USUARIO ADMIN
+  // 0. INQUILINO POR DEFECTO (TENANT)
   // ══════════════════════════════
+  let defaultTenant = await prisma.tenant.findFirst();
+  if (!defaultTenant) {
+    defaultTenant = await prisma.tenant.create({
+      data: {
+        name: 'NEXORA Sucursal Matriz',
+      },
+    });
+    console.log('✅ Inquilino por defecto creado: NEXORA Sucursal Matriz');
+  } else {
+    console.log('⏭️  Inquilino por defecto ya existe');
+  }
+
+  // ══════════════════════════════
+  // 1. CONFIGURACIÓN DE NEGOCIO (BUSINESS CONFIG)
+  // ══════════════════════════════
+  const config = await prisma.businessConfig.findFirst({ where: { tenantId: defaultTenant.id } });
+  if (!config) {
+    await prisma.businessConfig.create({
+      data: {
+        tenantId: defaultTenant.id,
+        nombre: 'NEXORA Sucursal Matriz',
+        ruc: '1792945281001',
+        direccion: 'Av. Amazonas N24-123, Quito',
+        telefono: '022555666',
+        email: 'sucursal1@nexora.app',
+      },
+    });
+    console.log('✅ Configuración de negocio creada para el Tenant');
+  }
+
+  // ══════════════════════════════
+  // 2. USUARIOS (SUPER ADMIN Y ADMIN)
+  // ══════════════════════════════
+  const superAdminEmail = 'superadmin@nexora.app';
+  const existingSuper = await prisma.user.findFirst({ where: { rol: Rol.ROL_SUPER_ADMIN } });
+  if (!existingSuper) {
+    const passwordHash = await bcrypt.hash('SuperAdmin123!', 12);
+    await prisma.user.create({
+      data: {
+        email: superAdminEmail,
+        passwordHash,
+        nombre: 'Super Administrador',
+        rol: Rol.ROL_SUPER_ADMIN,
+        tenantId: null, // Global
+      },
+    });
+    console.log('✅ Super Admin creado: superadmin@nexora.app / SuperAdmin123!');
+  } else {
+    console.log('⏭️  Super Admin ya existe');
+  }
+
   const adminEmail = 'admin@nexora.app';
   const existingAdmin = await prisma.user.findUnique({ where: { email: adminEmail } });
-
   if (!existingAdmin) {
     const passwordHash = await bcrypt.hash('Admin123!', 12);
     await prisma.user.create({
       data: {
         email: adminEmail,
         passwordHash,
-        nombre: 'Administrador',
+        nombre: 'Administrador de Sucursal',
         rol: Rol.ROL_ADMIN,
+        tenantId: defaultTenant.id,
       },
     });
-    console.log('✅ Usuario admin creado: admin@nexora.app / Admin123!');
+    console.log('✅ Usuario admin sucursal creado: admin@nexora.app / Admin123!');
   } else {
     console.log('⏭️  Usuario admin ya existe');
   }

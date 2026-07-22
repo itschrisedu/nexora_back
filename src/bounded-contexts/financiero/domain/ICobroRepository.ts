@@ -7,6 +7,6 @@ export abstract class ICobroRepository {
   abstract findByClientId(clientId: string): Promise<Cobro[]>;
   abstract findVencidos(): Promise<Cobro[]>;
   abstract findProximosAVencer(diasAntelacion: number): Promise<Cobro[]>;
-  abstract save(cobro: Cobro): Promise<void>;
+  abstract save(cobro: Cobro, tenantId?: string): Promise<void>;
   abstract update(cobro: Cobro): Promise<void>;
 }
