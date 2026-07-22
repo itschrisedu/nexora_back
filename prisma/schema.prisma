@@ -53,6 +53,7 @@ model Tenant {
   proveedorDevoluciones ProveedorDevolucion[]
   facturasElectronicas FacturaElectronica[]
   cierresCaja    CierreCaja[]
+  auditLogs      AuditLog[]
 
   @@map("tenants")
 }
@@ -798,6 +799,40 @@ model CierreCaja {
 
   @@map("cierres_caja")
 }
+
+// ──────────────────────────────────────────
+// FASE 16 — BITÁCORA DE AUDITORÍA Y SEGURIDAD
+// ──────────────────────────────────────────
+
+enum AccionAuditoria {
+  CREAR
+  ACTUALIZAR
+  ELIMINAR
+  LOGIN
+  LOGOUT
+  EXPORTAR
+  OPERACION_CRITICA
+}
+
+model AuditLog {
+  id          String          @id @default(uuid())
+  tenantId    String
+  userId      String?
+  userEmail   String?
+  userRol     String?
+  accion      AccionAuditoria
+  entidad     String          // ej: "PRODUCTO", "PEDIDO", "CLIENTE", "COBRO", "CIERRE_CAJA"
+  entidadId   String?
+  detalles    Json?           // { antes: {...}, despues: {...}, payload: {...} }
+  ipAddress   String?
+  userAgent   String?
+  createdAt   DateTime        @default(now())
+
+  tenant      Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@map("audit_logs")
+}
+
 
 
 
