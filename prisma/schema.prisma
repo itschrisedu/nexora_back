@@ -49,6 +49,8 @@ model Tenant {
   saleNotes      SaleNote[]
   cobros         Cobro[]
   deudas         DeudaProveedor[]
+  clienteDevoluciones ClienteDevolucion[]
+  proveedorDevoluciones ProveedorDevolucion[]
 
   @@map("tenants")
 }
@@ -677,5 +679,67 @@ model NotificationLog {
 
   @@map("notification_logs")
 }
+
+// ──────────────────────────────────────────
+// FASE 11B — DEVOLUCIONES (CLIENTE Y PROVEEDOR)
+// ──────────────────────────────────────────
+
+model ClienteDevolucion {
+  id             String                   @id @default(uuid())
+  tenantId       String
+  saleNoteId     String?
+  orderId        String?
+  clientId       String
+  motivo         String
+  totalDevuelto  Decimal                  @db.Decimal(10, 2)
+  estado         String                   @default("COMPLETADO") // COMPLETADO | RECHAZADO
+  lines          ClienteDevolucionLinea[]
+  tenant         Tenant                   @relation(fields: [tenantId], references: [id])
+  createdAt      DateTime                 @default(now())
+
+  @@map("cliente_devoluciones")
+}
+
+model ClienteDevolucionLinea {
+  id             String            @id @default(uuid())
+  devolucionId   String
+  productId      String
+  tallaId        String
+  cantidad       Int
+  precioUnitario Decimal           @db.Decimal(10, 2)
+  subtotal       Decimal           @db.Decimal(10, 2)
+  devolucion     ClienteDevolucion @relation(fields: [devolucionId], references: [id], onDelete: Cascade)
+
+  @@map("cliente_devolucion_lineas")
+}
+
+model ProveedorDevolucion {
+  id             String                    @id @default(uuid())
+  tenantId       String
+  entradaId      String?
+  supplierId     String
+  motivo         String
+  totalDevuelto  Decimal                   @db.Decimal(10, 2)
+  estado         String                    @default("COMPLETADO") // COMPLETADO | RECHAZADO
+  lines          ProveedorDevolucionLinea[]
+  tenant         Tenant                    @relation(fields: [tenantId], references: [id])
+  createdAt      DateTime                  @default(now())
+
+  @@map("proveedor_devoluciones")
+}
+
+model ProveedorDevolucionLinea {
+  id             String              @id @default(uuid())
+  devolucionId   String
+  productId      String
+  tallaId        String
+  cantidad       Int
+  precioCosto    Decimal             @db.Decimal(10, 2)
+  subtotal       Decimal             @db.Decimal(10, 2)
+  devolucion     ProveedorDevolucion @relation(fields: [devolucionId], references: [id], onDelete: Cascade)
+
+  @@map("proveedor_devolucion_lineas")
+}
+
 
 
