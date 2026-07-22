@@ -10,6 +10,7 @@ import { ComercialModule } from './bounded-contexts/comercial/infrastructure/com
 import { FinancieroModule } from './bounded-contexts/financiero/infrastructure/financiero.module';
 import { ProveedoresModule } from './bounded-contexts/proveedores/infrastructure/proveedores.module';
 import { NotificacionesModule } from './bounded-contexts/notificaciones/infrastructure/notificaciones.module';
+import { FacturacionSriModule } from './bounded-contexts/facturacion-sri/infrastructure/facturacion-sri.module';
 
 @Module({
   imports: [
@@ -37,6 +38,7 @@ import { NotificacionesModule } from './bounded-contexts/notificaciones/infrastr
     FinancieroModule,
     ProveedoresModule,
     NotificacionesModule,
+    FacturacionSriModule,
   ],
 })
 export class AppModule {}

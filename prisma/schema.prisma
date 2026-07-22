@@ -51,6 +51,7 @@ model Tenant {
   deudas         DeudaProveedor[]
   clienteDevoluciones ClienteDevolucion[]
   proveedorDevoluciones ProveedorDevolucion[]
+  facturasElectronicas FacturaElectronica[]
 
   @@map("tenants")
 }
@@ -109,16 +110,24 @@ model PasswordReset {
 // ──────────────────────────────────────────
 
 model BusinessConfig {
-  id        String   @id @default(uuid())
-  tenantId  String   @unique
-  nombre    String
-  ruc       String   // Cifrado con AES-256-GCM en capa de infraestructura
-  direccion String
-  telefono  String?
-  email     String?
-  logoUrl   String?
-  updatedAt DateTime @updatedAt
-  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  id                    String   @id @default(uuid())
+  tenantId              String   @unique
+  nombre                String
+  ruc                   String   // Cifrado con AES-256-GCM en capa de infraestructura
+  direccion             String
+  telefono              String?
+  email                 String?
+  logoUrl               String?
+  // Configuración Facturación Electrónica SRI (Fase 12)
+  firmaP12Path          String?
+  firmaPasswordEnc      String?  // Contraseña .p12 cifrada con AES-256
+  sriAmbiente           String   @default("1") // "1": Pruebas, "2": Producción
+  sriEstablecimiento    String   @default("001")
+  sriPuntoEmision       String   @default("001")
+  sriObligadoContabilidad Boolean @default(false)
+
+  updatedAt             DateTime @updatedAt
+  tenant                Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   @@map("business_config")
 }
@@ -740,6 +749,29 @@ model ProveedorDevolucionLinea {
 
   @@map("proveedor_devolucion_lineas")
 }
+
+// ──────────────────────────────────────────
+// FASE 12 — FACTURACIÓN ELECTRÓNICA SRI
+// ──────────────────────────────────────────
+
+model FacturaElectronica {
+  id                String   @id @default(uuid())
+  tenantId          String
+  saleNoteId        String?  @unique
+  claveAcceso       String?  @unique
+  numeroComprobante String   // 001-001-000000001
+  estadoSri         String   @default("PENDIENTE") // PENDIENTE | AUTORIZADO | RECHAZADO | DEVUELTA
+  xmlUrl            String?
+  ridePdfUrl        String?
+  errorMensaje      String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  tenant            Tenant   @relation(fields: [tenantId], references: [id])
+
+  @@map("facturas_electronicas")
+}
+
 
 
 

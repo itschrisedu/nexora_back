@@ -45,3 +45,8 @@ Thumbs.db
 # Temporary database files
 *.db
 *.db-journal
+
+# Firma electrónica SRI (.p12) — NUNCA subir al repositorio
+/uploads/
+*.p12
+*.pfx

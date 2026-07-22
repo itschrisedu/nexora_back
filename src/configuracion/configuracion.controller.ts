@@ -8,8 +8,15 @@ import {
   Post,
   Put,
   UseGuards,
+  UseInterceptors,
+  UploadedFile,
+  BadRequestException,
   Req,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { diskStorage } from 'multer';
+import { extname, join } from 'path';
+import { existsSync, mkdirSync } from 'fs';
 import { ConfiguracionService } from './configuracion.service';
 import {
   CreateSeasonDto,
@@ -108,5 +115,62 @@ export class ConfiguracionController {
   @Roles(Rol.ROL_ADMIN)
   async deleteTalla(@Param('id') id: string) {
     return this.configuracionService.deleteTalla(id);
+  }
+
+  // ══════════════════════════════
+  // FACTURACIÓN ELECTRÓNICA SRI (Fase 12)
+  // ══════════════════════════════
+
+  /**
+   * POST /configuracion/sri/firma-p12
+   * Sube el archivo de firma electrónica .p12 y guarda la contraseña cifrada.
+   * El archivo se almacena en ./uploads/firmas/{tenantId}/firma.p12
+   */
+  @Post('sri/firma-p12')
+  @Roles(Rol.ROL_ADMIN)
+  @UseInterceptors(
+    FileInterceptor('firma', {
+      storage: diskStorage({
+        destination: (req: any, _file, cb) => {
+          const tenantId = req.user?.tenantId || 'default';
+          const dir = join(process.cwd(), 'uploads', 'firmas', tenantId);
+          if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+          cb(null, dir);
+        },
+        filename: (_req, file, cb) => {
+          const ext = extname(file.originalname).toLowerCase();
+          cb(null, `firma${ext}`);
+        },
+      }),
+      fileFilter: (_req, file, cb) => {
+        const ext = extname(file.originalname).toLowerCase();
+        if (ext !== '.p12' && ext !== '.pfx') {
+          return cb(
+            new BadRequestException('Solo se permiten archivos .p12 o .pfx'),
+            false,
+          );
+        }
+        cb(null, true);
+      },
+      limits: { fileSize: 5 * 1024 * 1024 }, // Máximo 5 MB
+    }),
+  )
+  async subirFirmaP12(
+    @UploadedFile() file: Express.Multer.File,
+    @Body('password') password: string,
+    @Req() req: any,
+  ) {
+    if (!file) {
+      throw new BadRequestException('Debe adjuntar un archivo .p12');
+    }
+    if (!password) {
+      throw new BadRequestException('Debe proporcionar la contraseña de la firma');
+    }
+
+    return this.configuracionService.guardarFirmaP12(
+      req.user.tenantId,
+      file.path,
+      password,
+    );
   }
 }

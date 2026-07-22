@@ -34,6 +34,8 @@ export class ConfiguracionService {
     return {
       ...config,
       ruc: this.encryption.decrypt(config.ruc), // Descifrar RUC para mostrar
+      firmaPasswordEnc: undefined, // Nunca enviar contraseña cifrada al frontend
+      tieneP12: !!config.firmaP12Path, // Indicador booleano para el frontend
     };
   }
 
@@ -41,20 +43,59 @@ export class ConfiguracionService {
     const encryptedRuc = this.encryption.encrypt(dto.ruc);
     const existing = await this.prisma.businessConfig.findUnique({ where: { tenantId } });
 
+    // Construir data excluyendo campos que no deben ir directo
+    const data: any = {
+      nombre: dto.nombre,
+      ruc: encryptedRuc,
+      direccion: dto.direccion,
+      telefono: dto.telefono,
+      email: dto.email,
+      logoUrl: dto.logoUrl,
+    };
+
+    // Campos SRI opcionales (solo incluir si fueron enviados)
+    if (dto.sriAmbiente !== undefined) data.sriAmbiente = dto.sriAmbiente;
+    if (dto.sriEstablecimiento !== undefined) data.sriEstablecimiento = dto.sriEstablecimiento;
+    if (dto.sriPuntoEmision !== undefined) data.sriPuntoEmision = dto.sriPuntoEmision;
+    if (dto.sriObligadoContabilidad !== undefined) data.sriObligadoContabilidad = dto.sriObligadoContabilidad;
+
     if (existing) {
       const updated = await this.prisma.businessConfig.update({
         where: { id: existing.id },
-        data: { ...dto, ruc: encryptedRuc },
+        data,
       });
       this.logger.log('Configuración del negocio actualizada');
-      return { ...updated, ruc: dto.ruc };
+      return { ...updated, ruc: dto.ruc, firmaPasswordEnc: undefined };
     }
 
     const created = await this.prisma.businessConfig.create({
-      data: { ...dto, ruc: encryptedRuc, tenantId },
+      data: { ...data, tenantId },
     });
     this.logger.log('Configuración del negocio creada');
-    return { ...created, ruc: dto.ruc };
+    return { ...created, ruc: dto.ruc, firmaPasswordEnc: undefined };
+  }
+
+  /**
+   * Guarda la ruta del archivo .p12 y su contraseña cifrada con AES-256
+   */
+  async guardarFirmaP12(tenantId: string, filePath: string, password: string) {
+    const config = await this.prisma.businessConfig.findUnique({ where: { tenantId } });
+    if (!config) {
+      throw new NotFoundException('Configuración del negocio no encontrada. Cree la configuración primero.');
+    }
+
+    const encryptedPassword = this.encryption.encrypt(password);
+
+    const updated = await this.prisma.businessConfig.update({
+      where: { id: config.id },
+      data: {
+        firmaP12Path: filePath,
+        firmaPasswordEnc: encryptedPassword,
+      },
+    });
+
+    this.logger.log(`Firma electrónica .p12 guardada para tenant ${tenantId}`);
+    return { ...updated, firmaPasswordEnc: undefined, tieneP12: true };
   }
 
   // ══════════════════════════════

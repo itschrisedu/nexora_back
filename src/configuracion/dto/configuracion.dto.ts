@@ -36,6 +36,24 @@ export class UpdateBusinessConfigDto {
   @IsString()
   @IsOptional()
   logoUrl?: string;
+
+  // ── Facturación Electrónica SRI (Fase 12) ──
+
+  @IsString()
+  @IsOptional()
+  sriAmbiente?: string; // "1" = Pruebas, "2" = Producción
+
+  @IsString()
+  @IsOptional()
+  sriEstablecimiento?: string; // "001"
+
+  @IsString()
+  @IsOptional()
+  sriPuntoEmision?: string; // "001"
+
+  @IsBoolean()
+  @IsOptional()
+  sriObligadoContabilidad?: boolean;
 }
 
 // ── Season ──
