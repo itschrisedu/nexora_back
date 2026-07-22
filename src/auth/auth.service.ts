@@ -77,6 +77,7 @@ export class AuthService {
         nombre: user.nombre,
         rol: user.rol,
         tenantId: user.tenantId,
+        permiteCambiarPrecio: user.permiteCambiarPrecio,
       },
     };
   }
@@ -222,6 +223,7 @@ export class AuthService {
         nombre: true,
         rol: true,
         activo: true,
+        permiteCambiarPrecio: true,
         tenantId: true,
         createdAt: true,
       },
@@ -236,6 +238,7 @@ export class AuthService {
     password: string,
     requestUser: { id: string; rol: string; tenantId: string | null },
     explicitTenantId?: string,
+    permiteCambiarPrecio?: boolean,
   ) {
     // Validación de permisos: solo Super Admin puede crear Admins
     if (rol === Rol.ROL_ADMIN && requestUser.rol !== 'ROL_SUPER_ADMIN') {
@@ -272,6 +275,7 @@ export class AuthService {
         rol,
         passwordHash,
         activo: true,
+        permiteCambiarPrecio: permiteCambiarPrecio ?? false,
         tenantId,
         parentId: requestUser.id,
       },
@@ -281,6 +285,7 @@ export class AuthService {
         nombre: true,
         rol: true,
         activo: true,
+        permiteCambiarPrecio: true,
         tenantId: true,
       },
     });
@@ -300,6 +305,26 @@ export class AuthService {
         nombre: true,
         rol: true,
         activo: true,
+        permiteCambiarPrecio: true,
+      },
+    });
+  }
+
+  async toggleUserPermisoPrecio(id: string) {
+    const user = await this.prisma.user.findUnique({ where: { id } });
+    if (!user) {
+      throw new NotFoundException('Usuario no encontrado.');
+    }
+    return this.prisma.user.update({
+      where: { id },
+      data: { permiteCambiarPrecio: !user.permiteCambiarPrecio },
+      select: {
+        id: true,
+        email: true,
+        nombre: true,
+        rol: true,
+        activo: true,
+        permiteCambiarPrecio: true,
       },
     });
   }

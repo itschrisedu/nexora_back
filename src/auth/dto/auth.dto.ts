@@ -1,4 +1,4 @@
-import { IsEmail, IsNotEmpty, IsString, MinLength, IsEnum, IsOptional } from 'class-validator';
+import { IsEmail, IsNotEmpty, IsString, MinLength, IsEnum, IsOptional, IsBoolean } from 'class-validator';
 import { Rol } from '@prisma/client';
 
 export class LoginDto {
@@ -50,6 +50,10 @@ export class CrearUsuarioDto {
   @IsString()
   @IsOptional()
   tenantId?: string;
+
+  @IsBoolean()
+  @IsOptional()
+  permiteCambiarPrecio?: boolean;
 }
 
 

@@ -90,7 +90,15 @@ export class AuthController {
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Rol.ROL_ADMIN, Rol.ROL_SUPER_ADMIN)
   async crearUsuario(@Body() dto: CrearUsuarioDto, @Req() req: any) {
-    const user = await this.authService.createUser(dto.email, dto.nombre, dto.rol, dto.password, req.user, dto.tenantId);
+    const user = await this.authService.createUser(
+      dto.email,
+      dto.nombre,
+      dto.rol,
+      dto.password,
+      req.user,
+      dto.tenantId,
+      dto.permiteCambiarPrecio,
+    );
     return { ok: true, user, message: 'Usuario registrado correctamente.' };
   }
 
@@ -100,5 +108,13 @@ export class AuthController {
   async toggleUsuario(@Param('id') id: string) {
     const user = await this.authService.toggleUserActive(id);
     return { ok: true, user, message: 'Estado del usuario actualizado.' };
+  }
+
+  @Patch('usuarios/:id/toggle-permiso-precio')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Rol.ROL_ADMIN, Rol.ROL_SUPER_ADMIN)
+  async togglePermisoPrecio(@Param('id') id: string) {
+    const user = await this.authService.toggleUserPermisoPrecio(id);
+    return { ok: true, user, message: 'Permiso de modificación de precios actualizado.' };
   }
 }

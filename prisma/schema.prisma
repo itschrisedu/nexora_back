@@ -64,6 +64,7 @@ model User {
   nombre         String
   rol            Rol
   activo         Boolean         @default(true)
+  permiteCambiarPrecio Boolean   @default(false)
   tenantId       String?
   parentId       String?
   createdAt      DateTime        @default(now())
