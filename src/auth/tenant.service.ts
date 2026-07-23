@@ -225,4 +225,199 @@ export class TenantService {
       businessConfig: tenant.businessConfig,
     };
   }
+
+  /**
+   * Actualizar nombre y configuración de negocio de un tenant.
+   */
+  async updateTenant(
+    tenantId: string,
+    data: {
+      name?: string;
+      businessConfig?: {
+        nombre?: string;
+        ruc?: string;
+        direccion?: string;
+        telefono?: string;
+      };
+    },
+  ) {
+    const tenant = await this.prisma.tenant.findUnique({
+      where: { id: tenantId },
+    });
+    if (!tenant) {
+      throw new NotFoundException(`Tenant con ID "${tenantId}" no encontrado.`);
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      if (data.name && data.name.trim()) {
+        await tx.tenant.update({
+          where: { id: tenantId },
+          data: { name: data.name.trim() },
+        });
+      }
+
+      if (data.businessConfig) {
+        const existingConfig = await tx.businessConfig.findFirst({ where: { tenantId } });
+        if (existingConfig) {
+          await tx.businessConfig.update({
+            where: { id: existingConfig.id },
+            data: {
+              nombre: data.businessConfig.nombre || data.name || tenant.name,
+              ruc: data.businessConfig.ruc ?? existingConfig.ruc,
+              direccion: data.businessConfig.direccion ?? existingConfig.direccion,
+              telefono: data.businessConfig.telefono ?? existingConfig.telefono,
+            },
+          });
+        } else {
+          await tx.businessConfig.create({
+            data: {
+              tenantId,
+              nombre: data.businessConfig.nombre || data.name || tenant.name,
+              ruc: data.businessConfig.ruc || '0000000000001',
+              direccion: data.businessConfig.direccion || 'Ecuador',
+              telefono: data.businessConfig.telefono,
+            },
+          });
+        }
+      }
+    });
+
+    this.logger.log(`Tenant "${tenantId}" actualizado.`);
+    return this.getTenantDetail(tenantId);
+  }
+
+  /**
+   * Eliminar un tenant y todos sus datos en cascada.
+   */
+  async deleteTenant(tenantId: string) {
+    const tenant = await this.prisma.tenant.findUnique({
+      where: { id: tenantId },
+    });
+    if (!tenant) {
+      throw new NotFoundException(`Tenant con ID "${tenantId}" no encontrado.`);
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.user.deleteMany({ where: { tenantId } });
+      await tx.businessConfig.deleteMany({ where: { tenantId } });
+      await tx.productModel.deleteMany({ where: { tenantId } });
+      await tx.client.deleteMany({ where: { tenantId } });
+      await tx.order.deleteMany({ where: { tenantId } });
+      await tx.supplier.deleteMany({ where: { tenantId } });
+      await tx.season.deleteMany({ where: { tenantId } });
+      await tx.saleNote.deleteMany({ where: { tenantId } });
+      await tx.cobro.deleteMany({ where: { tenantId } });
+      await tx.deudaProveedor.deleteMany({ where: { tenantId } });
+      await tx.clienteDevolucion.deleteMany({ where: { tenantId } });
+      await tx.proveedorDevolucion.deleteMany({ where: { tenantId } });
+      await tx.facturaElectronica.deleteMany({ where: { tenantId } });
+      await tx.cierreCaja.deleteMany({ where: { tenantId } });
+      await tx.auditLog.deleteMany({ where: { tenantId } });
+      await tx.tenant.delete({ where: { id: tenantId } });
+    });
+
+    this.logger.warn(`Tenant "${tenant.name}" (${tenantId}) eliminado por Super Admin.`);
+    return { message: `Tenant "${tenant.name}" eliminado correctamente.` };
+  }
+
+  /**
+   * Crear un nuevo usuario en un tenant específico.
+   */
+  async createUserForTenant(
+    tenantId: string,
+    data: {
+      email: string;
+      nombre: string;
+      password: string;
+      rol?: Rol;
+    },
+  ) {
+    const tenant = await this.prisma.tenant.findUnique({ where: { id: tenantId } });
+    if (!tenant) throw new NotFoundException('Tenant no encontrado.');
+
+    const emailExists = await this.prisma.user.findUnique({ where: { email: data.email } });
+    if (emailExists) throw new ConflictException(`El correo "${data.email}" ya está registrado.`);
+
+    const passwordHash = await bcrypt.hash(data.password, this.BCRYPT_ROUNDS);
+    const user = await this.prisma.user.create({
+      data: {
+        email: data.email,
+        nombre: data.nombre,
+        rol: data.rol || Rol.ROL_ADMIN,
+        passwordHash,
+        tenantId,
+        activo: true,
+      },
+      select: {
+        id: true,
+        email: true,
+        nombre: true,
+        rol: true,
+        activo: true,
+        createdAt: true,
+      },
+    });
+
+    this.logger.log(`Usuario "${user.email}" creado para Tenant "${tenant.name}".`);
+    return user;
+  }
+
+  /**
+   * Editar usuario existente.
+   */
+  async updateUserForTenant(
+    userId: string,
+    data: {
+      nombre?: string;
+      email?: string;
+      rol?: Rol;
+      activo?: boolean;
+      password?: string;
+    },
+  ) {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) throw new NotFoundException('Usuario no encontrado.');
+
+    if (data.email && data.email !== user.email) {
+      const emailExists = await this.prisma.user.findUnique({ where: { email: data.email } });
+      if (emailExists) throw new ConflictException(`El correo "${data.email}" ya está registrado.`);
+    }
+
+    const updateData: any = {};
+    if (data.nombre !== undefined) updateData.nombre = data.nombre;
+    if (data.email !== undefined) updateData.email = data.email;
+    if (data.rol !== undefined) updateData.rol = data.rol;
+    if (data.activo !== undefined) updateData.activo = data.activo;
+    if (data.password && data.password.trim()) {
+      updateData.passwordHash = await bcrypt.hash(data.password.trim(), this.BCRYPT_ROUNDS);
+    }
+
+    const updated = await this.prisma.user.update({
+      where: { id: userId },
+      data: updateData,
+      select: {
+        id: true,
+        email: true,
+        nombre: true,
+        rol: true,
+        activo: true,
+        createdAt: true,
+      },
+    });
+
+    this.logger.log(`Usuario "${userId}" actualizado por Super Admin.`);
+    return updated;
+  }
+
+  /**
+   * Eliminar un usuario.
+   */
+  async deleteUser(userId: string) {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) throw new NotFoundException('Usuario no encontrado.');
+
+    await this.prisma.user.delete({ where: { id: userId } });
+    this.logger.warn(`Usuario "${user.email}" (${userId}) eliminado por Super Admin.`);
+    return { message: `Usuario "${user.nombre}" eliminado correctamente.` };
+  }
 }

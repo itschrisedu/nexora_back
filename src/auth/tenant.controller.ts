@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   Patch,
@@ -55,11 +56,56 @@ export class TenantController {
   }
 
   /**
+   * PATCH /tenants/:id
+   * Actualizar nombre y configuración de negocio de un tenant.
+   */
+  @Patch(':id')
+  async updateTenant(@Param('id') id: string, @Body() dto: any) {
+    return this.tenantService.updateTenant(id, dto);
+  }
+
+  /**
+   * DELETE /tenants/:id
+   * Eliminar un tenant y todos sus datos.
+   */
+  @Delete(':id')
+  async deleteTenant(@Param('id') id: string) {
+    return this.tenantService.deleteTenant(id);
+  }
+
+  /**
    * PATCH /tenants/:id/toggle
    * Activar/desactivar un tenant.
    */
   @Patch(':id/toggle')
   async toggleTenant(@Param('id') id: string) {
     return this.tenantService.toggleTenant(id);
+  }
+
+  /**
+   * POST /tenants/:id/users
+   * Crear un nuevo usuario en un tenant específico.
+   */
+  @Post(':id/users')
+  async createUserForTenant(@Param('id') id: string, @Body() dto: any) {
+    return this.tenantService.createUserForTenant(id, dto);
+  }
+
+  /**
+   * PATCH /tenants/users/:userId
+   * Editar usuario existente.
+   */
+  @Patch('users/:userId')
+  async updateUserForTenant(@Param('userId') userId: string, @Body() dto: any) {
+    return this.tenantService.updateUserForTenant(userId, dto);
+  }
+
+  /**
+   * DELETE /tenants/users/:userId
+   * Eliminar usuario.
+   */
+  @Delete('users/:userId')
+  async deleteUserForTenant(@Param('userId') userId: string) {
+    return this.tenantService.deleteUser(userId);
   }
 }

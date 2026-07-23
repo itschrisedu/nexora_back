@@ -57,40 +57,56 @@ async function main() {
   // ══════════════════════════════
   // 2. USUARIOS (SUPER ADMIN Y ADMIN)
   // ══════════════════════════════
-  const superAdminEmail = 'superadmin@nexora.app';
-  const existingSuper = await prisma.user.findFirst({ where: { rol: Rol.ROL_SUPER_ADMIN } });
-  if (!existingSuper) {
-    const passwordHash = await bcrypt.hash('SuperAdmin123!', 12);
-    await prisma.user.create({
-      data: {
-        email: superAdminEmail,
+  const superAdminUsers = [
+    { email: 'superadmin@nexora.com', pass: 'SuperAdmin2026!' },
+    { email: 'superadmin@nexora.app', pass: 'SuperAdmin123!' },
+  ];
+
+  for (const sa of superAdminUsers) {
+    const passwordHash = await bcrypt.hash(sa.pass, 12);
+    await prisma.user.upsert({
+      where: { email: sa.email },
+      update: {
+        passwordHash,
+        rol: Rol.ROL_SUPER_ADMIN,
+        activo: true,
+      },
+      create: {
+        email: sa.email,
         passwordHash,
         nombre: 'Super Administrador',
         rol: Rol.ROL_SUPER_ADMIN,
         tenantId: null, // Global
+        activo: true,
       },
     });
-    console.log('✅ Super Admin creado: superadmin@nexora.app / SuperAdmin123!');
-  } else {
-    console.log('⏭️  Super Admin ya existe');
+    console.log(`✅ Super Admin configurado: ${sa.email} / ${sa.pass}`);
   }
 
-  const adminEmail = 'admin@nexora.app';
-  const existingAdmin = await prisma.user.findUnique({ where: { email: adminEmail } });
-  if (!existingAdmin) {
-    const passwordHash = await bcrypt.hash('Admin123!', 12);
-    await prisma.user.create({
-      data: {
-        email: adminEmail,
+  const adminUsers = [
+    { email: 'admin@cevallos-calzado.com', pass: 'Admin1234!', nombre: 'Administrador Cevallos Calzado' },
+    { email: 'admin@nexora.app', pass: 'Admin123!', nombre: 'Administrador de Sucursal' },
+  ];
+
+  for (const adm of adminUsers) {
+    const passwordHash = await bcrypt.hash(adm.pass, 12);
+    await prisma.user.upsert({
+      where: { email: adm.email },
+      update: {
         passwordHash,
-        nombre: 'Administrador de Sucursal',
+        rol: Rol.ROL_ADMIN,
+        activo: true,
+      },
+      create: {
+        email: adm.email,
+        passwordHash,
+        nombre: adm.nombre,
         rol: Rol.ROL_ADMIN,
         tenantId: defaultTenant.id,
+        activo: true,
       },
     });
-    console.log('✅ Usuario admin sucursal creado: admin@nexora.app / Admin123!');
-  } else {
-    console.log('⏭️  Usuario admin ya existe');
+    console.log(`✅ Usuario Admin configurado: ${adm.email} / ${adm.pass}`);
   }
 
   // ══════════════════════════════
