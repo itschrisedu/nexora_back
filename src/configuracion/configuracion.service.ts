@@ -51,6 +51,7 @@ export class ConfiguracionService {
       telefono: dto.telefono,
       email: dto.email,
       logoUrl: dto.logoUrl,
+      primaryColor: dto.primaryColor,
     };
 
     // Campos SRI opcionales (solo incluir si fueron enviados)

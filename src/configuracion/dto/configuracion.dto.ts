@@ -37,6 +37,10 @@ export class UpdateBusinessConfigDto {
   @IsOptional()
   logoUrl?: string;
 
+  @IsString()
+  @IsOptional()
+  primaryColor?: string;
+
   // ── Facturación Electrónica SRI (Fase 12) ──
 
   @IsString()
