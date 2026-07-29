@@ -38,21 +38,28 @@ export class EncryptionService {
   }
 
   decrypt(encryptedData: string): string {
+    if (!encryptedData) return '';
     const parts = encryptedData.split(':');
     if (parts.length !== 3) {
-      throw new Error('Formato de dato cifrado inválido');
+      // Si el dato no tiene el formato iv:authTag:ciphertext (ej. texto sin cifrar en BD), devolverlo tal cual
+      return encryptedData;
     }
 
-    const [ivHex, authTagHex, ciphertext] = parts;
-    const iv = Buffer.from(ivHex, 'hex');
-    const authTag = Buffer.from(authTagHex, 'hex');
+    try {
+      const [ivHex, authTagHex, ciphertext] = parts;
+      const iv = Buffer.from(ivHex, 'hex');
+      const authTag = Buffer.from(authTagHex, 'hex');
 
-    const decipher = createDecipheriv(this.algorithm, this.key, iv);
-    decipher.setAuthTag(authTag);
+      const decipher = createDecipheriv(this.algorithm, this.key, iv);
+      decipher.setAuthTag(authTag);
 
-    let decrypted = decipher.update(ciphertext, 'hex', 'utf8');
-    decrypted += decipher.final('utf8');
+      let decrypted = decipher.update(ciphertext, 'hex', 'utf8');
+      decrypted += decipher.final('utf8');
 
-    return decrypted;
+      return decrypted;
+    } catch {
+      // Si falla la desencripción, retornar el dato original
+      return encryptedData;
+    }
   }
 }

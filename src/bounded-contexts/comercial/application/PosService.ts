@@ -36,11 +36,27 @@ export class PosService {
   ) {}
 
   /**
+   * Resuelve el tenantId activo
+   */
+  private async resolveTenantId(tenantId?: string | null): Promise<string> {
+    if (tenantId) {
+      const t = await this.prisma.tenant.findUnique({ where: { id: tenantId } });
+      if (t) return t.id;
+    }
+    const firstTenant = await this.prisma.tenant.findFirst({ where: { active: true } });
+    if (!firstTenant) {
+      throw new NotFoundException('No existe un Tenant/Organización activa.');
+    }
+    return firstTenant.id;
+  }
+
+  /**
    * Abrir una nueva sesión de Caja / Turno POS
    */
-  async abrirCaja(tenantId: string, userId: string, dto: AbrirCajaDto) {
+  async abrirCaja(tenantId: string | null | undefined, userId: string, dto: AbrirCajaDto) {
+    const tid = await this.resolveTenantId(tenantId);
     const cajaAbierta = await this.prisma.cierreCaja.findFirst({
-      where: { tenantId, estado: 'ABIERTA' },
+      where: { tenantId: tid, estado: 'ABIERTA' },
     });
 
     if (cajaAbierta) {
@@ -49,7 +65,7 @@ export class PosService {
 
     const nuevaCaja = await this.prisma.cierreCaja.create({
       data: {
-        tenantId,
+        tenantId: tid,
         userId,
         montoInicial: dto.montoInicial,
         montoEsperadoEfectivo: dto.montoInicial,
@@ -64,9 +80,10 @@ export class PosService {
   /**
    * Consulta el estado de la caja actualmente abierta y sus acumulados
    */
-  async obtenerEstadoCaja(tenantId: string) {
+  async obtenerEstadoCaja(tenantId: string | null | undefined) {
+    const tid = await this.resolveTenantId(tenantId);
     const cajaAbierta = await this.prisma.cierreCaja.findFirst({
-      where: { tenantId, estado: 'ABIERTA' },
+      where: { tenantId: tid, estado: 'ABIERTA' },
       orderBy: { fechaApertura: 'desc' },
     });
 

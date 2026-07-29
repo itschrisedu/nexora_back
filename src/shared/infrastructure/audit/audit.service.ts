@@ -65,9 +65,10 @@ export class AuditService {
     const limit = Number(filter.limit) || 20;
     const skip = (page - 1) * limit;
 
-    const where: any = {
-      tenantId: filter.tenantId,
-    };
+    const where: any = {};
+    if (filter.tenantId) {
+      where.tenantId = filter.tenantId;
+    }
 
     if (filter.userId) where.userId = filter.userId;
     if (filter.accion) where.accion = filter.accion;
