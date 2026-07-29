@@ -230,4 +230,15 @@ export class InventarioController {
 
     return { active: nuevoEstado, message: `Variante ${nuevoEstado ? 'habilitada' : 'deshabilitada'} exitosamente` };
   }
+
+  @Delete('modelos/:id')
+  @Roles(Rol.ROL_ADMIN)
+  async eliminarModelo(@Param('id') id: string) {
+    const model = await this.prisma.productModel.findUnique({ where: { id } });
+    if (!model) throw new NotFoundException(`Modelo con ID ${id} no encontrado`);
+
+    await this.prisma.productModel.delete({ where: { id } });
+
+    return { message: `Modelo ${model.name} eliminado permanentemente exitosamente` };
+  }
 }
