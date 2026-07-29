@@ -123,11 +123,12 @@ export class PosService {
       if (!consumidorFinal) {
         consumidorFinal = await this.prisma.client.create({
           data: {
-            tenantId: tid,
-            nombre: 'Consumidor Final',
-            cedula: '9999999999999',
-            scoringCredito: 100,
-            tipoScore: 'EXCELENTE',
+            nombre: 'Consumidor',
+            apellido: 'Final',
+            telefono: '0000000000',
+            cedula: '9999999999',
+            nivelCredito: 'SIN_CREDITO',
+            tenant: { connect: { id: tid } },
           },
         });
       }

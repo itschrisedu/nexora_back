@@ -59,10 +59,13 @@ export class PrismaClienteRepository extends IClienteRepository {
   }
 
   async save(cliente: Cliente, tenantId?: string): Promise<void> {
+    if (!tenantId) {
+      throw new Error('tenantId es requerido para registrar un cliente');
+    }
+
     await this.prisma.client.create({
       data: {
         id: cliente.id,
-        tenantId: tenantId!,
         nombre: cliente.nombre,
         apellido: cliente.apellido,
         telefono: cliente.telefono,
@@ -78,6 +81,7 @@ export class PrismaClienteRepository extends IClienteRepository {
         limiteCredito: cliente.limiteCredito.amount,
         creditoUtilizado: cliente.creditoUtilizado.amount,
         activo: cliente.activo,
+        tenant: { connect: { id: tenantId } },
       },
     });
 
