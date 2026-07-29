@@ -174,4 +174,41 @@ export class PedidosController {
       orderBy: { createdAt: 'asc' },
     });
   }
+
+  /**
+   * Consultar el último precio al que se le vendió un producto a un cliente específico.
+   * Útil para recordar precios anteriores al crear nuevos pedidos.
+   */
+  @Get('ultimo-precio')
+  @Roles(Rol.ROL_ADMIN, Rol.ROL_VENDEDOR)
+  async obtenerUltimoPrecioCliente(
+    @Req() req: any,
+    @Query('clientId') clientId: string,
+    @Query('productId') productId: string,
+  ) {
+    if (!clientId || !productId) {
+      return { precioAnterior: null };
+    }
+
+    const ultimaLinea = await this.prisma.orderLine.findFirst({
+      where: {
+        productId,
+        order: {
+          clientId,
+          tenantId: req.user.tenantId,
+          estado: { not: 'CANCELADO' },
+        },
+      },
+      orderBy: { order: { createdAt: 'desc' } },
+      select: {
+        precioUnitario: true,
+        order: { select: { createdAt: true } },
+      },
+    });
+
+    return {
+      precioAnterior: ultimaLinea ? Number(ultimaLinea.precioUnitario) : null,
+      fechaUltimaVenta: ultimaLinea?.order?.createdAt || null,
+    };
+  }
 }

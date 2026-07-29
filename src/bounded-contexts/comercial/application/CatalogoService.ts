@@ -92,6 +92,7 @@ export class CatalogoService {
         code: p.code,
         color: p.color,
         imageUrl: p.imageUrl,
+        costPrice: Number(p.costPrice),
         salePrice: Number(p.salePrice),
         serieNombre: p.serie.nombre,
         serieId: p.serie.id,

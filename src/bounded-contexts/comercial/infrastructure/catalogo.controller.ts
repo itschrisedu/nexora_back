@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, Query } from '@nestjs/common';
+import { Controller, Get, Post, Body, Query, Req } from '@nestjs/common';
 import { CatalogoService } from '../application/CatalogoService';
 import type { RegistrarPedidoWhatsAppDto } from '../application/CatalogoService';
 
@@ -22,8 +22,22 @@ export class CatalogoController {
    * Obtener catálogo de calzado disponible
    */
   @Get('productos')
-  async obtenerCatalogoPublico(@Query('tenantId') tenantId?: string) {
-    return this.catalogoService.obtenerCatalogoPublico(tenantId);
+  async obtenerCatalogoPublico(@Query('tenantId') tenantId?: string, @Req() req?: any) {
+    let resolvedTenantId = tenantId;
+    if (!resolvedTenantId && req?.headers?.authorization) {
+      try {
+        const token = req.headers.authorization.split(' ')[1];
+        if (token) {
+          const payload = JSON.parse(Buffer.from(token.split('.')[1], 'base64').toString());
+          if (payload && payload.tenantId) {
+            resolvedTenantId = payload.tenantId;
+          }
+        }
+      } catch (e) {
+        // Ignorar error si el token no es válido o está malformado
+      }
+    }
+    return this.catalogoService.obtenerCatalogoPublico(resolvedTenantId);
   }
 
   /**
