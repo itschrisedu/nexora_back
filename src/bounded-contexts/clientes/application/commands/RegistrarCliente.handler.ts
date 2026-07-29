@@ -38,7 +38,7 @@ export class RegistrarClienteHandler {
       command.notas,
     );
 
-    await this.clienteRepository.save(cliente);
+    await this.clienteRepository.save(cliente, command.tenantId);
 
     // Publicar eventos
     this.eventBus.publishAll(cliente.clearDomainEvents());
