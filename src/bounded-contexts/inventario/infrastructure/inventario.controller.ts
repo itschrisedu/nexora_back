@@ -110,6 +110,7 @@ export class InventarioController {
       dto.stockInicial ?? 1,
       dto.stockMinimo ?? 0,
       req.user.tenantId,
+      dto.seriesPrices ?? null,
     );
     const result = await this.crearProductoHandler.execute(command);
     return { ...result, message: 'Modelo y variantes creados exitosamente' };

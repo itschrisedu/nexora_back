@@ -67,6 +67,9 @@ export class CrearModeloDto {
   @Min(0)
   @IsOptional()
   stockMinimo?: number;
+
+  @IsOptional()
+  seriesPrices?: Record<string, { costPrice: number; salePrice: number }>;
 }
 
 // ── Cambiar precio ──

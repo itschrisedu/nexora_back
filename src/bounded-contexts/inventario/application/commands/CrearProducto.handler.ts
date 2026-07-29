@@ -80,6 +80,11 @@ export class CrearProductoHandler {
           );
         }
 
+        // Determinar precios: usar precios por serie si están disponibles
+        const seriePrices = command.seriesPrices?.[serieConfig.id];
+        const finalCostPrice = seriePrices?.costPrice ?? command.costPrice;
+        const finalSalePrice = seriePrices?.salePrice ?? command.salePrice;
+
         const productoId = crypto.randomUUID();
         const producto = Producto.crear(
           productoId,
@@ -87,8 +92,8 @@ export class CrearProductoHandler {
           code,
           colorEntry.color,
           colorEntry.imageUrl,
-          Money.create(command.costPrice),
-          Money.create(command.salePrice),
+          Money.create(finalCostPrice),
+          Money.create(finalSalePrice),
           serieVO,
           stockPorTallaList,
         );
