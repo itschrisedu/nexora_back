@@ -108,7 +108,8 @@ export class PosService {
   /**
    * Registra una Venta Directa en Mostrador (POS) con cobro e inventario inmediato
    */
-  async registrarVentaDirectaPOS(tenantId: string, userId: string, dto: RegistrarVentaPosDto) {
+  async registrarVentaDirectaPOS(tenantId: string | null | undefined, userId: string, dto: RegistrarVentaPosDto) {
+    const tid = await this.resolveTenantId(tenantId);
     if (!dto.lineas || dto.lineas.length === 0) {
       throw new BadRequestException('Debe incluir al menos un artículo para la venta.');
     }
@@ -117,17 +118,16 @@ export class PosService {
     let clienteId = dto.clienteId;
     if (!clienteId) {
       let consumidorFinal = await this.prisma.client.findFirst({
-        where: { tenantId, nombre: 'Consumidor Final' },
+        where: { tenantId: tid, nombre: 'Consumidor Final' },
       });
       if (!consumidorFinal) {
         consumidorFinal = await this.prisma.client.create({
           data: {
-            tenantId,
+            tenantId: tid,
             nombre: 'Consumidor Final',
-            apellido: '',
-            telefono: '9999999999',
-            ruc: this.encryption.encrypt('9999999999999'),
-            direccion: 'Mostrador POS',
+            cedula: '9999999999999',
+            scoringCredito: 100,
+            tipoScore: 'EXCELENTE',
           },
         });
       }
@@ -174,7 +174,7 @@ export class PosService {
       // B. Crear Pedido ENTREGADO
       const order = await tx.order.create({
         data: {
-          tenantId,
+          tenantId: tid,
           clientId: clienteId,
           userId,
           estado: EstadoPedido.ENTREGADO,
@@ -198,7 +198,7 @@ export class PosService {
       // C. Crear Nota de Venta
       const saleNote = await tx.saleNote.create({
         data: {
-          tenantId,
+          tenantId: tid,
           orderId: order.id,
           clientId: clienteId,
           subtotal: montoTotal,
@@ -221,7 +221,7 @@ export class PosService {
       // D. Crear Registro de Cobro Saldado
       const cobro = await tx.cobro.create({
         data: {
-          tenantId,
+          tenantId: tid,
           clientId: clienteId,
           saleNoteId: saleNote.id,
           tipo: TipoCobro.CONTADO,
@@ -241,7 +241,7 @@ export class PosService {
 
       // E. Actualizar acumulación en Cierre de Caja activo si existe
       const cajaAbierta = await tx.cierreCaja.findFirst({
-        where: { tenantId, estado: 'ABIERTA' },
+        where: { tenantId: tid, estado: 'ABIERTA' },
       });
 
       if (cajaAbierta) {
@@ -274,9 +274,10 @@ export class PosService {
   /**
    * Cierre de Caja y Arqueo de Período (Cuadre de Turno)
    */
-  async cerrarCajaArqueo(tenantId: string, userId: string, dto: CerrarCajaDto) {
+  async cerrarCajaArqueo(tenantId: string | null | undefined, userId: string, dto: CerrarCajaDto) {
+    const tid = await this.resolveTenantId(tenantId);
     const cajaAbierta = await this.prisma.cierreCaja.findFirst({
-      where: { tenantId, estado: 'ABIERTA' },
+      where: { tenantId: tid, estado: 'ABIERTA' },
     });
 
     if (!cajaAbierta) {

@@ -19,7 +19,7 @@ export class PosController {
    * Abrir un turno / caja de venta
    */
   @Post('caja/abrir')
-  @Roles(Rol.ROL_ADMIN, Rol.ROL_VENDEDOR)
+  @Roles(Rol.ROL_ADMIN, Rol.ROL_VENDEDOR, Rol.ROL_SUPER_ADMIN)
   async abrirCaja(@Body() body: AbrirCajaDto, @Req() req: any) {
     return this.posService.abrirCaja(req.user.tenantId, req.user.sub, body);
   }
@@ -28,7 +28,7 @@ export class PosController {
    * Obtener el estado y resumen actual de la caja abierta
    */
   @Get('caja/estado')
-  @Roles(Rol.ROL_ADMIN, Rol.ROL_VENDEDOR)
+  @Roles(Rol.ROL_ADMIN, Rol.ROL_VENDEDOR, Rol.ROL_SUPER_ADMIN)
   async obtenerEstadoCaja(@Req() req: any) {
     return this.posService.obtenerEstadoCaja(req.user.tenantId);
   }
@@ -37,7 +37,7 @@ export class PosController {
    * Registrar una Venta Directa en Mostrador (POS)
    */
   @Post('venta-directa')
-  @Roles(Rol.ROL_ADMIN, Rol.ROL_VENDEDOR)
+  @Roles(Rol.ROL_ADMIN, Rol.ROL_VENDEDOR, Rol.ROL_SUPER_ADMIN)
   async registrarVentaDirectaPOS(@Body() body: RegistrarVentaPosDto, @Req() req: any) {
     return this.posService.registrarVentaDirectaPOS(
       req.user.tenantId,
@@ -50,7 +50,7 @@ export class PosController {
    * Realizar el arqueo y Cierre de Caja / Turno
    */
   @Post('caja/cerrar')
-  @Roles(Rol.ROL_ADMIN, Rol.ROL_VENDEDOR)
+  @Roles(Rol.ROL_ADMIN, Rol.ROL_VENDEDOR, Rol.ROL_SUPER_ADMIN)
   async cerrarCajaArqueo(@Body() body: CerrarCajaDto, @Req() req: any) {
     return this.posService.cerrarCajaArqueo(
       req.user.tenantId,
