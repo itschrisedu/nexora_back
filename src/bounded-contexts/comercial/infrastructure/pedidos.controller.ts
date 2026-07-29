@@ -61,8 +61,8 @@ export class PedidosController {
     if (clientId) {
       return this.queryService.obtenerPedidosPorCliente(clientId, req.user.tenantId);
     }
-    // Si no hay filtros, podemos retornar todos los pendientes por defecto
-    return this.queryService.obtenerPedidosPorEstado(EstadoPedido.PENDIENTE, req.user.tenantId);
+    // Si no hay filtros, retornar todos los pedidos del tenant
+    return this.queryService.obtenerTodosLosPedidos(req.user.tenantId);
   }
 
   @Get('cola/pendiente')

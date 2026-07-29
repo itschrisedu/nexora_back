@@ -27,6 +27,16 @@ export class FinancieroQueryService {
     });
   }
 
+  async listarTodosCobros(tenantId?: string | null) {
+    const where: any = {};
+    if (tenantId) where.tenantId = tenantId;
+    return this.prisma.cobro.findMany({
+      where,
+      include: { saleNote: { select: { numero: true, total: true, pdfUrl: true } }, abonos: true },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
   async listarCobrosVencidos(tenantId?: string | null) {
     const where: any = {
       fechaVencimiento: { lt: new Date() },

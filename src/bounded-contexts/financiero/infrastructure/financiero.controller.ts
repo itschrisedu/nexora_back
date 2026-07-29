@@ -39,6 +39,12 @@ export class FinancieroController {
   // COBROS
   // ══════════════════════════════════════════
 
+  @Get('cobros')
+  @Roles(Rol.ROL_ADMIN, Rol.ROL_VENDEDOR)
+  listarTodosCobros(@Req() req: any) {
+    return this.queryService.listarTodosCobros(req.user.tenantId);
+  }
+
   @Get('cobros/vencidos')
   @Roles(Rol.ROL_ADMIN)
   cobrosVencidos(@Req() req: any) {

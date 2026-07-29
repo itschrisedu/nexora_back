@@ -23,7 +23,8 @@ export class ComercialQueryService {
       throw new NotFoundException(`Pedido con ID "${id}" no encontrado`);
     }
 
-    return this.formatPedido(order);
+    const [formatted] = await this.attachClientNames([order]);
+    return formatted;
   }
 
   async obtenerPedidosPorEstado(estado: PrismaEstadoPedido, tenantId?: string | null) {
@@ -37,7 +38,21 @@ export class ComercialQueryService {
       orderBy: { createdAt: 'desc' },
     });
 
-    return orders.map((o) => this.formatPedido(o));
+    return this.attachClientNames(orders);
+  }
+
+  async obtenerTodosLosPedidos(tenantId?: string | null) {
+    const where: any = {};
+    if (tenantId) {
+      where.tenantId = tenantId;
+    }
+    const orders = await this.prisma.order.findMany({
+      where,
+      include: { lines: true, queueEntry: true },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    return this.attachClientNames(orders);
   }
 
   async obtenerPedidosPorCliente(clientId: string, tenantId?: string | null) {
@@ -51,7 +66,7 @@ export class ComercialQueryService {
       orderBy: { createdAt: 'desc' },
     });
 
-    return orders.map((o) => this.formatPedido(o));
+    return this.attachClientNames(orders);
   }
 
   async obtenerPedidosEnCola(tenantId?: string | null) {
@@ -73,16 +88,43 @@ export class ComercialQueryService {
       },
     });
 
+    const orders = await this.attachClientNames(queue.map((q) => q.order));
+    const orderMap = new Map(orders.map((o) => [o.id, o]));
+
     return queue.map((q) => ({
       queueId: q.id,
       prioridadFifo: q.prioridadFifo,
       nivelCredito: q.nivelCredito,
       totalHistorico: Number(q.totalHistorico),
-      order: this.formatPedido(q.order),
+      order: orderMap.get(q.order.id) || this.formatPedido(q.order),
     }));
   }
 
   // ── Mapeador interno ─────────────────────────
+
+  private async attachClientNames(orders: any[]) {
+    const clientIds = Array.from(new Set(orders.map((o) => o.clientId).filter(Boolean)));
+    const clientMap = new Map<string, string>();
+
+    if (clientIds.length > 0) {
+      const clients = await this.prisma.client.findMany({
+        where: { id: { in: clientIds as string[] } },
+        select: { id: true, nombre: true, apellido: true },
+      });
+      clients.forEach((c) => {
+        const full = `${c.nombre || ''} ${c.apellido || ''}`.trim();
+        clientMap.set(c.id, full || 'Consumidor Final');
+      });
+    }
+
+    return orders.map((o) => {
+      const formatted = this.formatPedido(o);
+      return {
+        ...formatted,
+        clienteNombre: clientMap.get(o.clientId) || 'Consumidor Final',
+      };
+    });
+  }
 
   private formatPedido(record: any) {
     return {
