@@ -72,6 +72,30 @@ export class CrearModeloDto {
   seriesPrices?: Record<string, { costPrice: number; salePrice: number }>;
 }
 
+// ── Agregar nuevo color a un modelo existente ──
+
+export class AgregarColorDto {
+  @IsString()
+  @IsNotEmpty()
+  color!: string;
+
+  @IsString()
+  @IsOptional()
+  imageUrl?: string;
+
+  @IsArray()
+  @IsString({ each: true })
+  serieIds!: string[];
+
+  @IsInt()
+  @Min(0)
+  @IsOptional()
+  stockInicial?: number;
+
+  @IsOptional()
+  seriesPrices?: Record<string, { costPrice: number; salePrice: number }>;
+}
+
 // ── Cambiar precio ──
 
 export class CambiarPrecioDto {

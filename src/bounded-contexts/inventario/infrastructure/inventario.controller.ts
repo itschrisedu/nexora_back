@@ -3,6 +3,7 @@ import {
   Controller,
   Delete,
   Get,
+  Inject,
   Param,
   Patch,
   Post,
@@ -17,11 +18,18 @@ import { Roles } from '../../../shared/guards/roles.decorator';
 import { Rol } from '@prisma/client';
 import {
   CrearModeloDto,
+  AgregarColorDto,
   CambiarPrecioDto,
   ReservarStockDto,
   MovimientoStockDto,
   BuscarProductosDto,
 } from './dto/inventario.dto';
+import { IProductoRepository } from '../domain/IProductoRepository';
+import { Producto } from '../domain/Producto';
+import { Money } from '../../../shared/domain/Money';
+import { Serie } from '../domain/value-objects/Serie';
+import { StockPorTalla } from '../domain/value-objects/StockPorTalla';
+import { Talla } from '../domain/value-objects/Talla';
 import { CrearProductoHandler } from '../application/commands/CrearProducto.handler';
 import { CrearModeloCommand } from '../application/commands/CrearProducto.command';
 import { CambiarPrecioHandler } from '../application/commands/CambiarPrecio.handler';
@@ -49,6 +57,8 @@ export class InventarioController {
     private readonly descontarStockHandler: DescontarStockHandler,
     private readonly queryService: InventarioQueryService,
     private readonly prisma: PrismaService,
+    @Inject('IProductoRepository')
+    private readonly productoRepository: IProductoRepository,
   ) {}
 
   // ══════════════════════════════
@@ -114,6 +124,77 @@ export class InventarioController {
     );
     const result = await this.crearProductoHandler.execute(command);
     return { ...result, message: 'Modelo y variantes creados exitosamente' };
+  }
+
+  @Post('modelos/:id/colores')
+  @Roles(Rol.ROL_ADMIN)
+  async agregarColorAModelo(
+    @Param('id') modelId: string,
+    @Body() dto: AgregarColorDto,
+  ) {
+    const model = await this.prisma.productModel.findUnique({
+      where: { id: modelId },
+    });
+    if (!model) throw new NotFoundException(`Modelo con ID ${modelId} no encontrado`);
+
+    const seriesConfigs = await this.prisma.seriesConfig.findMany({
+      where: { id: { in: dto.serieIds } },
+      include: { tallas: true },
+    });
+
+    if (seriesConfigs.length !== dto.serieIds.length) {
+      throw new NotFoundException('Algunas de las series seleccionadas no existen');
+    }
+
+    const createdProductIds: string[] = [];
+    const stockInicial = dto.stockInicial ?? 1;
+
+    for (const serieConfig of seriesConfigs) {
+      const serieVO = Serie.create(serieConfig.nombre);
+
+      const colorClean = dto.color.trim();
+      const colorSuffix = colorClean.substring(0, 3).toUpperCase();
+      const serieSuffix = serieConfig.nombre.substring(0, 3).toUpperCase();
+      let code = `${model.baseCode}-${colorSuffix}-${serieSuffix}`;
+
+      const existeCodigo = await this.productoRepository.findByCodigo(code);
+      if (existeCodigo) {
+        code = `${code}-${Math.floor(Math.random() * 899 + 100)}`;
+      }
+
+      const stockPorTallaList: StockPorTalla[] = [];
+      for (const talla of serieConfig.tallas) {
+        Talla.create(talla.numero, serieVO);
+        stockPorTallaList.push(
+          StockPorTalla.create(talla.id, stockInicial, 0, 0)
+        );
+      }
+
+      const seriePrices = dto.seriesPrices?.[serieConfig.id];
+      const finalCostPrice = seriePrices?.costPrice ?? 10;
+      const finalSalePrice = seriePrices?.salePrice ?? 13;
+
+      const productoId = crypto.randomUUID();
+      const producto = Producto.crear(
+        productoId,
+        modelId,
+        code,
+        colorClean,
+        dto.imageUrl ?? null,
+        Money.create(finalCostPrice),
+        Money.create(finalSalePrice),
+        serieVO,
+        stockPorTallaList,
+      );
+
+      await this.productoRepository.save(producto);
+      createdProductIds.push(productoId);
+    }
+
+    return {
+      message: `Color "${dto.color}" añadido exitosamente al modelo "${model.name}"`,
+      productIds: createdProductIds,
+    };
   }
 
   @Patch('productos/:id/precio')
