@@ -41,7 +41,7 @@ export class CrearProductoHandler {
     // 3. Resolver las series seleccionadas
     const seriesConfigs = await this.prisma.seriesConfig.findMany({
       where: { id: { in: command.serieIds } },
-      include: { tallas: true },
+      include: { tallas: { orderBy: { numero: 'asc' } } },
     });
 
     if (seriesConfigs.length !== command.serieIds.length) {
@@ -66,18 +66,48 @@ export class CrearProductoHandler {
           throw new ConflictException(`El producto con código "${code}" ya existe`);
         }
 
-        // Crear stock por talla
+        // Crear stock por talla — con soporte para tallas personalizadas
         const stockPorTallaList: StockPorTalla[] = [];
-        for (const talla of serieConfig.tallas) {
-          Talla.create(talla.numero, serieVO);
-          stockPorTallaList.push(
-            StockPorTalla.create(
-              talla.id,
-              command.stockInicial,
-              0,
-              command.stockMinimo,
-            ),
-          );
+
+        // Verificar si hay tallas personalizadas para esta serie
+        const customTallaIds = command.customTallas?.[serieConfig.id];
+
+        if (customTallaIds && customTallaIds.length > 0) {
+          // Modo personalizado: el usuario eligió tallas específicas
+          // Contar repeticiones de cada tallaId para calcular stock extra
+          const tallaCountMap = new Map<string, number>();
+          for (const tid of customTallaIds) {
+            tallaCountMap.set(tid, (tallaCountMap.get(tid) || 0) + 1);
+          }
+
+          for (const [tallaId, count] of tallaCountMap.entries()) {
+            // Verificar que la talla pertenece a esta serie
+            const tallaConfig = serieConfig.tallas.find(t => t.id === tallaId);
+            if (!tallaConfig) continue;
+
+            Talla.create(tallaConfig.numero, serieVO);
+            stockPorTallaList.push(
+              StockPorTalla.create(
+                tallaId,
+                command.stockInicial * count, // Stock multiplicado por repeticiones
+                0,
+                command.stockMinimo,
+              ),
+            );
+          }
+        } else {
+          // Modo estándar: usar TODAS las tallas de la serie
+          for (const talla of serieConfig.tallas) {
+            Talla.create(talla.numero, serieVO);
+            stockPorTallaList.push(
+              StockPorTalla.create(
+                talla.id,
+                command.stockInicial,
+                0,
+                command.stockMinimo,
+              ),
+            );
+          }
         }
 
         // Determinar precios: usar precios por serie si están disponibles

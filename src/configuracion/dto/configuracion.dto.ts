@@ -107,6 +107,43 @@ export class CreateSeriesDto {
   nombre!: string;
 }
 
+/**
+ * Crear serie completa con rango de tallas automático.
+ * Genera tallas desde tallasDesde hasta tallasHasta.
+ */
+export class CreateSeriesWithTallasDto {
+  @IsString()
+  @IsNotEmpty()
+  nombre!: string;
+
+  @IsInt()
+  @Min(1)
+  tallasDesde!: number;
+
+  @IsInt()
+  @Min(1)
+  tallasHasta!: number;
+}
+
+/**
+ * Actualizar una serie existente: cambiar nombre y/o reconfiguar rango de tallas.
+ */
+export class UpdateSeriesDto {
+  @IsString()
+  @IsOptional()
+  nombre?: string;
+
+  @IsInt()
+  @Min(1)
+  @IsOptional()
+  tallasDesde?: number;
+
+  @IsInt()
+  @Min(1)
+  @IsOptional()
+  tallasHasta?: number;
+}
+
 // ── TallaConfig ──
 
 export class CreateTallaDto {

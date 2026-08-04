@@ -9,9 +9,11 @@ import { EncryptionService } from '../shared/infrastructure/encryption/encryptio
 import {
   CreateSeasonDto,
   CreateSeriesDto,
+  CreateSeriesWithTallasDto,
   CreateTallaDto,
   UpdateBusinessConfigDto,
   UpdateSeasonDto,
+  UpdateSeriesDto,
 } from './dto/configuracion.dto';
 
 @Injectable()
@@ -179,6 +181,144 @@ export class ConfiguracionService {
       where: { id },
       data: { activa: !existing.activa },
     });
+  }
+
+  /**
+   * Crea una serie completa con su rango de tallas generado automáticamente.
+   */
+  async createSeriesWithTallas(dto: CreateSeriesWithTallasDto) {
+    const nombreUpper = dto.nombre.toUpperCase().trim().replace(/\s+/g, '_');
+
+    const exists = await this.prisma.seriesConfig.findUnique({
+      where: { nombre: nombreUpper },
+    });
+    if (exists) throw new ConflictException(`La serie "${nombreUpper}" ya existe`);
+
+    if (dto.tallasHasta < dto.tallasDesde) {
+      throw new ConflictException('El rango de tallas es inválido: "tallasHasta" debe ser >= "tallasDesde"');
+    }
+
+    const series = await this.prisma.seriesConfig.create({
+      data: { nombre: nombreUpper },
+    });
+
+    // Generar tallas del rango
+    const tallasData: { numero: number; serieId: string }[] = [];
+    for (let n = dto.tallasDesde; n <= dto.tallasHasta; n++) {
+      tallasData.push({ numero: n, serieId: series.id });
+    }
+
+    await this.prisma.tallaConfig.createMany({ data: tallasData });
+
+    this.logger.log(`Serie "${nombreUpper}" creada con tallas ${dto.tallasDesde}-${dto.tallasHasta}`);
+
+    return this.prisma.seriesConfig.findUnique({
+      where: { id: series.id },
+      include: { tallas: { orderBy: { numero: 'asc' } } },
+    });
+  }
+
+  /**
+   * Actualiza una serie existente: nombre y/o rango de tallas.
+   * Si se cambian las tallas, elimina las antiguas sin stock y crea las nuevas.
+   */
+  async updateSeries(id: string, dto: UpdateSeriesDto) {
+    const existing = await this.prisma.seriesConfig.findUnique({
+      where: { id },
+      include: { tallas: true },
+    });
+    if (!existing) throw new NotFoundException('Serie no encontrada');
+
+    // Actualizar nombre si se proporcionó
+    if (dto.nombre) {
+      const nombreUpper = dto.nombre.toUpperCase().trim().replace(/\s+/g, '_');
+      const conflict = await this.prisma.seriesConfig.findFirst({
+        where: { nombre: nombreUpper, id: { not: id } },
+      });
+      if (conflict) throw new ConflictException(`Ya existe una serie con el nombre "${nombreUpper}"`);
+
+      await this.prisma.seriesConfig.update({
+        where: { id },
+        data: { nombre: nombreUpper },
+      });
+    }
+
+    // Reconfigurar tallas si se proporcionó rango
+    if (dto.tallasDesde !== undefined && dto.tallasHasta !== undefined) {
+      if (dto.tallasHasta < dto.tallasDesde) {
+        throw new ConflictException('El rango de tallas es inválido');
+      }
+
+      const nuevosNumeros = new Set<number>();
+      for (let n = dto.tallasDesde; n <= dto.tallasHasta; n++) {
+        nuevosNumeros.add(n);
+      }
+
+      // Determinar tallas a agregar y a eliminar
+      const tallasExistentes = existing.tallas;
+      const numerosExistentes = new Set(tallasExistentes.map(t => t.numero));
+
+      // Tallas a eliminar: las que ya no están en el nuevo rango
+      const tallasParaEliminar = tallasExistentes.filter(t => !nuevosNumeros.has(t.numero));
+
+      // Antes de eliminar, verificar que no tengan stock asociado
+      for (const talla of tallasParaEliminar) {
+        const stockCount = await this.prisma.stockByTalla.count({
+          where: { tallaId: talla.id },
+        });
+        if (stockCount > 0) {
+          // Eliminar el stock asociado a esta talla
+          await this.prisma.stockByTalla.deleteMany({
+            where: { tallaId: talla.id },
+          });
+          this.logger.warn(`Eliminado stock de talla ${talla.numero} al reconfigurar serie ${existing.nombre}`);
+        }
+        await this.prisma.tallaConfig.delete({ where: { id: talla.id } });
+      }
+
+      // Tallas a agregar: las que son nuevas
+      const tallasParaAgregar: { numero: number; serieId: string }[] = [];
+      for (const num of nuevosNumeros) {
+        if (!numerosExistentes.has(num)) {
+          tallasParaAgregar.push({ numero: num, serieId: id });
+        }
+      }
+
+      if (tallasParaAgregar.length > 0) {
+        await this.prisma.tallaConfig.createMany({ data: tallasParaAgregar });
+      }
+
+      this.logger.log(`Serie "${existing.nombre}" reconfigurada: tallas ${dto.tallasDesde}-${dto.tallasHasta}`);
+    }
+
+    return this.prisma.seriesConfig.findUnique({
+      where: { id },
+      include: { tallas: { orderBy: { numero: 'asc' } } },
+    });
+  }
+
+  /**
+   * Elimina una serie si no tiene productos asociados.
+   */
+  async deleteSeries(id: string) {
+    const existing = await this.prisma.seriesConfig.findUnique({
+      where: { id },
+      include: { products: { select: { id: true } } },
+    });
+    if (!existing) throw new NotFoundException('Serie no encontrada');
+
+    if (existing.products.length > 0) {
+      throw new ConflictException(
+        `No se puede eliminar la serie "${existing.nombre}" porque tiene ${existing.products.length} producto(s) asociado(s). Elimine los productos primero.`
+      );
+    }
+
+    // Eliminar tallas asociadas (cascade debería hacerlo, pero por seguridad)
+    await this.prisma.tallaConfig.deleteMany({ where: { serieId: id } });
+    await this.prisma.seriesConfig.delete({ where: { id } });
+
+    this.logger.log(`Serie "${existing.nombre}" eliminada`);
+    return { message: `Serie "${existing.nombre}" eliminada correctamente` };
   }
 
   // ══════════════════════════════

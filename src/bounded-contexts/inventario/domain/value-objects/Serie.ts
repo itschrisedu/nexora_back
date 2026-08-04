@@ -1,25 +1,19 @@
 import { ValueObject } from '../../../../shared/domain/ValueObject';
-import { SerieInvalidaException } from '../exceptions/SerieInvalidaException';
-
-export const SERIES_VALIDAS = [
-  'BEBE',
-  'NINO_PEQUENO_A',
-  'NINO_PEQUENO_B',
-  'NINO',
-  'JUVENIL',
-  'ADULTO',
-  'TALLA_GRANDE',
-];
 
 export class Serie extends ValueObject<string> {
   private constructor(value: string) {
     super(value);
   }
 
+  /**
+   * Crea una serie de calzado.
+   * Ya no se valida contra lista fija — cualquier nombre es válido
+   * siempre que exista en la BD (la validación se hace en el handler/service).
+   */
   static create(value: string): Serie {
-    const upperValue = value.toUpperCase();
-    if (!SERIES_VALIDAS.includes(upperValue)) {
-      throw new SerieInvalidaException(value, SERIES_VALIDAS);
+    const upperValue = value.toUpperCase().trim();
+    if (!upperValue) {
+      throw new Error('El nombre de la serie no puede estar vacío');
     }
     return new Serie(upperValue);
   }

@@ -70,6 +70,11 @@ export class CrearModeloDto {
 
   @IsOptional()
   seriesPrices?: Record<string, { costPrice: number; salePrice: number }>;
+
+  // Tallas personalizadas por serie: { serieId: tallaId[] }
+  // Si un tallaId se repite, se agrega stock extra a esa talla
+  @IsOptional()
+  customTallas?: Record<string, string[]>;
 }
 
 // ── Agregar nuevo color a un modelo existente ──
@@ -94,6 +99,9 @@ export class AgregarColorDto {
 
   @IsOptional()
   seriesPrices?: Record<string, { costPrice: number; salePrice: number }>;
+
+  @IsOptional()
+  customTallas?: Record<string, string[]>;
 }
 
 // ── Cambiar precio ──

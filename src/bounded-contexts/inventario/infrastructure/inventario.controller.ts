@@ -121,6 +121,7 @@ export class InventarioController {
       dto.stockMinimo ?? 0,
       req.user.tenantId,
       dto.seriesPrices ?? null,
+      dto.customTallas ?? null,
     );
     const result = await this.crearProductoHandler.execute(command);
     return { ...result, message: 'Modelo y variantes creados exitosamente' };
@@ -139,7 +140,7 @@ export class InventarioController {
 
     const seriesConfigs = await this.prisma.seriesConfig.findMany({
       where: { id: { in: dto.serieIds } },
-      include: { tallas: true },
+      include: { tallas: { orderBy: { numero: 'asc' } } },
     });
 
     if (seriesConfigs.length !== dto.serieIds.length) {
@@ -163,11 +164,28 @@ export class InventarioController {
       }
 
       const stockPorTallaList: StockPorTalla[] = [];
-      for (const talla of serieConfig.tallas) {
-        Talla.create(talla.numero, serieVO);
-        stockPorTallaList.push(
-          StockPorTalla.create(talla.id, stockInicial, 0, 0)
-        );
+      const customTallaIds = dto.customTallas?.[serieConfig.id];
+
+      if (customTallaIds && customTallaIds.length > 0) {
+        const tallaCountMap = new Map<string, number>();
+        for (const tid of customTallaIds) {
+          tallaCountMap.set(tid, (tallaCountMap.get(tid) || 0) + 1);
+        }
+        for (const [tallaId, count] of tallaCountMap.entries()) {
+          const tallaConfig = serieConfig.tallas.find(t => t.id === tallaId);
+          if (!tallaConfig) continue;
+          Talla.create(tallaConfig.numero, serieVO);
+          stockPorTallaList.push(
+            StockPorTalla.create(tallaId, stockInicial * count, 0, 0)
+          );
+        }
+      } else {
+        for (const talla of serieConfig.tallas) {
+          Talla.create(talla.numero, serieVO);
+          stockPorTallaList.push(
+            StockPorTalla.create(talla.id, stockInicial, 0, 0)
+          );
+        }
       }
 
       const seriePrices = dto.seriesPrices?.[serieConfig.id];

@@ -16,5 +16,8 @@ export class CrearModeloCommand {
     public readonly tenantId: string | null = null,
     // Precios individuales por serie (opcional, si no se provee usa costPrice/salePrice globales)
     public readonly seriesPrices: Record<string, { costPrice: number; salePrice: number }> | null = null,
+    // Tallas personalizadas por serie: { serieId: tallaId[] } — si no se provee, usa TODAS las tallas de la serie
+    // Los tallaIds pueden repetirse para indicar stock extra en esa talla
+    public readonly customTallas: Record<string, string[]> | null = null,
   ) {}
 }

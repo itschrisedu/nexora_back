@@ -21,9 +21,11 @@ import { ConfiguracionService } from './configuracion.service';
 import {
   CreateSeasonDto,
   CreateSeriesDto,
+  CreateSeriesWithTallasDto,
   CreateTallaDto,
   UpdateBusinessConfigDto,
   UpdateSeasonDto,
+  UpdateSeriesDto,
 } from './dto/configuracion.dto';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RolesGuard } from '../shared/guards/roles.guard';
@@ -99,6 +101,24 @@ export class ConfiguracionController {
   @Roles(Rol.ROL_ADMIN)
   async toggleSeriesActiva(@Param('id') id: string) {
     return this.configuracionService.toggleSeriesActiva(id);
+  }
+
+  @Post('series-completa')
+  @Roles(Rol.ROL_ADMIN)
+  async createSeriesWithTallas(@Body() dto: CreateSeriesWithTallasDto) {
+    return this.configuracionService.createSeriesWithTallas(dto);
+  }
+
+  @Put('series/:id')
+  @Roles(Rol.ROL_ADMIN)
+  async updateSeries(@Param('id') id: string, @Body() dto: UpdateSeriesDto) {
+    return this.configuracionService.updateSeries(id, dto);
+  }
+
+  @Delete('series/:id')
+  @Roles(Rol.ROL_ADMIN)
+  async deleteSeries(@Param('id') id: string) {
+    return this.configuracionService.deleteSeries(id);
   }
 
   // ══════════════════════════════
