@@ -57,7 +57,7 @@ async function main() {
   // 2. SERIES Y TALLAS DE CALZADO
   // ══════════════════════════════
   const seriesData: { nombre: string; tallasDesde: number; tallasHasta: number }[] = [
-    { nombre: 'ADULTO',         tallasDesde: 37, tallasHasta: 43 },
+    { nombre: 'ADULTO',         tallasDesde: 38, tallasHasta: 43 },
     { nombre: 'JUVENIL',        tallasDesde: 34, tallasHasta: 38 },
     { nombre: 'NINO',           tallasDesde: 27, tallasHasta: 32 },
     { nombre: 'NINO_PEQUENO_A', tallasDesde: 21, tallasHasta: 26 },
