@@ -199,16 +199,30 @@ export class InventarioQueryService {
       activo: record.active,
       createdAt: record.createdAt,
       updatedAt: record.updatedAt,
-      stockPorTalla: record.stockByTalla?.map((s: any) => ({
+      tallas: record.stockByTalla?.map((s: any) => ({
+        id: s.tallaId,
         tallaId: s.tallaId,
         numero: s.talla?.numero,
         cantidad: s.quantity,
+        stock: s.quantity,
         cantidadReservada: s.reservedQuantity,
         disponible: s.quantity - s.reservedQuantity,
         stockMinimo: s.minStock,
         bajoPorMinimo:
           s.minStock > 0 && s.quantity - s.reservedQuantity < s.minStock,
-      })),
+      })) || [],
+      stockPorTalla: record.stockByTalla?.map((s: any) => ({
+        id: s.tallaId,
+        tallaId: s.tallaId,
+        numero: s.talla?.numero,
+        cantidad: s.quantity,
+        stock: s.quantity,
+        cantidadReservada: s.reservedQuantity,
+        disponible: s.quantity - s.reservedQuantity,
+        stockMinimo: s.minStock,
+        bajoPorMinimo:
+          s.minStock > 0 && s.quantity - s.reservedQuantity < s.minStock,
+      })) || [],
       priceHistory: record.priceHistory?.map((h: any) => ({
         precioCostoAnterior: Number(h.previousCostPrice),
         precioVentaAnterior: Number(h.previousSalePrice),
