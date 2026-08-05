@@ -49,9 +49,10 @@ export class AuthService {
       tenantId: user.tenantId,
     };
 
+    const sessionHours = await this.getTenantSessionHours(user.tenantId);
     const accessToken = this.jwtService.sign(payload, {
       secret: this.configService.getOrThrow<string>('JWT_SECRET'),
-      expiresIn: this.configService.get<string>('JWT_ACCESS_EXPIRATION', '15m') as any,
+      expiresIn: sessionHours as any,
     });
 
     const refreshToken = randomBytes(64).toString('hex');
@@ -66,7 +67,7 @@ export class AuthService {
       },
     });
 
-    this.logger.log(`Login exitoso para: ${user.email} (${user.rol})`);
+    this.logger.log(`Login exitoso para: ${user.email} (${user.rol}) [Sesión: ${sessionHours}]`);
 
     return {
       accessToken,
@@ -80,6 +81,25 @@ export class AuthService {
         permiteCambiarPrecio: user.permiteCambiarPrecio,
       },
     };
+  }
+
+  /**
+   * Obtiene la duración de sesión configurada para la empresa en horas.
+   */
+  private async getTenantSessionHours(tenantId: string | null): Promise<string> {
+    if (tenantId) {
+      try {
+        const config = await this.prisma.businessConfig.findUnique({
+          where: { tenantId },
+        });
+        if (config?.duracionSesionHoras) {
+          return `${config.duracionSesionHoras}h`;
+        }
+      } catch (err) {
+        // Fallback silencioso si falla la consulta
+      }
+    }
+    return this.configService.get<string>('JWT_ACCESS_EXPIRATION', '24h');
   }
 
   /**
@@ -111,9 +131,11 @@ export class AuthService {
       tenantId: storedToken.user.tenantId,
     };
 
+    const sessionHours = await this.getTenantSessionHours(storedToken.user.tenantId);
+
     const accessToken = this.jwtService.sign(payload, {
       secret: this.configService.getOrThrow<string>('JWT_SECRET'),
-      expiresIn: this.configService.get<string>('JWT_ACCESS_EXPIRATION', '15m') as any,
+      expiresIn: sessionHours as any,
     });
 
     return { accessToken };
