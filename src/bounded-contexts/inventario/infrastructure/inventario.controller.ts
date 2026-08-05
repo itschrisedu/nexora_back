@@ -122,6 +122,7 @@ export class InventarioController {
       req.user.tenantId,
       dto.seriesPrices ?? null,
       dto.customTallas ?? null,
+      dto.supplierId ?? null,
     );
     const result = await this.crearProductoHandler.execute(command);
     return { ...result, message: 'Modelo y variantes creados exitosamente' };

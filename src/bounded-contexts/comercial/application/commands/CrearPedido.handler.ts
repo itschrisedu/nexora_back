@@ -151,7 +151,7 @@ export class CrearPedidoHandler {
     // Persistir el pedido
     await this.pedidoRepository.save(pedido, command.tenantId);
 
-    // 6. Si falta stock, registrar en la cola de prioridad
+    // 6. Si falta stock, registrar en la cola de prioridad y enviar solicitud al proveedor si está vinculado
     if (estadoInicial === PrismaEstadoPedido.EN_ESPERA_STOCK) {
       const cli = await this.clientesQueryService.obtenerCliente(command.clientId);
       await this.queueRepository.save({
@@ -159,9 +159,53 @@ export class CrearPedidoHandler {
         clientId: command.clientId,
         prioridadFifo: pedido.createdAt,
         nivelCredito: cli.nivelCredito,
-        totalHistorico: cli.totalCompras * 50, // aproximación para total histórico
+        totalHistorico: cli.totalCompras * 50,
         activa: true,
       });
+
+      // Generar orden de compra automática al proveedor si el modelo tiene supplierId vinculado
+      try {
+        const supplierGroups = new Map<string, { productId: string; cantidad: number; precioCosto: number }[]>();
+        for (const line of lineasProducto) {
+          if (line.stockDisponible < line.cantidad) {
+            const Faltante = line.cantidad - line.stockDisponible;
+            const prodWithModel = await this.prisma.product.findUnique({
+              where: { id: line.productId },
+              include: { model: true },
+            });
+            const supplierId = prodWithModel?.model?.supplierId;
+            if (supplierId) {
+              if (!supplierGroups.has(supplierId)) supplierGroups.set(supplierId, []);
+              supplierGroups.get(supplierId)!.push({
+                productId: line.productId,
+                cantidad: Faltante,
+                precioCosto: Number(prodWithModel?.costPrice || 0),
+              });
+            }
+          }
+        }
+
+        for (const [supId, items] of supplierGroups.entries()) {
+          const totalOrder = items.reduce((sum, item) => sum + item.cantidad * item.precioCosto, 0);
+          await this.prisma.supplierOrder.create({
+            data: {
+              supplierId: supId,
+              total: totalOrder,
+              estado: 'PENDIENTE',
+              lines: {
+                create: items.map((item) => ({
+                  productId: item.productId,
+                  cantidadPedida: item.cantidad,
+                  precioCosto: item.precioCosto,
+                  subtotal: item.cantidad * item.precioCosto,
+                })),
+              },
+            },
+          });
+        }
+      } catch (e) {
+        // No bloquear la creación del pedido si falla la orden al proveedor
+      }
     }
 
     return pedido.id;

@@ -75,6 +75,10 @@ export class CrearModeloDto {
   // Si un tallaId se repite, se agrega stock extra a esa talla
   @IsOptional()
   customTallas?: Record<string, string[]>;
+
+  @IsString()
+  @IsOptional()
+  supplierId?: string;
 }
 
 // ── Agregar nuevo color a un modelo existente ──

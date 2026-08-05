@@ -188,11 +188,13 @@ model ProductModel {
   name      String
   brand     String
   material  String?
+  supplierId String?
   active    Boolean   @default(true)
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
   products  Product[]
   tenant    Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  supplier  Supplier? @relation(fields: [supplierId], references: [id], onDelete: SetNull)
 
   @@map("product_models")
 }
@@ -613,6 +615,7 @@ model Supplier {
   activo      Boolean            @default(true)
   orders      SupplierOrder[]
   entries     MerchandiseEntry[]
+  productModels ProductModel[]
   createdAt   DateTime           @default(now())
   updatedAt   DateTime           @updatedAt
   tenant      Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)

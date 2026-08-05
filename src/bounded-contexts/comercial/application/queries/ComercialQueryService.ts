@@ -117,8 +117,31 @@ export class ComercialQueryService {
       });
     }
 
+    // Collect productIds and tallaIds from all lines
+    const allLines = orders.flatMap((o) => o.lines || []);
+    const productIds = Array.from(new Set(allLines.map((l: any) => l.productId).filter(Boolean)));
+    const tallaIds = Array.from(new Set(allLines.map((l: any) => l.tallaId).filter(Boolean)));
+
+    const productMap = new Map<string, any>();
+    const tallaMap = new Map<string, number>();
+
+    if (productIds.length > 0) {
+      const products = await this.prisma.product.findMany({
+        where: { id: { in: productIds as string[] } },
+        include: { model: true, serie: true },
+      });
+      products.forEach((p) => productMap.set(p.id, p));
+    }
+
+    if (tallaIds.length > 0) {
+      const tallas = await this.prisma.tallaConfig.findMany({
+        where: { id: { in: tallaIds as string[] } },
+      });
+      tallas.forEach((t) => tallaMap.set(t.id, t.numero));
+    }
+
     return orders.map((o) => {
-      const formatted = this.formatPedido(o);
+      const formatted = this.formatPedido(o, productMap, tallaMap);
       return {
         ...formatted,
         clienteNombre: clientMap.get(o.clientId) || 'Consumidor Final',
@@ -126,7 +149,7 @@ export class ComercialQueryService {
     });
   }
 
-  private formatPedido(record: any) {
+  private formatPedido(record: any, productMap?: Map<string, any>, tallaMap?: Map<string, number>) {
     return {
       id: record.id,
       clientId: record.clientId,
@@ -138,16 +161,25 @@ export class ComercialQueryService {
       userId: record.userId,
       createdAt: record.createdAt,
       updatedAt: record.updatedAt,
-      lines: record.lines?.map((l: any) => ({
-        id: l.id,
-        productId: l.productId,
-        serieId: l.serieId,
-        tallaId: l.tallaId,
-        cantidad: l.cantidad,
-        precioUnitario: Number(l.precioUnitario),
-        subtotal: l.cantidad * Number(l.precioUnitario),
-        tipoVenta: l.tipoVenta,
-      })),
+      lines: record.lines?.map((l: any) => {
+        const prod = productMap?.get(l.productId);
+        const numeroTalla = tallaMap?.get(l.tallaId) ?? l.numeroTalla;
+        return {
+          id: l.id,
+          productId: l.productId,
+          serieId: l.serieId,
+          tallaId: l.tallaId,
+          cantidad: l.cantidad,
+          precioUnitario: Number(l.precioUnitario),
+          subtotal: l.cantidad * Number(l.precioUnitario),
+          tipoVenta: l.tipoVenta,
+          modelName: prod?.model?.name || l.modelName || 'Calzado',
+          color: prod?.color || l.color || '',
+          imageUrl: prod?.imageUrl || l.imageUrl || null,
+          serieNombre: prod?.serie?.nombre || l.serieNombre || 'Estándar',
+          numeroTalla: numeroTalla ?? 0,
+        };
+      }),
       cola: record.queueEntry
         ? {
             id: record.queueEntry.id,

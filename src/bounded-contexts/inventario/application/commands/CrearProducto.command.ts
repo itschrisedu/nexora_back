@@ -19,5 +19,6 @@ export class CrearModeloCommand {
     // Tallas personalizadas por serie: { serieId: tallaId[] } — si no se provee, usa TODAS las tallas de la serie
     // Los tallaIds pueden repetirse para indicar stock extra en esa talla
     public readonly customTallas: Record<string, string[]> | null = null,
+    public readonly supplierId: string | null = null,
   ) {}
 }
