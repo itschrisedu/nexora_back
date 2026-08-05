@@ -24,6 +24,7 @@ import {
   CreateSeriesWithTallasDto,
   CreateTallaDto,
   UpdateBusinessConfigDto,
+  RegistrarUbicacionDto,
   UpdateSeasonDto,
   UpdateSeriesDto,
 } from './dto/configuracion.dto';
@@ -42,7 +43,7 @@ export class ConfiguracionController {
   // ══════════════════════════════
 
   @Get('negocio')
-  @Roles(Rol.ROL_ADMIN)
+  @Roles(Rol.ROL_ADMIN, Rol.ROL_SUPER_ADMIN, Rol.ROL_VENDEDOR, Rol.ROL_BODEGUERO)
   async getBusinessConfig(@Req() req: any) {
     return this.configuracionService.getBusinessConfig(req.user.tenantId);
   }
@@ -51,6 +52,22 @@ export class ConfiguracionController {
   @Roles(Rol.ROL_ADMIN)
   async upsertBusinessConfig(@Body() dto: UpdateBusinessConfigDto, @Req() req: any) {
     return this.configuracionService.upsertBusinessConfig(dto, req.user.tenantId);
+  }
+
+  // ══════════════════════════════
+  // GEOLOCALIZACIÓN VENDEDORES
+  // ══════════════════════════════
+
+  @Post('geolocalizacion')
+  @Roles(Rol.ROL_ADMIN, Rol.ROL_VENDEDOR, Rol.ROL_BODEGUERO)
+  async registrarUbicacion(@Body() dto: RegistrarUbicacionDto, @Req() req: any) {
+    return this.configuracionService.registrarUbicacionVendedor(req.user.id, dto.lat, dto.lng, dto.direccion);
+  }
+
+  @Get('geolocalizacion/vendedores')
+  @Roles(Rol.ROL_ADMIN)
+  async obtenerUbicacionesVendedores(@Req() req: any) {
+    return this.configuracionService.obtenerUbicacionesVendedores(req.user.tenantId);
   }
 
   // ══════════════════════════════

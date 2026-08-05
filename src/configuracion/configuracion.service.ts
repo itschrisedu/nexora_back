@@ -56,6 +56,10 @@ export class ConfiguracionService {
       primaryColor: dto.primaryColor,
     };
 
+    if (dto.horaInicioOperativa !== undefined) data.horaInicioOperativa = dto.horaInicioOperativa;
+    if (dto.horaFinOperativa !== undefined) data.horaFinOperativa = dto.horaFinOperativa;
+    if (dto.duracionSesionHoras !== undefined) data.duracionSesionHoras = dto.duracionSesionHoras;
+
     // Campos SRI opcionales (solo incluir si fueron enviados)
     if (dto.sriAmbiente !== undefined) data.sriAmbiente = dto.sriAmbiente;
     if (dto.sriEstablecimiento !== undefined) data.sriEstablecimiento = dto.sriEstablecimiento;
@@ -76,6 +80,47 @@ export class ConfiguracionService {
     });
     this.logger.log('Configuración del negocio creada');
     return { ...created, ruc: dto.ruc, firmaPasswordEnc: undefined };
+  }
+
+  // ══════════════════════════════
+  // GEOLOCALIZACIÓN DE VENDEDORES
+  // ══════════════════════════════
+
+  async registrarUbicacionVendedor(userId: string, lat: number, lng: number, direccion?: string) {
+    return this.prisma.vendorLocation.create({
+      data: {
+        userId,
+        lat,
+        lng,
+        direccion: direccion || undefined,
+      },
+    });
+  }
+
+  async obtenerUbicacionesVendedores(tenantId: string) {
+    const vendedores = await this.prisma.user.findMany({
+      where: {
+        tenantId,
+        rol: 'ROL_VENDEDOR',
+      },
+      select: {
+        id: true,
+        nombre: true,
+        email: true,
+        permiteCambiarPrecio: true,
+        vendorLocations: {
+          take: 1,
+          orderBy: { timestamp: 'desc' },
+        },
+      },
+    });
+
+    return vendedores.map(v => ({
+      id: v.id,
+      nombre: v.nombre,
+      email: v.email,
+      ultimaUbicacion: v.vendorLocations[0] || null,
+    }));
   }
 
   /**

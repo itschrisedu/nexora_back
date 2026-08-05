@@ -79,6 +79,7 @@ model User {
   children       User[]          @relation("UserHierarchy")
   refreshTokens  RefreshToken[]
   passwordResets PasswordReset[]
+  vendorLocations VendorLocation[]
 
   @@map("users")
 }
@@ -120,7 +121,12 @@ model BusinessConfig {
   telefono              String?
   email                 String?
   logoUrl               String?
-  primaryColor          String?  @default("#6366f1")
+  primaryColor          String?  @default("#0F172A")
+  // Horarios Operativos de Sesión
+  horaInicioOperativa   String?  @default("08:00")
+  horaFinOperativa      String?  @default("19:00")
+  duracionSesionHoras   Int      @default(24)
+
   // Configuración Facturación Electrónica SRI (Fase 12)
   firmaP12Path          String?
   firmaPasswordEnc      String?  // Contraseña .p12 cifrada con AES-256
@@ -133,6 +139,18 @@ model BusinessConfig {
   tenant                Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   @@map("business_config")
+}
+
+model VendorLocation {
+  id        String   @id @default(uuid())
+  userId    String
+  lat       Float
+  lng       Float
+  direccion String?
+  timestamp DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("vendor_locations")
 }
 
 // ──────────────────────────────────────────

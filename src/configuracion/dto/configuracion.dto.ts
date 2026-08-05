@@ -41,6 +41,19 @@ export class UpdateBusinessConfigDto {
   @IsOptional()
   primaryColor?: string;
 
+  // ── Horarios Operativos de Sesión ──
+  @IsString()
+  @IsOptional()
+  horaInicioOperativa?: string;
+
+  @IsString()
+  @IsOptional()
+  horaFinOperativa?: string;
+
+  @IsInt()
+  @IsOptional()
+  duracionSesionHoras?: number;
+
   // ── Facturación Electrónica SRI (Fase 12) ──
 
   @IsString()
@@ -58,6 +71,18 @@ export class UpdateBusinessConfigDto {
   @IsBoolean()
   @IsOptional()
   sriObligadoContabilidad?: boolean;
+}
+
+export class RegistrarUbicacionDto {
+  @IsNotEmpty()
+  lat!: number;
+
+  @IsNotEmpty()
+  lng!: number;
+
+  @IsString()
+  @IsOptional()
+  direccion?: string;
 }
 
 // ── Season ──
