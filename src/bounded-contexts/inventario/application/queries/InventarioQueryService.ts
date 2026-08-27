@@ -199,18 +199,28 @@ export class InventarioQueryService {
       activo: record.active,
       createdAt: record.createdAt,
       updatedAt: record.updatedAt,
-      tallas: record.stockByTalla?.map((s: any) => ({
-        id: s.tallaId,
-        tallaId: s.tallaId,
-        numero: s.talla?.numero,
-        cantidad: s.quantity,
-        stock: s.quantity,
-        cantidadReservada: s.reservedQuantity,
-        disponible: s.quantity - s.reservedQuantity,
-        stockMinimo: s.minStock,
-        bajoPorMinimo:
-          s.minStock > 0 && s.quantity - s.reservedQuantity < s.minStock,
-      })) || [],
+      tallas: (() => {
+        const positiveQuantities = (record.stockByTalla || []).map((s: any) => s.quantity).filter((q: number) => q > 0);
+        const minPositive = positiveQuantities.length > 0 ? Math.min(...positiveQuantities) : 1;
+
+        return record.stockByTalla?.map((s: any) => {
+          const baseRatio = minPositive > 0 ? Math.max(1, Math.round(s.quantity / minPositive)) : 1;
+          return {
+            id: s.tallaId,
+            tallaId: s.tallaId,
+            numero: s.talla?.numero,
+            cantidad: s.quantity,
+            stock: s.quantity,
+            ratio: baseRatio,
+            cantidadSerie: baseRatio,
+            cantidadReservada: s.reservedQuantity,
+            disponible: s.quantity - s.reservedQuantity,
+            stockMinimo: s.minStock,
+            bajoPorMinimo:
+              s.minStock > 0 && s.quantity - s.reservedQuantity < s.minStock,
+          };
+        }) || [];
+      })(),
       stockPorTalla: record.stockByTalla?.map((s: any) => ({
         id: s.tallaId,
         tallaId: s.tallaId,

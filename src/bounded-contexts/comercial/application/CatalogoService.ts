@@ -87,21 +87,32 @@ export class CatalogoService {
       name: m.name,
       brand: m.brand,
       material: m.material,
-      variantes: m.products.map((p) => ({
-        id: p.id,
-        code: p.code,
-        color: p.color,
-        imageUrl: p.imageUrl,
-        costPrice: Number(p.costPrice),
-        salePrice: Number(p.salePrice),
-        serieNombre: p.serie.nombre,
-        serieId: p.serie.id,
-        tallas: p.stockByTalla.map((st) => ({
-          tallaId: st.tallaId,
-          numero: st.talla.numero,
-          cantidad: st.quantity,
-        })),
-      })),
+      variantes: m.products.map((p) => {
+        const positiveQuantities = p.stockByTalla.map((st) => st.quantity).filter((q) => q > 0);
+        const minPositive = positiveQuantities.length > 0 ? Math.min(...positiveQuantities) : 1;
+
+        return {
+          id: p.id,
+          code: p.code,
+          color: p.color,
+          imageUrl: p.imageUrl,
+          costPrice: Number(p.costPrice),
+          salePrice: Number(p.salePrice),
+          serieNombre: p.serie.nombre,
+          serieId: p.serie.id,
+          tallas: p.stockByTalla.map((st) => {
+            const baseRatio = minPositive > 0 ? Math.max(1, Math.round(st.quantity / minPositive)) : 1;
+            return {
+              tallaId: st.tallaId,
+              numero: st.talla.numero,
+              cantidad: st.quantity,
+              stock: st.quantity,
+              ratio: baseRatio,
+              cantidadSerie: baseRatio,
+            };
+          }),
+        };
+      }),
     }));
   }
 
