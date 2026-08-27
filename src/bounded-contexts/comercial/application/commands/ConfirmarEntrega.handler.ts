@@ -22,7 +22,7 @@ export class ConfirmarEntregaHandler {
       throw new Error(`Pedido ${command.pedidoId} no encontrado`);
     }
 
-    // Confirmar entrega (valida estado EN_TRANSITO o MODIFICADO)
+    // Confirmar entrega (valida estado EN_PREPARACION, EN_TRANSITO o MODIFICADO)
     pedido.confirmarEntrega();
 
     // Persistir

@@ -210,7 +210,7 @@ export class Pedido extends AggregateRoot {
 
   /**
    * Confirma la entrega del pedido al cliente.
-   * Solo posible desde EN_TRANSITO o MODIFICADO.
+   * Solo posible desde EN_PREPARACION, EN_TRANSITO o MODIFICADO.
    */
   confirmarEntrega(): void {
     this._estado = this._estado.transicionarA(PrismaEstadoPedido.ENTREGADO);

@@ -44,6 +44,7 @@ import { DescontarStockHandler } from '../application/commands/DescontarStock.ha
 import { DescontarStockCommand } from '../application/commands/DescontarStock.command';
 import { InventarioQueryService } from '../application/queries/InventarioQueryService';
 import { PrismaService } from '../../../shared/infrastructure/prisma/prisma.service';
+import { CloudinaryService } from '../../../shared/infrastructure/cloudinary/cloudinary.service';
 
 @Controller('inventario')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -57,6 +58,7 @@ export class InventarioController {
     private readonly descontarStockHandler: DescontarStockHandler,
     private readonly queryService: InventarioQueryService,
     private readonly prisma: PrismaService,
+    private readonly cloudinaryService: CloudinaryService,
     @Inject('IProductoRepository')
     private readonly productoRepository: IProductoRepository,
   ) {}
@@ -335,11 +337,38 @@ export class InventarioController {
   @Delete('modelos/:id')
   @Roles(Rol.ROL_ADMIN)
   async eliminarModelo(@Param('id') id: string) {
-    const model = await this.prisma.productModel.findUnique({ where: { id } });
+    const model = await this.prisma.productModel.findUnique({
+      where: { id },
+      include: { products: true },
+    });
     if (!model) throw new NotFoundException(`Modelo con ID ${id} no encontrado`);
+
+    // Eliminar fotos asociadas de Cloudinary
+    if (model.products && model.products.length > 0) {
+      for (const p of model.products) {
+        if (p.imageUrl && p.imageUrl.includes('cloudinary.com')) {
+          await this.cloudinaryService.deleteImage(p.imageUrl);
+        }
+      }
+    }
 
     await this.prisma.productModel.delete({ where: { id } });
 
-    return { message: `Modelo ${model.name} eliminado permanentemente exitosamente` };
+    return { message: `Modelo ${model.name} y sus fotos eliminados permanentemente exitosamente` };
+  }
+
+  @Delete('productos/:id')
+  @Roles(Rol.ROL_ADMIN)
+  async eliminarProducto(@Param('id') id: string) {
+    const product = await this.prisma.product.findUnique({ where: { id } });
+    if (!product) throw new NotFoundException(`Producto con ID ${id} no encontrado`);
+
+    if (product.imageUrl && product.imageUrl.includes('cloudinary.com')) {
+      await this.cloudinaryService.deleteImage(product.imageUrl);
+    }
+
+    await this.prisma.product.delete({ where: { id } });
+
+    return { message: `Variante de calzado y su foto eliminadas permanentemente` };
   }
 }

@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../shared/infrastructure/prisma/prisma.service';
 import { EncryptionService } from '../shared/infrastructure/encryption/encryption.service';
+import { CloudinaryService } from '../shared/infrastructure/cloudinary/cloudinary.service';
 import {
   CreateSeasonDto,
   CreateSeriesDto,
@@ -23,6 +24,7 @@ export class ConfiguracionService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly encryption: EncryptionService,
+    private readonly cloudinary: CloudinaryService,
   ) {}
 
   // ══════════════════════════════
@@ -67,6 +69,9 @@ export class ConfiguracionService {
     if (dto.sriObligadoContabilidad !== undefined) data.sriObligadoContabilidad = dto.sriObligadoContabilidad;
 
     if (existing) {
+      if (existing.logoUrl && existing.logoUrl !== dto.logoUrl && existing.logoUrl.includes('cloudinary.com')) {
+        await this.cloudinary.deleteImage(existing.logoUrl);
+      }
       const updated = await this.prisma.businessConfig.update({
         where: { id: existing.id },
         data,

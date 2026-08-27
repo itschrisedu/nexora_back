@@ -20,8 +20,8 @@ export class EstadoPedido extends ValueObject<{ value: PrismaEstadoPedido }> {
   private static readonly transicionesPermitidas: Record<PrismaEstadoPedido, PrismaEstadoPedido[]> = {
     [PrismaEstadoPedido.EN_ESPERA_STOCK]: [PrismaEstadoPedido.PENDIENTE, PrismaEstadoPedido.CANCELADO],
     [PrismaEstadoPedido.PENDIENTE]: [PrismaEstadoPedido.EN_PREPARACION, PrismaEstadoPedido.CANCELADO],
-    [PrismaEstadoPedido.EN_PREPARACION]: [PrismaEstadoPedido.EN_TRANSITO, PrismaEstadoPedido.CANCELADO],
-    [PrismaEstadoPedido.EN_TRANSITO]: [PrismaEstadoPedido.MODIFICADO, PrismaEstadoPedido.CANCELADO, PrismaEstadoPedido.ENTREGADO],
+    [PrismaEstadoPedido.EN_PREPARACION]: [PrismaEstadoPedido.ENTREGADO, PrismaEstadoPedido.CANCELADO],
+    [PrismaEstadoPedido.EN_TRANSITO]: [PrismaEstadoPedido.ENTREGADO, PrismaEstadoPedido.CANCELADO],
     [PrismaEstadoPedido.MODIFICADO]: [PrismaEstadoPedido.ENTREGADO, PrismaEstadoPedido.CANCELADO],
     [PrismaEstadoPedido.CANCELADO]: [],
     [PrismaEstadoPedido.ENTREGADO]: [],

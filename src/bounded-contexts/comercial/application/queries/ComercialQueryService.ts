@@ -140,8 +140,17 @@ export class ComercialQueryService {
       tallas.forEach((t) => tallaMap.set(t.id, t.numero));
     }
 
+    // Calcular numeración correlativa cronológica (PED-0001, PED-0002, ...)
+    const sortedChronologically = [...orders].sort(
+      (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
+    );
+    const orderNumberMap = new Map<string, string>();
+    sortedChronologically.forEach((o, index) => {
+      orderNumberMap.set(o.id, `PED-${String(index + 1).padStart(4, '0')}`);
+    });
+
     return orders.map((o) => {
-      const formatted = this.formatPedido(o, productMap, tallaMap);
+      const formatted = this.formatPedido(o, productMap, tallaMap, orderNumberMap.get(o.id));
       return {
         ...formatted,
         clienteNombre: clientMap.get(o.clientId) || 'Consumidor Final',
@@ -149,9 +158,15 @@ export class ComercialQueryService {
     });
   }
 
-  private formatPedido(record: any, productMap?: Map<string, any>, tallaMap?: Map<string, number>) {
+  private formatPedido(
+    record: any,
+    productMap?: Map<string, any>,
+    tallaMap?: Map<string, number>,
+    numeroCodigo?: string,
+  ) {
     return {
       id: record.id,
+      numeroCodigo: numeroCodigo || `PED-${record.id.slice(0, 4).toUpperCase()}`,
       clientId: record.clientId,
       estado: record.estado,
       canal: record.canal,
