@@ -86,7 +86,7 @@ export class ClientesQueryService {
     const plazoDias = configNivel ? configNivel.plazoDias : 0;
 
     // Lógica de rechazos
-    if (client.totalCompras < 9) {
+    if (client.nivelCredito === PrismaNivelCredito.SIN_CREDITO || limiteTotal <= 0) {
       return {
         aprobado: false,
         nivelActual: client.nivelCredito,
@@ -94,19 +94,7 @@ export class ClientesQueryService {
         creditoUtilizado,
         limiteDisponible,
         plazoDias,
-        razon: 'Requiere 9 compras de contado primero',
-      };
-    }
-
-    if (client.nivelCredito === PrismaNivelCredito.SIN_CREDITO) {
-      return {
-        aprobado: false,
-        nivelActual: client.nivelCredito,
-        limiteTotal,
-        creditoUtilizado,
-        limiteDisponible,
-        plazoDias,
-        razon: 'Sin nivel de crédito activo',
+        razon: 'El cliente está en Nivel 1 (Sin Crédito). Requiere compras de contado o asignación de nivel por el Administrador.',
       };
     }
 

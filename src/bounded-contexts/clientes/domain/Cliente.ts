@@ -235,8 +235,10 @@ export class Cliente extends AggregateRoot {
   }
 
   comprometerCredito(monto: Money): void {
-    if (this._totalCompras < 9) {
-      throw new CreditoNoPermitidoException();
+    if (this._nivelCredito.value === 'SIN_CREDITO' || this._limiteCredito.amount <= 0) {
+      throw new CreditoNoPermitidoException(
+        'El cliente está en Nivel 1 (Sin Crédito). Requiere compras de contado o asignación de nivel por el Administrador.',
+      );
     }
 
     const nuevoUtilizado = this._creditoUtilizado.amount + monto.amount;

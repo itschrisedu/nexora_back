@@ -57,7 +57,7 @@ describe('Cliente scoring and credit limits tests', () => {
     // Intentar comprometer crédito (compras = 9) -> Ya tiene las 9 compras de contado requeridas.
     // Pero su nivel sigue siendo SIN_CREDITO (límite $0)
     expect(() => cliente.comprometerCredito(Money.create(50))).toThrow(
-      LimiteCreditoInsuficienteException, // Porque el límite en SIN_CREDITO es 0
+      CreditoNoPermitidoException, // Porque el nivel es SIN_CREDITO (límite $0)
     );
   });
 
