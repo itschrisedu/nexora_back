@@ -196,7 +196,7 @@ export class FinancieroQueryService {
 
     const [pedidos, notasVenta, cobros] = await Promise.all([
       this.prisma.order.findMany({
-        where: { clientId, ...whereTenant },
+        where: { clientId, estado: 'ENTREGADO', ...whereTenant },
         include: { lines: true },
         orderBy: { createdAt: 'desc' },
       }),
@@ -212,22 +212,79 @@ export class FinancieroQueryService {
       }),
     ]);
 
+    // Recolectar productos y tallas para formatear las líneas de pedido
+    const allLines = pedidos.flatMap((p) => p.lines || []);
+    const productIds = Array.from(new Set(allLines.map((l) => l.productId).filter(Boolean)));
+    const tallaIds = Array.from(new Set(allLines.map((l) => l.tallaId).filter(Boolean)));
+
+    const productMap = new Map<string, any>();
+    const tallaMap = new Map<string, number>();
+
+    if (productIds.length > 0) {
+      const products = await this.prisma.product.findMany({
+        where: { id: { in: productIds } },
+        include: { model: true, serie: true },
+      });
+      products.forEach((p) => productMap.set(p.id, p));
+    }
+
+    if (tallaIds.length > 0) {
+      const tallas = await this.prisma.tallaConfig.findMany({
+        where: { id: { in: tallaIds } },
+      });
+      tallas.forEach((t) => tallaMap.set(t.id, t.numero));
+    }
+
+    // Numeración correlativa cronológica
+    const sortedPedidosCron = [...pedidos].sort(
+      (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
+    );
+    const orderNumberMap = new Map<string, string>();
+    sortedPedidosCron.forEach((o, index) => {
+      orderNumberMap.set(o.id, `PED-${String(index + 1).padStart(4, '0')}`);
+    });
+
     // Consolidar timeline cronológico de movimientos
     const movimientos: any[] = [];
 
     // 1. Pedidos / Compras
     pedidos.forEach((p) => {
+      const formattedLines = (p.lines || []).map((l) => {
+        const prod = productMap.get(l.productId);
+        const numeroTalla = tallaMap.get(l.tallaId);
+        return {
+          id: l.id,
+          productId: l.productId,
+          cantidad: l.cantidad,
+          precioUnitario: Number(l.precioUnitario || 0),
+          subtotal: l.cantidad * Number(l.precioUnitario || 0),
+          tipoVenta: l.tipoVenta,
+          modelName: prod?.model?.name || 'Calzado',
+          color: prod?.color || '',
+          imageUrl: prod?.imageUrl || null,
+          serieNombre: prod?.serie?.nombre || 'Estándar',
+          numeroTalla: numeroTalla ?? 0,
+        };
+      });
+
+      const numCod = orderNumberMap.get(p.id) || `PED-${p.id.slice(0, 4).toUpperCase()}`;
+
       movimientos.push({
         id: `pedido-${p.id}`,
+        pedidoId: p.id,
         tipo: 'COMPRA_PEDIDO',
-        titulo: `Pedido #${p.id.slice(0, 8).toUpperCase()}`,
+        titulo: `#${numCod}`,
+        numeroCodigo: numCod,
         descripcion: `Compra por canal ${p.canal} (${p.tipoPago}) - ${p.estado}`,
         monto: Number(p.montoTotal),
         estado: p.estado,
         fecha: p.createdAt,
         detalles: {
           lineasCount: p.lines.length,
+          lineas: formattedLines,
           notas: p.notas,
+          canal: p.canal,
+          tipoPago: p.tipoPago,
         },
       });
     });
