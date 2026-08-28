@@ -36,11 +36,17 @@ export class PedidoEntregadoFinancieroListener {
     this.logger.log(`📄 Generando Nota de Venta para pedido: ${payload.pedidoId}`);
 
     try {
-      // 1. Obtener número correlativo de la secuencia PostgreSQL
-      const seqResult = await this.prisma.$queryRaw<[{ nextval: bigint }]>`
-        SELECT nextval('nota_venta_seq')
-      `;
-      const numero = Number(seqResult[0].nextval);
+      // 1. Obtener número correlativo de la secuencia PostgreSQL o fallback a máximo
+      let numero = 1;
+      try {
+        const lastNote = await this.prisma.saleNote.findFirst({
+          orderBy: { numero: 'desc' },
+          select: { numero: true },
+        });
+        numero = (lastNote?.numero || 0) + 1;
+      } catch (seqErr) {
+        numero = Math.floor(Date.now() / 1000) % 1000000;
+      }
 
       // 2. Obtener datos del cliente y de la orden para obtener el tenantId
       const [cliente, order] = await Promise.all([
@@ -145,6 +151,23 @@ export class PedidoEntregadoFinancieroListener {
 
       if (payload.tipoPago === 'CONTADO') {
         cobro = Cobro.crearContado(cobroId, saleNoteId, payload.clientId, Money.create(total));
+
+        let metodoPago = 'EFECTIVO';
+        let notasPago = 'Pago de contado al entregar';
+        if (order.notas) {
+          if (order.notas.includes('TRANSFERENCIA')) metodoPago = 'TRANSFERENCIA';
+          else if (order.notas.includes('DEPOSITO')) metodoPago = 'DEPOSITO';
+          else if (order.notas.includes('CHEQUE')) metodoPago = 'CHEQUE';
+          notasPago = order.notas;
+        }
+
+        cobro.registrarAbono(
+          crypto.randomUUID(),
+          Money.create(total),
+          metodoPago,
+          order.userId || 'system',
+          notasPago,
+        );
       } else {
         // CREDITO: plazo de 30 días por defecto (se puede ajustar según nivel del cliente)
         const vencimiento = new Date();

@@ -63,6 +63,12 @@ export class FinancieroController {
     return this.queryService.listarCobrosCliente(clientId, req.user.tenantId);
   }
 
+  @Get('cliente/:clientId/historial')
+  @Roles(Rol.ROL_ADMIN, Rol.ROL_VENDEDOR)
+  obtenerHistorialCliente(@Param('clientId') clientId: string, @Req() req: any) {
+    return this.queryService.obtenerHistorialCompletoCliente(clientId, req.user.tenantId);
+  }
+
   @Get('cobros/:id')
   @Roles(Rol.ROL_ADMIN, Rol.ROL_VENDEDOR)
   obtenerCobro(@Param('id') id: string) {
