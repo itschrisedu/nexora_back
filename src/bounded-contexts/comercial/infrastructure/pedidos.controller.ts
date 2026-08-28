@@ -5,9 +5,12 @@ import {
   Get,
   Param,
   Post,
+  Put,
   Query,
   Req,
   UseGuards,
+  NotFoundException,
+  BadRequestException,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../../../auth/jwt-auth.guard';
 import { RolesGuard } from '../../../shared/guards/roles.guard';
@@ -95,6 +98,79 @@ export class PedidosController {
     );
     const id = await this.crearPedidoHandler.execute(command);
     return { id, message: 'Pedido creado exitosamente' };
+  }
+
+  @Put(':id')
+  @Roles(Rol.ROL_ADMIN, Rol.ROL_VENDEDOR)
+  async editarPedido(
+    @Param('id') id: string,
+    @Body() dto: CrearPedidoDto,
+    @Req() req: any,
+  ) {
+    const pedidoExistente = await this.prisma.order.findUnique({
+      where: { id },
+      include: { lines: true },
+    });
+
+    if (!pedidoExistente) {
+      throw new NotFoundException(`El pedido con ID "${id}" no existe`);
+    }
+
+    if (pedidoExistente.estado === 'ENTREGADO' || pedidoExistente.estado === 'CANCELADO') {
+      throw new BadRequestException(`No se puede editar un pedido en estado "${pedidoExistente.estado}"`);
+    }
+
+    // 1. Eliminar líneas anteriores
+    await this.prisma.orderLine.deleteMany({
+      where: { orderId: id },
+    });
+
+    // 2. Recrear las líneas y calcular total acumulado
+    let montoTotal = 0;
+    const nuevasLineasData: any[] = [];
+
+    for (const l of dto.lineas) {
+      const prod = await this.prisma.product.findUnique({
+        where: { id: l.productId },
+      });
+
+      if (!prod) {
+        throw new NotFoundException(`El producto con ID "${l.productId}" no existe`);
+      }
+
+      const precioUnitario = Number(prod.salePrice);
+      const subtotal = precioUnitario * l.cantidad;
+      montoTotal += subtotal;
+
+      nuevasLineasData.push({
+        orderId: id,
+        productId: l.productId,
+        tallaId: l.tallaId,
+        serieId: prod.serieId,
+        cantidad: l.cantidad,
+        precioUnitario,
+        subtotal,
+        tipoVenta: l.tipoVenta || 'SERIE_COMPLETA',
+      });
+    }
+
+    if (nuevasLineasData.length > 0) {
+      await this.prisma.orderLine.createMany({
+        data: nuevasLineasData,
+      });
+    }
+
+    // 3. Actualizar monto y datos del pedido
+    await this.prisma.order.update({
+      where: { id },
+      data: {
+        montoTotal,
+        tipoPago: dto.tipoPago || pedidoExistente.tipoPago,
+        notas: dto.notas !== undefined ? dto.notas : pedidoExistente.notas,
+      },
+    });
+
+    return { id, message: 'Pedido actualizado exitosamente', montoTotal };
   }
 
   @Post(':id/iniciar-preparacion')
