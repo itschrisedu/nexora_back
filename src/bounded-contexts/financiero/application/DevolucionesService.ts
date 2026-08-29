@@ -21,8 +21,8 @@ export class DevolucionesService {
 
   /**
    * Registrar devolución de cliente:
-   * 1. Reingresa el stock al inventario por producto y talla.
-   * 2. Ajusta el saldo pendiente del Cobro / Nota de Venta asociada.
+   * 1. Reingresa o Da de Baja el stock según destinoStock ('REINGRESO_INVENTARIO' | 'BAJA_POR_FALLA').
+   * 2. Ajusta el saldo pendiente del Cobro / Nota de Venta asociada o cartera del cliente.
    * 3. Registra el historial de ClienteDevolucion.
    */
   async registrarDevolucionCliente(
@@ -31,6 +31,8 @@ export class DevolucionesService {
       orderId?: string;
       clientId: string;
       motivo: string;
+      tipoDevolucion?: 'SERIE_COMPLETA' | 'TALLA_ESPECIFICA';
+      destinoStock?: 'REINGRESO_INVENTARIO' | 'BAJA_POR_FALLA';
       lines: LineaDevolucionClienteInput[];
     },
     tenantId: string,
@@ -39,56 +41,75 @@ export class DevolucionesService {
       throw new BadRequestException('Debes incluir al menos una línea de producto a devolver.');
     }
 
+    const destinoStock = dto.destinoStock || 'REINGRESO_INVENTARIO';
+    const tipoDevolucion = dto.tipoDevolucion || 'TALLA_ESPECIFICA';
+
     const totalDevuelto = dto.lines.reduce(
       (acc, l) => acc + l.cantidad * l.precioUnitario,
       0,
     );
 
     return this.prisma.$transaction(async (tx) => {
-      // 1. Reingresar stock por cada línea
-      for (const line of dto.lines) {
-        const stockTalla = await tx.stockByTalla.findFirst({
-          where: { productId: line.productId, tallaId: line.tallaId },
-        });
+      // 1. Manejo del Stock: Si es REINGRESO_INVENTARIO, se suma a bodega
+      if (destinoStock === 'REINGRESO_INVENTARIO') {
+        for (const line of dto.lines) {
+          if (line.productId && line.productId !== 'sin-especificar') {
+            const stockTalla = await tx.stockByTalla.findFirst({
+              where: { productId: line.productId, tallaId: line.tallaId },
+            });
 
-        if (stockTalla) {
-          await tx.stockByTalla.update({
-            where: { id: stockTalla.id },
-            data: { quantity: stockTalla.quantity + line.cantidad },
-          });
+            if (stockTalla) {
+              await tx.stockByTalla.update({
+                where: { id: stockTalla.id },
+                data: { quantity: stockTalla.quantity + line.cantidad },
+              });
+            }
+          }
         }
       }
 
-      // 2. Ajustar Cobro si existe venta asociada
+      // 2. Ajustar Cobro de la Nota de Venta o buscar el cobro con saldo del cliente
+      let cobroAfectado = null;
       if (dto.saleNoteId) {
-        const cobro = await tx.cobro.findUnique({
+        cobroAfectado = await tx.cobro.findUnique({
           where: { saleNoteId: dto.saleNoteId },
         });
-
-        if (cobro) {
-          const nuevoSaldo = Math.max(0, Number(cobro.saldoPendiente) - totalDevuelto);
-          const nuevoMonto = Math.max(0, Number(cobro.montoTotal) - totalDevuelto);
-          const nuevoEstado = nuevoSaldo === 0 ? 'SALDADO' : cobro.estado;
-
-          await tx.cobro.update({
-            where: { id: cobro.id },
-            data: {
-              saldoPendiente: nuevoSaldo,
-              montoTotal: nuevoMonto,
-              estado: nuevoEstado,
-            },
-          });
-        }
+      } else {
+        cobroAfectado = await tx.cobro.findFirst({
+          where: {
+            clientId: dto.clientId,
+            tenantId,
+            saldoPendiente: { gt: 0 },
+          },
+          orderBy: { createdAt: 'desc' },
+        });
       }
 
-      // 3. Crear registro de devolución
+      if (cobroAfectado) {
+        const nuevoSaldo = Math.max(0, Number(cobroAfectado.saldoPendiente) - totalDevuelto);
+        const nuevoMonto = Math.max(0, Number(cobroAfectado.montoTotal) - totalDevuelto);
+        const nuevoEstado = nuevoSaldo === 0 ? 'SALDADO' : cobroAfectado.estado;
+
+        await tx.cobro.update({
+          where: { id: cobroAfectado.id },
+          data: {
+            saldoPendiente: nuevoSaldo,
+            montoTotal: nuevoMonto,
+            estado: nuevoEstado,
+          },
+        });
+      }
+
+      // 3. Crear registro de devolución con motivo estructurado
+      const motivoCompleto = `[${destinoStock === 'BAJA_POR_FALLA' ? 'MERMA/BAJA POR FALLA' : 'REINGRESO A BODEGA'}] [${tipoDevolucion === 'SERIE_COMPLETA' ? 'SERIE COMPLETA' : 'TALLA ESPECÍFICA'}] ${dto.motivo || 'Devolución de cliente'}`;
+
       const devolucion = await tx.clienteDevolucion.create({
         data: {
           tenantId,
-          saleNoteId: dto.saleNoteId,
+          saleNoteId: dto.saleNoteId || cobroAfectado?.saleNoteId || null,
           orderId: dto.orderId,
           clientId: dto.clientId,
-          motivo: dto.motivo,
+          motivo: motivoCompleto,
           totalDevuelto,
           lines: {
             create: dto.lines.map((l) => ({
