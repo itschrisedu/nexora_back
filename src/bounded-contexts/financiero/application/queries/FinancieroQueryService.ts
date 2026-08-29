@@ -133,7 +133,9 @@ export class FinancieroQueryService {
         nombre: true,
         apellido: true,
         cedula: true,
+        ruc: true,
         telefono: true,
+        email: true,
         direccion: true,
         nivelCredito: true,
         limiteCredito: true,
@@ -151,11 +153,20 @@ export class FinancieroQueryService {
             cedulaDescifrada = c.cedula;
           }
         }
+        let rucDescifrado = c.ruc || '';
+        if (c.ruc) {
+          try {
+            rucDescifrado = this.encryptionService.decrypt(c.ruc);
+          } catch (e) {
+            rucDescifrado = c.ruc;
+          }
+        }
         return [
           c.id,
           {
             ...c,
             cedula: cedulaDescifrada,
+            ruc: rucDescifrado,
           },
         ];
       }),
@@ -166,8 +177,10 @@ export class FinancieroQueryService {
       return {
         ...cobro,
         clienteNombre: client ? `${client.nombre} ${client.apellido}`.trim() : 'Cliente sin registrar',
-        clienteCedula: client?.cedula || '—',
+        clienteCedula: client?.cedula || client?.ruc || '—',
         clienteTelefono: client?.telefono || '—',
+        clienteEmail: client?.email || '',
+        clienteDireccion: client?.direccion || '',
         clienteNivel: client?.nivelCredito || '—',
         client,
       };
