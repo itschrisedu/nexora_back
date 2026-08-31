@@ -11,11 +11,12 @@ import {
   Req,
   UseGuards,
   NotFoundException,
+  BadRequestException,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../../../auth/jwt-auth.guard';
 import { RolesGuard } from '../../../shared/guards/roles.guard';
 import { Roles } from '../../../shared/guards/roles.decorator';
-import { Rol } from '@prisma/client';
+import { Rol, MovimientoTipo } from '@prisma/client';
 import {
   CrearModeloDto,
   AgregarColorDto,
@@ -277,6 +278,43 @@ export class InventarioController {
     );
     await this.aumentarStockHandler.execute(command);
     return { message: 'Stock incrementado exitosamente' };
+  }
+
+  @Post('productos/:id/entrada-lote')
+  @Roles(Rol.ROL_ADMIN, Rol.ROL_BODEGUERO)
+  async aumentarStockLote(
+    @Param('id') id: string,
+    @Body() dto: { items: { tallaId: string; cantidad: number }[]; motivo: string; referenceId?: string },
+    @Req() req: any,
+  ) {
+    if (!dto.items || !Array.isArray(dto.items) || dto.items.length === 0) {
+      throw new BadRequestException('El lote de ingreso debe contener al menos una talla con cantidad.');
+    }
+    const producto = await this.productoRepository.findById(id);
+    if (!producto) {
+      throw new NotFoundException(`El producto con ID "${id}" no existe`);
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      for (const item of dto.items) {
+        if (!item.tallaId || !item.cantidad || item.cantidad <= 0) continue;
+        producto.aumentarStock(item.tallaId, item.cantidad);
+        await tx.stockMovement.create({
+          data: {
+            productId: id,
+            tallaId: item.tallaId,
+            type: MovimientoTipo.ENTRADA_MERCANCIA,
+            quantity: item.cantidad,
+            reason: dto.motivo,
+            referenceId: dto.referenceId ?? null,
+            userId: req.user.sub,
+          },
+        });
+      }
+      await this.productoRepository.update(producto);
+    });
+
+    return { message: 'Entrada multiformato por serie/lote registrada exitosamente' };
   }
 
   @Post('productos/:id/salida')
