@@ -7,6 +7,7 @@ import {
   Param,
   Patch,
   Post,
+  Put,
   Query,
   Req,
   UseGuards,
@@ -24,6 +25,8 @@ import {
   ReservarStockDto,
   MovimientoStockDto,
   BuscarProductosDto,
+  ActualizarModeloDto,
+  ActualizarProductoDto,
 } from './dto/inventario.dto';
 import { IProductoRepository } from '../domain/IProductoRepository';
 import { Producto } from '../domain/Producto';
@@ -370,6 +373,85 @@ export class InventarioController {
     });
 
     return { active: nuevoEstado, message: `Variante ${nuevoEstado ? 'habilitada' : 'deshabilitada'} exitosamente` };
+  }
+
+  @Put('modelos/:id')
+  @Roles(Rol.ROL_ADMIN)
+  async actualizarModelo(
+    @Param('id') id: string,
+    @Body() dto: ActualizarModeloDto,
+  ) {
+    const model = await this.prisma.productModel.findUnique({ where: { id } });
+    if (!model) throw new NotFoundException(`Modelo con ID ${id} no encontrado`);
+
+    const updated = await this.prisma.productModel.update({
+      where: { id },
+      data: {
+        ...(dto.name && { name: dto.name }),
+        ...(dto.brand && { brand: dto.brand }),
+        ...(dto.material !== undefined && { material: dto.material }),
+        ...(dto.baseCode && { baseCode: dto.baseCode }),
+      },
+    });
+
+    return { message: 'Modelo actualizado exitosamente', model: updated };
+  }
+
+  @Put('productos/:id')
+  @Roles(Rol.ROL_ADMIN)
+  async actualizarProducto(
+    @Param('id') id: string,
+    @Body() dto: ActualizarProductoDto,
+    @Req() req: any,
+  ) {
+    const product = await this.prisma.product.findUnique({
+      where: { id },
+      include: { stockByTalla: true },
+    });
+    if (!product) throw new NotFoundException(`Producto con ID ${id} no encontrado`);
+
+    // Si cambió de imagen y la anterior era de Cloudinary y es distinta, limpiamos la anterior
+    if (dto.imageUrl && product.imageUrl && product.imageUrl !== dto.imageUrl && product.imageUrl.includes('cloudinary.com')) {
+      await this.cloudinaryService.deleteImage(product.imageUrl).catch(() => null);
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.product.update({
+        where: { id },
+        data: {
+          ...(dto.color && { color: dto.color }),
+          ...(dto.imageUrl !== undefined && { imageUrl: dto.imageUrl }),
+          ...(dto.costPrice && { costPrice: dto.costPrice }),
+          ...(dto.salePrice && { salePrice: dto.salePrice }),
+        },
+      });
+
+      // Si se enviaron tallas para actualizar stock
+      if (Array.isArray(dto.tallas) && dto.tallas.length > 0) {
+        for (const t of dto.tallas) {
+          if (!t.tallaId || t.cantidad === undefined || t.cantidad < 0) continue;
+          await tx.stockByTalla.upsert({
+            where: {
+              productId_tallaId: {
+                productId: id,
+                tallaId: t.tallaId,
+              },
+            },
+            update: {
+              quantity: t.cantidad,
+            },
+            create: {
+              productId: id,
+              tallaId: t.tallaId,
+              quantity: t.cantidad,
+              reservedQuantity: 0,
+            },
+          });
+        }
+      }
+    });
+
+    return { message: 'Variante de calzado actualizada exitosamente' };
   }
 
   @Delete('modelos/:id')

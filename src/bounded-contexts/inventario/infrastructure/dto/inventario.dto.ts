@@ -183,3 +183,47 @@ export class BuscarProductosDto {
   @IsOptional()
   marca?: string;
 }
+
+// ── Actualizar modelo ──
+export class ActualizarModeloDto {
+  @IsString()
+  @IsOptional()
+  baseCode?: string;
+
+  @IsString()
+  @IsOptional()
+  name?: string;
+
+  @IsString()
+  @IsOptional()
+  brand?: string;
+
+  @IsString()
+  @IsOptional()
+  material?: string;
+}
+
+// ── Actualizar producto / variante (foto, precios, color, tallas) ──
+export class ActualizarProductoDto {
+  @IsString()
+  @IsOptional()
+  color?: string;
+
+  @IsString()
+  @IsOptional()
+  imageUrl?: string;
+
+  @IsNumber()
+  @IsOptional()
+  @Min(0.01)
+  costPrice?: number;
+
+  @IsNumber()
+  @IsOptional()
+  @Min(0.01)
+  salePrice?: number;
+
+  @IsArray()
+  @IsOptional()
+  tallas?: { tallaId: string; cantidad: number }[];
+}
