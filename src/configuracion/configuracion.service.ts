@@ -7,6 +7,7 @@ import {
 import { PrismaService } from '../shared/infrastructure/prisma/prisma.service';
 import { EncryptionService } from '../shared/infrastructure/encryption/encryption.service';
 import { CloudinaryService } from '../shared/infrastructure/cloudinary/cloudinary.service';
+import { NivelCredito } from '@prisma/client';
 import {
   CreateSeasonDto,
   CreateSeriesDto,
@@ -69,6 +70,12 @@ export class ConfiguracionService {
     if (dto.sriPuntoEmision !== undefined) data.sriPuntoEmision = dto.sriPuntoEmision;
     if (dto.sriObligadoContabilidad !== undefined) data.sriObligadoContabilidad = dto.sriObligadoContabilidad;
 
+    // Parámetros de Credit Scoring
+    if (dto.creditMontoMaximoInicial !== undefined) data.creditMontoMaximoInicial = dto.creditMontoMaximoInicial;
+    if (dto.creditPlazoMaximoDias !== undefined) data.creditPlazoMaximoDias = dto.creditPlazoMaximoDias;
+    if (dto.creditScoreMinimo !== undefined) data.creditScoreMinimo = dto.creditScoreMinimo;
+    if (dto.creditTasaMoraPct !== undefined) data.creditTasaMoraPct = dto.creditTasaMoraPct;
+
     if (existing) {
       if (existing.logoUrl && existing.logoUrl !== dto.logoUrl && existing.logoUrl.includes('cloudinary.com')) {
         await this.cloudinary.deleteImage(existing.logoUrl);
@@ -89,6 +96,38 @@ export class ConfiguracionService {
   }
 
   // ══════════════════════════════
+  // NIVELES DE CRÉDITO (SCORING)
+  // ══════════════════════════════
+
+  async getNivelesCredito() {
+    return this.prisma.creditLevelConfig.findMany({
+      orderBy: { comprasRequeridas: 'asc' },
+    });
+  }
+
+  async updateNivelesCredito(niveles: Array<{ nivel: NivelCredito; limiteDolares: number; plazoDias: number; comprasRequeridas: number }>) {
+    const results = [];
+    for (const item of niveles) {
+      const updated = await this.prisma.creditLevelConfig.upsert({
+        where: { nivel: item.nivel },
+        update: {
+          limiteDolares: item.limiteDolares,
+          plazoDias: item.plazoDias,
+          comprasRequeridas: item.comprasRequeridas,
+        },
+        create: {
+          nivel: item.nivel,
+          limiteDolares: item.limiteDolares,
+          plazoDias: item.plazoDias,
+          comprasRequeridas: item.comprasRequeridas,
+        },
+      });
+      results.push(updated);
+    }
+    return results;
+  }
+
+  // ══════════════════════════════
   // GEOLOCALIZACIÓN DE VENDEDORES
   // ══════════════════════════════
 
@@ -103,17 +142,23 @@ export class ConfiguracionService {
     });
   }
 
-  async obtenerUbicacionesVendedores(tenantId: string) {
+  async obtenerUbicacionesVendedores(tenantId?: string | null) {
+    const where: any = {
+      rol: { in: ['ROL_VENDEDOR', 'ROL_BODEGUERO', 'ROL_ADMIN'] },
+    };
+    if (tenantId) {
+      where.tenantId = tenantId;
+    }
+
     const vendedores = await this.prisma.user.findMany({
-      where: {
-        tenantId,
-        rol: 'ROL_VENDEDOR',
-      },
+      where,
       select: {
         id: true,
         nombre: true,
         email: true,
-        permiteCambiarPrecio: true,
+        rol: true,
+        tenantId: true,
+        tenant: { select: { name: true } },
         vendorLocations: {
           take: 1,
           orderBy: { timestamp: 'desc' },
@@ -121,10 +166,13 @@ export class ConfiguracionService {
       },
     });
 
-    return vendedores.map(v => ({
+    return vendedores.map((v) => ({
       id: v.id,
       nombre: v.nombre,
       email: v.email,
+      rol: v.rol,
+      tenantId: v.tenantId,
+      sucursal: v.tenant?.name || 'General',
       ultimaUbicacion: v.vendorLocations[0] || null,
     }));
   }

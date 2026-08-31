@@ -52,9 +52,26 @@ export class ConfiguracionController {
   }
 
   @Put('negocio')
-  @Roles(Rol.ROL_ADMIN)
+  @Roles(Rol.ROL_ADMIN, Rol.ROL_SUPER_ADMIN)
   async upsertBusinessConfig(@Body() dto: UpdateBusinessConfigDto, @Req() req: any) {
     return this.configuracionService.upsertBusinessConfig(dto, req.user.tenantId);
+  }
+
+  // ══════════════════════════════
+  // NIVELES DE CRÉDITO (SCORING)
+  // ══════════════════════════════
+
+  @Get('niveles-credito')
+  @Roles(Rol.ROL_ADMIN, Rol.ROL_SUPER_ADMIN)
+  async getNivelesCredito() {
+    return this.configuracionService.getNivelesCredito();
+  }
+
+  @Put('niveles-credito')
+  @Roles(Rol.ROL_ADMIN, Rol.ROL_SUPER_ADMIN)
+  async updateNivelesCredito(@Body() body: any) {
+    const niveles = Array.isArray(body) ? body : body.niveles;
+    return this.configuracionService.updateNivelesCredito(niveles);
   }
 
   // ══════════════════════════════
@@ -68,7 +85,7 @@ export class ConfiguracionController {
   }
 
   @Get('geolocalizacion/vendedores')
-  @Roles(Rol.ROL_ADMIN)
+  @Roles(Rol.ROL_ADMIN, Rol.ROL_SUPER_ADMIN)
   async obtenerUbicacionesVendedores(@Req() req: any) {
     return this.configuracionService.obtenerUbicacionesVendedores(req.user.tenantId);
   }

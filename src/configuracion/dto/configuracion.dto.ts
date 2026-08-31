@@ -71,6 +71,19 @@ export class UpdateBusinessConfigDto {
   @IsBoolean()
   @IsOptional()
   sriObligadoContabilidad?: boolean;
+
+  // ── Parámetros de Scoring Crediticio ──
+  @IsOptional()
+  creditMontoMaximoInicial?: number;
+
+  @IsOptional()
+  creditPlazoMaximoDias?: number;
+
+  @IsOptional()
+  creditScoreMinimo?: number;
+
+  @IsOptional()
+  creditTasaMoraPct?: number;
 }
 
 export class RegistrarUbicacionDto {
