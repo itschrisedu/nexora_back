@@ -416,25 +416,54 @@ export class InventarioController {
     }
 
     await this.prisma.$transaction(async (tx) => {
+      const targetSerieId = dto.serieId || product.serieId;
+
       await tx.product.update({
         where: { id },
         data: {
           ...(dto.color && { color: dto.color }),
           ...(dto.imageUrl !== undefined && { imageUrl: dto.imageUrl }),
+          ...(dto.serieId && { serieId: dto.serieId }),
           ...(dto.costPrice && { costPrice: dto.costPrice }),
           ...(dto.salePrice && { salePrice: dto.salePrice }),
         },
       });
 
-      // Si se enviaron tallas para actualizar stock
+      // Si se enviaron tallas para actualizar stock y numeración
       if (Array.isArray(dto.tallas) && dto.tallas.length > 0) {
         for (const t of dto.tallas) {
-          if (!t.tallaId || t.cantidad === undefined || t.cantidad < 0) continue;
+          if (t.cantidad === undefined || t.cantidad < 0) continue;
+
+          let targetTallaId = t.tallaId;
+
+          // Si no viene tallaId pero viene el número de talla, buscarla o crearla en la serie activa
+          if (!targetTallaId && t.numero) {
+            const existingTalla = await tx.tallaConfig.findFirst({
+              where: {
+                serieId: targetSerieId,
+                numero: t.numero,
+              },
+            });
+            if (existingTalla) {
+              targetTallaId = existingTalla.id;
+            } else {
+              const newTalla = await tx.tallaConfig.create({
+                data: {
+                  serieId: targetSerieId,
+                  numero: t.numero,
+                },
+              });
+              targetTallaId = newTalla.id;
+            }
+          }
+
+          if (!targetTallaId) continue;
+
           await tx.stockByTalla.upsert({
             where: {
               productId_tallaId: {
                 productId: id,
-                tallaId: t.tallaId,
+                tallaId: targetTallaId,
               },
             },
             update: {
@@ -442,7 +471,7 @@ export class InventarioController {
             },
             create: {
               productId: id,
-              tallaId: t.tallaId,
+              tallaId: targetTallaId,
               quantity: t.cantidad,
               reservedQuantity: 0,
             },

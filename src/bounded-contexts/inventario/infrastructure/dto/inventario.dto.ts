@@ -203,7 +203,7 @@ export class ActualizarModeloDto {
   material?: string;
 }
 
-// ── Actualizar producto / variante (foto, precios, color, tallas) ──
+// ── Actualizar producto / variante (foto, precios, color, serie, tallas) ──
 export class ActualizarProductoDto {
   @IsString()
   @IsOptional()
@@ -212,6 +212,10 @@ export class ActualizarProductoDto {
   @IsString()
   @IsOptional()
   imageUrl?: string;
+
+  @IsString()
+  @IsOptional()
+  serieId?: string;
 
   @IsNumber()
   @IsOptional()
@@ -225,5 +229,5 @@ export class ActualizarProductoDto {
 
   @IsArray()
   @IsOptional()
-  tallas?: { tallaId: string; cantidad: number }[];
+  tallas?: { tallaId?: string; numero?: number; cantidad: number }[];
 }
