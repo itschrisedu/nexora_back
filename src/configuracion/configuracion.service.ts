@@ -32,6 +32,7 @@ export class ConfiguracionService {
   // ══════════════════════════════
 
   async getBusinessConfig(tenantId: string) {
+    if (!tenantId) return null;
     const config = await this.prisma.businessConfig.findUnique({ where: { tenantId } });
     if (!config) return null;
 

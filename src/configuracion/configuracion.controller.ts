@@ -45,6 +45,9 @@ export class ConfiguracionController {
   @Get('negocio')
   @Roles(Rol.ROL_ADMIN, Rol.ROL_SUPER_ADMIN, Rol.ROL_VENDEDOR, Rol.ROL_BODEGUERO)
   async getBusinessConfig(@Req() req: any) {
+    if (!req.user?.tenantId) {
+      return null;
+    }
     return this.configuracionService.getBusinessConfig(req.user.tenantId);
   }
 
