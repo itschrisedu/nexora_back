@@ -3,11 +3,14 @@ import {
   Logger,
   NotFoundException,
   ConflictException,
+  BadRequestException,
 } from '@nestjs/common';
 import { PrismaService } from '../shared/infrastructure/prisma/prisma.service';
 import { EncryptionService } from '../shared/infrastructure/encryption/encryption.service';
 import { CloudinaryService } from '../shared/infrastructure/cloudinary/cloudinary.service';
-import { NivelCredito } from '@prisma/client';
+import { NivelCredito, Rol } from '@prisma/client';
+import * as bcrypt from 'bcryptjs';
+import { ActiveSessionStore } from '../auth/active-session.store';
 import {
   CreateSeasonDto,
   CreateSeriesDto,
@@ -442,5 +445,297 @@ export class ConfiguracionService {
     if (!existing) throw new NotFoundException('Talla no encontrada');
     await this.prisma.tallaConfig.delete({ where: { id } });
     return { message: 'Talla eliminada' };
+  }
+
+  // ══════════════════════════════
+  // SUCURSALES (Gestión Multi-Sucursal por Empresa)
+  // ══════════════════════════════
+
+  /**
+   * Obtiene la lista de todas las sucursales pertenecientes a la organización.
+   */
+  async getSucursales(tenantId: string) {
+    const sucursales = await this.prisma.tenant.findMany({
+      where: {
+        OR: [
+          { id: tenantId },
+          { name: { contains: 'Sucursal', mode: 'insensitive' } },
+        ],
+      },
+      include: {
+        businessConfig: {
+          select: {
+            nombre: true,
+            direccion: true,
+            telefono: true,
+            email: true,
+            logoUrl: true,
+          },
+        },
+        _count: {
+          select: {
+            users: true,
+            orders: true,
+            productModels: true,
+          },
+        },
+      },
+      orderBy: { createdAt: 'asc' },
+    });
+
+    return sucursales.map((s) => ({
+      id: s.id,
+      name: s.name,
+      active: s.active,
+      isMatriz: s.id === tenantId,
+      isCurrent: s.id === tenantId,
+      direccion: s.businessConfig?.direccion || 'Sin dirección',
+      telefono: s.businessConfig?.telefono || '',
+      email: s.businessConfig?.email || '',
+      stats: {
+        usuarios: s._count.users,
+        pedidos: s._count.orders,
+        modelos: s._count.productModels,
+      },
+      createdAt: s.createdAt,
+    }));
+  }
+
+  /**
+   * Crea una nueva sucursal para la empresa del Administrador.
+   */
+  async createSucursal(
+    tenantId: string,
+    data: {
+      name: string;
+      direccion?: string;
+      telefono?: string;
+      email?: string;
+      adminEmail?: string;
+      adminNombre?: string;
+      adminPassword?: string;
+    },
+  ) {
+    const currentTenant = await this.prisma.tenant.findUnique({
+      where: { id: tenantId },
+      include: { businessConfig: true },
+    });
+
+    if (!currentTenant) throw new NotFoundException('Empresa no encontrada');
+
+    const sucursal = await this.prisma.$transaction(async (tx) => {
+      // 1. Crear el tenant de la sucursal
+      const childTenant = await tx.tenant.create({
+        data: {
+          name: data.name,
+          active: true,
+        },
+      });
+
+      // 2. Crear configuración comercial inicial para la sucursal
+      await tx.businessConfig.create({
+        data: {
+          tenantId: childTenant.id,
+          nombre: data.name,
+          ruc: currentTenant.businessConfig?.ruc || this.encryption.encrypt('0000000000001'),
+          direccion: data.direccion || currentTenant.businessConfig?.direccion || 'Cevallos, Ecuador',
+          telefono: data.telefono || currentTenant.businessConfig?.telefono,
+          email: data.email || currentTenant.businessConfig?.email,
+          logoUrl: currentTenant.businessConfig?.logoUrl,
+          primaryColor: currentTenant.businessConfig?.primaryColor || '#0F172A',
+        },
+      });
+
+      // 3. Crear usuario encargado/vendedor si se proporcionó
+      if (data.adminEmail && data.adminPassword) {
+        const passwordHash = await bcrypt.hash(data.adminPassword, 12);
+        await tx.user.create({
+          data: {
+            email: data.adminEmail,
+            nombre: data.adminNombre || `Encargado ${data.name}`,
+            rol: Rol.ROL_ADMIN,
+            passwordHash,
+            activo: true,
+            tenantId: childTenant.id,
+          },
+        });
+      }
+
+      return childTenant;
+    });
+
+    this.logger.log(`Nueva sucursal creada: "${sucursal.name}"`);
+    return this.getSucursales(tenantId);
+  }
+
+  // ══════════════════════════════
+  // GESTIÓN DE PERSONAL Y RESEÑA DE CLAVES
+  // ══════════════════════════════
+
+  /**
+   * Obtiene la lista de colaboradores del local/sucursal.
+   */
+  async getPersonal(tenantId: string) {
+    return this.prisma.user.findMany({
+      where: { tenantId },
+      select: {
+        id: true,
+        nombre: true,
+        email: true,
+        rol: true,
+        activo: true,
+        permiteCambiarPrecio: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+      orderBy: { createdAt: 'asc' },
+    });
+  }
+
+  /**
+   * Actualiza los datos de un colaborador (nombre, email, rol, activo, permisos).
+   */
+  async updatePersonal(
+    tenantId: string,
+    userId: string,
+    data: {
+      nombre?: string;
+      email?: string;
+      rol?: Rol;
+      activo?: boolean;
+      permiteCambiarPrecio?: boolean;
+    },
+  ) {
+    const user = await this.prisma.user.findFirst({
+      where: { id: userId, tenantId },
+    });
+
+    if (!user) {
+      throw new NotFoundException('Colaborador no encontrado en este local');
+    }
+
+    const updated = await this.prisma.user.update({
+      where: { id: userId },
+      data: {
+        nombre: data.nombre !== undefined ? data.nombre : user.nombre,
+        email: data.email !== undefined ? data.email : user.email,
+        rol: data.rol !== undefined ? data.rol : user.rol,
+        activo: data.activo !== undefined ? data.activo : user.activo,
+        permiteCambiarPrecio:
+          data.permiteCambiarPrecio !== undefined
+            ? data.permiteCambiarPrecio
+            : user.permiteCambiarPrecio,
+      },
+      select: {
+        id: true,
+        nombre: true,
+        email: true,
+        rol: true,
+        activo: true,
+        permiteCambiarPrecio: true,
+      },
+    });
+
+    this.logger.log(`Colaborador "${updated.nombre}" (${updated.email}) actualizado por Administrador.`);
+    return updated;
+  }
+
+  /**
+   * Restablece la contraseña de un colaborador.
+   */
+  async resetPasswordPersonal(tenantId: string, userId: string, newPassword: string) {
+    if (!newPassword || newPassword.length < 6) {
+      throw new BadRequestException('La nueva contraseña debe tener al menos 6 caracteres.');
+    }
+
+    const user = await this.prisma.user.findFirst({
+      where: { id: userId, tenantId },
+    });
+
+    if (!user) {
+      throw new NotFoundException('Colaborador no encontrado en este local');
+    }
+
+    const passwordHash = await bcrypt.hash(newPassword, 12);
+
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { passwordHash },
+    });
+
+    ActiveSessionStore.invalidate(userId); // Invalida sesión previa para forzar login con nueva clave
+
+    this.logger.log(`Contraseña restablecida exitosamente para el usuario ${user.email}`);
+    return { message: `Contraseña restablecida exitosamente para ${user.nombre}` };
+  }
+
+  // ══════════════════════════════
+  // INVENTARIO INTER-SUCURSAL
+  // ══════════════════════════════
+
+  /**
+   * Consulta el stock disponible de un modelo/producto en las demás sucursales de la misma empresa.
+   */
+  async getStockInterSucursal(tenantId: string, searchCodeOrName: string) {
+    // Buscar sucursales hermanas
+    const sucursalesHermanas = await this.prisma.tenant.findMany({
+      where: {
+        id: { not: tenantId }, // Excluir la sucursal actual
+      },
+      select: { id: true, name: true },
+    });
+
+    if (sucursalesHermanas.length === 0) {
+      return [];
+    }
+
+    const tenantIds = sucursalesHermanas.map((s) => s.id);
+
+    // Buscar productos en esas sucursales que coincidan por código o nombre
+    const models = await this.prisma.productModel.findMany({
+      where: {
+        tenantId: { in: tenantIds },
+        OR: [
+          { baseCode: { contains: searchCodeOrName, mode: 'insensitive' } },
+          { name: { contains: searchCodeOrName, mode: 'insensitive' } },
+        ],
+      },
+      include: {
+        tenant: { select: { id: true, name: true } },
+        products: {
+          include: {
+            stockByTalla: {
+              include: { talla: true },
+            },
+          },
+        },
+      },
+    });
+
+    const resultados: any[] = [];
+
+    for (const m of models) {
+      for (const p of m.products) {
+        const totalPares = p.stockByTalla.reduce((acc, st) => acc + st.quantity, 0);
+        if (totalPares > 0) {
+          resultados.push({
+            sucursalId: m.tenant.id,
+            sucursalNombre: m.tenant.name,
+            modeloId: m.id,
+            modeloNombre: m.name,
+            codigo: p.code,
+            color: p.color,
+            precioVenta: Number(p.salePrice),
+            stockTotal: totalPares,
+            tallasDisponibles: p.stockByTalla.map((st) => ({
+              talla: st.talla.numero,
+              cantidad: st.quantity,
+            })),
+          });
+        }
+      }
+    }
+
+    return resultados;
   }
 }

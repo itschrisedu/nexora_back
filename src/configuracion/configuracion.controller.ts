@@ -12,6 +12,7 @@ import {
   UploadedFile,
   BadRequestException,
   Req,
+  Query,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { diskStorage } from 'multer';
@@ -228,6 +229,73 @@ export class ConfiguracionController {
       req.user.tenantId,
       file.path,
       password,
+    );
+  }
+
+  // ══════════════════════════════
+  // SUCURSALES (Multi-Sucursal por Empresa)
+  // ══════════════════════════════
+
+  @Get('sucursales')
+  @Roles(Rol.ROL_ADMIN, Rol.ROL_SUPER_ADMIN)
+  async getSucursales(@Req() req: any) {
+    return this.configuracionService.getSucursales(req.user.tenantId);
+  }
+
+  @Post('sucursales')
+  @Roles(Rol.ROL_ADMIN, Rol.ROL_SUPER_ADMIN)
+  async createSucursal(@Body() dto: any, @Req() req: any) {
+    return this.configuracionService.createSucursal(req.user.tenantId, dto);
+  }
+
+  // ══════════════════════════════
+  // PERSONAL DEL LOCAL / RESEÑA DE CLAVES
+  // ══════════════════════════════
+
+  @Get('personal')
+  @Roles(Rol.ROL_ADMIN, Rol.ROL_SUPER_ADMIN)
+  async getPersonal(@Req() req: any) {
+    return this.configuracionService.getPersonal(req.user.tenantId);
+  }
+
+  @Put('personal/:id')
+  @Roles(Rol.ROL_ADMIN, Rol.ROL_SUPER_ADMIN)
+  async updatePersonal(
+    @Param('id') id: string,
+    @Body() dto: any,
+    @Req() req: any,
+  ) {
+    return this.configuracionService.updatePersonal(req.user.tenantId, id, dto);
+  }
+
+  @Post('personal/:id/reset-password')
+  @Roles(Rol.ROL_ADMIN, Rol.ROL_SUPER_ADMIN)
+  async resetPasswordPersonal(
+    @Param('id') id: string,
+    @Body('password') password: string,
+    @Req() req: any,
+  ) {
+    return this.configuracionService.resetPasswordPersonal(
+      req.user.tenantId,
+      id,
+      password,
+    );
+  }
+
+  // ══════════════════════════════
+  // STOCK INTER-SUCURSAL
+  // ══════════════════════════════
+
+  @Get('stock-inter-sucursal')
+  @Roles(Rol.ROL_ADMIN, Rol.ROL_VENDEDOR, Rol.ROL_BODEGUERO, Rol.ROL_SUPER_ADMIN)
+  async getStockInterSucursal(
+    @Query('search') search: string,
+    @Req() req: any,
+  ) {
+    if (!search || !search.trim()) return [];
+    return this.configuracionService.getStockInterSucursal(
+      req.user.tenantId,
+      search.trim(),
     );
   }
 }

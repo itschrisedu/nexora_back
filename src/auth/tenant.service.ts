@@ -1,5 +1,6 @@
 import { Injectable, Logger, NotFoundException, ConflictException } from '@nestjs/common';
 import { PrismaService } from '../shared/infrastructure/prisma/prisma.service';
+import { EncryptionService } from '../shared/infrastructure/encryption/encryption.service';
 import * as bcrypt from 'bcryptjs';
 import { Rol } from '@prisma/client';
 
@@ -8,7 +9,10 @@ export class TenantService {
   private readonly logger = new Logger(TenantService.name);
   private readonly BCRYPT_ROUNDS = 12;
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly encryption: EncryptionService,
+  ) {}
 
   /**
    * Listar todos los tenants con estadísticas básicas.
@@ -208,6 +212,13 @@ export class TenantService {
       throw new NotFoundException(`Tenant con ID "${tenantId}" no encontrado.`);
     }
 
+    const businessConfig = tenant.businessConfig
+      ? {
+          ...tenant.businessConfig,
+          ruc: tenant.businessConfig.ruc ? this.encryption.decrypt(tenant.businessConfig.ruc) : '',
+        }
+      : null;
+
     return {
       id: tenant.id,
       name: tenant.name,
@@ -222,7 +233,7 @@ export class TenantService {
         saleNotes: tenant._count.saleNotes,
       },
       users: tenant.users,
-      businessConfig: tenant.businessConfig,
+      businessConfig,
     };
   }
 
@@ -257,13 +268,14 @@ export class TenantService {
       }
 
       if (data.businessConfig) {
+        const encryptedRuc = data.businessConfig.ruc ? this.encryption.encrypt(data.businessConfig.ruc) : undefined;
         const existingConfig = await tx.businessConfig.findFirst({ where: { tenantId } });
         if (existingConfig) {
           await tx.businessConfig.update({
             where: { id: existingConfig.id },
             data: {
               nombre: data.businessConfig.nombre || data.name || tenant.name,
-              ruc: data.businessConfig.ruc ?? existingConfig.ruc,
+              ruc: encryptedRuc ?? existingConfig.ruc,
               direccion: data.businessConfig.direccion ?? existingConfig.direccion,
               telefono: data.businessConfig.telefono ?? existingConfig.telefono,
             },
@@ -273,7 +285,7 @@ export class TenantService {
             data: {
               tenantId,
               nombre: data.businessConfig.nombre || data.name || tenant.name,
-              ruc: data.businessConfig.ruc || '0000000000001',
+              ruc: encryptedRuc || this.encryption.encrypt('0000000000001'),
               direccion: data.businessConfig.direccion || 'Ecuador',
               telefono: data.businessConfig.telefono,
             },

@@ -100,25 +100,35 @@ export class AuditService {
   }
 
   /**
-   * Obtener resumen de actividades de seguridad del tenant.
+   * Obtener resumen de actividades de seguridad del tenant o global.
    */
-  async obtenerResumenSeguridad(tenantId: string) {
-    const totalEventos = await this.prisma.auditLog.count({ where: { tenantId } });
+  async obtenerResumenSeguridad(tenantId?: string) {
+    const where: any = {};
+    if (tenantId) where.tenantId = tenantId;
+
+    const totalEventos = await this.prisma.auditLog.count({ where });
     const operacionesCriticas = await this.prisma.auditLog.count({
-      where: { tenantId, accion: 'OPERACION_CRITICA' },
+      where: { ...where, accion: 'OPERACION_CRITICA' },
     });
 
     const loginsUltimas24h = await this.prisma.auditLog.count({
       where: {
-        tenantId,
+        ...where,
         accion: 'LOGIN',
         createdAt: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) },
       },
     });
 
+    const usuarios = await this.prisma.auditLog.groupBy({
+      by: ['userId'],
+      where: { ...where, userId: { not: null } },
+    });
+
     return {
       totalEventos,
+      sensibles: operacionesCriticas,
       operacionesCriticas,
+      usuariosConEventos: usuarios.length,
       loginsUltimas24h,
     };
   }

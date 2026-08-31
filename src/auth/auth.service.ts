@@ -10,6 +10,7 @@ import * as bcrypt from 'bcryptjs';
 import { randomBytes } from 'crypto';
 import { PrismaService } from '../shared/infrastructure/prisma/prisma.service';
 import { JwtPayload } from './jwt.strategy';
+import { ActiveSessionStore } from './active-session.store';
 import { Rol } from '@prisma/client';
 
 @Injectable()
@@ -42,11 +43,15 @@ export class AuthService {
       throw new UnauthorizedException('Credenciales inválidas');
     }
 
+    const sessionId = randomBytes(16).toString('hex');
+    ActiveSessionStore.set(user.id, sessionId);
+
     const payload: JwtPayload = {
       sub: user.id,
       email: user.email,
       rol: user.rol,
       tenantId: user.tenantId,
+      sessionId,
     };
 
     const sessionHours = await this.getTenantSessionHours(user.tenantId);

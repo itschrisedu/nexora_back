@@ -131,7 +131,7 @@ export class ClientesQueryService {
         rucDescifrado = this.encryptionService.decrypt(record.ruc);
       }
     } catch (e) {
-      rucDescifrado = '[ERROR_DESCIFRADO_RUC]';
+      rucDescifrado = record.ruc;
     }
 
     try {
@@ -139,7 +139,7 @@ export class ClientesQueryService {
         cedulaDescifrada = this.encryptionService.decrypt(record.cedula);
       }
     } catch (e) {
-      cedulaDescifrada = '[ERROR_DESCIFRADO_CEDULA]';
+      cedulaDescifrada = record.cedula;
     }
 
     return {

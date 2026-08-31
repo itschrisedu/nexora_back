@@ -98,11 +98,11 @@ async function main() {
 
   // NIVELES DE CRÉDITO
   const creditLevels = [
-    { nivel: NivelCredito.SIN_CREDITO, comprasRequeridas: 0,  limiteDolares: 0,    plazoDias: 0 },
-    { nivel: NivelCredito.NIVEL_1,     comprasRequeridas: 10, limiteDolares: 300,  plazoDias: 15 },
-    { nivel: NivelCredito.NIVEL_2,     comprasRequeridas: 15, limiteDolares: 700,  plazoDias: 30 },
-    { nivel: NivelCredito.NIVEL_3,     comprasRequeridas: 25, limiteDolares: 1500, plazoDias: 30 },
-    { nivel: NivelCredito.NIVEL_4,     comprasRequeridas: 40, limiteDolares: 3000, plazoDias: 45 },
+    { nivel: NivelCredito.SIN_CREDITO, comprasRequeridas: 10, limiteDolares: 0,    plazoDias: 0 },
+    { nivel: NivelCredito.NIVEL_1,     comprasRequeridas: 15, limiteDolares: 300,  plazoDias: 15 },
+    { nivel: NivelCredito.NIVEL_2,     comprasRequeridas: 25, limiteDolares: 700,  plazoDias: 30 },
+    { nivel: NivelCredito.NIVEL_3,     comprasRequeridas: 40, limiteDolares: 1500, plazoDias: 30 },
+    { nivel: NivelCredito.NIVEL_4,     comprasRequeridas: 60, limiteDolares: 3000, plazoDias: 45 },
   ];
 
   for (const level of creditLevels) {

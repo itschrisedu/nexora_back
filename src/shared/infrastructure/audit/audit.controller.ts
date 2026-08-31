@@ -43,11 +43,17 @@ export class AuditController {
   }
 
   /**
-   * GET /auditoria/resumen
+   * GET /auditoria/resumen & GET /auditoria/stats
    * Retorna KPIs de seguridad y auditoría.
    */
   @Get('resumen')
   async obtenerResumen(@Request() req: any) {
+    const tenantId = req.user.tenantId;
+    return this.auditService.obtenerResumenSeguridad(tenantId);
+  }
+
+  @Get('stats')
+  async obtenerStats(@Request() req: any) {
     const tenantId = req.user.tenantId;
     return this.auditService.obtenerResumenSeguridad(tenantId);
   }

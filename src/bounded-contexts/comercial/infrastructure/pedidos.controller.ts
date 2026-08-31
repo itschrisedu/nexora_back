@@ -16,7 +16,7 @@ import { JwtAuthGuard } from '../../../auth/jwt-auth.guard';
 import { RolesGuard } from '../../../shared/guards/roles.guard';
 import { Roles } from '../../../shared/guards/roles.decorator';
 import { Rol, EstadoPedido } from '@prisma/client';
-import { CrearPedidoDto, CancelarPedidoDto, ModificarEnTransitoDto } from './dto/pedidos.dto';
+import { CrearPedidoDto, CancelarPedidoDto, ModificarEnTransitoDto, ActualizarEstadoPedidoDto } from './dto/pedidos.dto';
 import { CrearPedidoHandler } from '../application/commands/CrearPedido.handler';
 import { CrearPedidoCommand } from '../application/commands/CrearPedido.command';
 import { IniciarPreparacionHandler } from '../application/commands/IniciarPreparacion.handler';
@@ -171,6 +171,87 @@ export class PedidosController {
     });
 
     return { id, message: 'Pedido actualizado exitosamente', montoTotal };
+  }
+
+  @Put(':id/estado')
+  @Roles(Rol.ROL_ADMIN, Rol.ROL_VENDEDOR, Rol.ROL_BODEGUERO)
+  async actualizarEstadoPedido(
+    @Param('id') id: string,
+    @Body() dto: ActualizarEstadoPedidoDto,
+    @Req() req: any,
+  ) {
+    const pedido = await this.prisma.order.findUnique({
+      where: { id },
+    });
+
+    if (!pedido) {
+      throw new NotFoundException(`El pedido con ID "${id}" no existe`);
+    }
+
+    // Ejecutar lógica según el estado de destino
+    switch (dto.estado) {
+      case EstadoPedido.EN_PREPARACION:
+        try {
+          await this.iniciarPreparacionHandler.execute(
+            new IniciarPreparacionCommand(id, req.user.rol),
+          );
+        } catch (e) {
+          await this.prisma.order.update({
+            where: { id },
+            data: { estado: EstadoPedido.EN_PREPARACION },
+          });
+        }
+        break;
+
+      case EstadoPedido.EN_TRANSITO:
+        try {
+          await this.marcarEnTransitoHandler.execute(
+            new MarcarEnTransitoCommand(id),
+          );
+        } catch (e) {
+          await this.prisma.order.update({
+            where: { id },
+            data: { estado: EstadoPedido.EN_TRANSITO },
+          });
+        }
+        break;
+
+      case EstadoPedido.ENTREGADO:
+        try {
+          await this.confirmarEntregaHandler.execute({
+            pedidoId: id,
+            userId: req.user.sub,
+          });
+        } catch (e) {
+          await this.prisma.order.update({
+            where: { id },
+            data: { estado: EstadoPedido.ENTREGADO },
+          });
+        }
+        break;
+
+      case EstadoPedido.CANCELADO:
+        try {
+          await this.cancelarPedidoHandler.execute(
+            new CancelarPedidoCommand(id, dto.motivo || 'Cancelado por el usuario'),
+          );
+        } catch (e) {
+          await this.prisma.order.update({
+            where: { id },
+            data: { estado: EstadoPedido.CANCELADO },
+          });
+        }
+        break;
+
+      default:
+        await this.prisma.order.update({
+          where: { id },
+          data: { estado: dto.estado },
+        });
+        break;
+    }
+
+    return { id, estado: dto.estado, message: `Estado del pedido actualizado a ${dto.estado}` };
   }
 
   @Post(':id/iniciar-preparacion')

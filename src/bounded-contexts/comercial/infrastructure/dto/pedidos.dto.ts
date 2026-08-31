@@ -9,7 +9,7 @@ import {
   ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
-import { CanalEntrada, TipoPago, TipoVenta } from '@prisma/client';
+import { CanalEntrada, TipoPago, TipoVenta, EstadoPedido } from '@prisma/client';
 
 class LineaPedidoDto {
   @IsString()
@@ -77,5 +77,15 @@ export class ModificarEnTransitoDto {
   @ValidateNested({ each: true })
   @Type(() => LineaRechazadaDto)
   lineasRechazadas!: LineaRechazadaDto[];
+}
+
+export class ActualizarEstadoPedidoDto {
+  @IsEnum(EstadoPedido)
+  @IsNotEmpty()
+  estado!: EstadoPedido;
+
+  @IsString()
+  @IsOptional()
+  motivo?: string;
 }
 
