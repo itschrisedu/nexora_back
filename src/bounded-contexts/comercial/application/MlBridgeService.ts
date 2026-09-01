@@ -12,7 +12,7 @@ import { PrismaService } from '../../../shared/infrastructure/prisma/prisma.serv
 @Injectable()
 export class MlBridgeService {
   private readonly logger = new Logger(MlBridgeService.name);
-  private readonly ML_URL = process.env.ML_SERVICE_URL ?? 'http://localhost:8001';
+  private readonly ML_URL = process.env.ML_SERVICE_URL ?? 'http://127.0.0.1:8001';
 
   constructor(private readonly prisma: PrismaService) {}
 
@@ -26,8 +26,9 @@ export class MlBridgeService {
 
     if (ventas.length < 10) {
       return {
+        success: false,
         error: 'Datos insuficientes',
-        mensaje: `Se requieren al menos 10 registros de venta. Actualmente hay ${ventas.length}.`,
+        mensaje: `Aun no tienes suficientes ventas registradas para generar una prediccion. Se necesitan al menos 10 ventas entregadas y actualmente tienes ${ventas.length}. Sigue vendiendo y pronto podras usar esta funcion.`,
         registrosActuales: ventas.length,
       };
     }
@@ -58,7 +59,11 @@ export class MlBridgeService {
       return prediccion;
     } catch (error: any) {
       this.logger.error(`Error al contactar ML Service: ${error.message}`);
-      throw error;
+      return {
+        success: false,
+        error: 'Servicio no disponible',
+        mensaje: 'El sistema de inteligencia artificial no esta disponible en este momento. Por favor, intenta de nuevo en unos minutos.',
+      };
     }
   }
 
@@ -68,18 +73,43 @@ export class MlBridgeService {
   async forzarReentrenamiento(tenantId: string) {
     const ventas = await this.extraerVentasHistoricas(tenantId);
 
-    const response = await fetch(`${this.ML_URL}/reentrenamiento`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ tenant_id: tenantId, ventas }),
-    });
-
-    if (!response.ok) {
-      const errorBody = await response.text();
-      throw new Error(`ML Service respondió ${response.status}: ${errorBody}`);
+    if (ventas.length < 10) {
+      return {
+        success: false,
+        error: 'Datos insuficientes',
+        mensaje: `Aun no tienes suficientes ventas para reentrenar el modelo. Se necesitan al menos 10 ventas entregadas y actualmente tienes ${ventas.length}. Continua registrando ventas y pronto podras reentrenar.`,
+        registrosActuales: ventas.length,
+      };
     }
 
-    return response.json();
+    try {
+      const response = await fetch(`${this.ML_URL}/reentrenamiento`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tenant_id: tenantId, ventas }),
+      });
+
+      if (!response.ok) {
+        const errorBody = await response.text();
+        this.logger.warn(`ML Service respondió ${response.status}: ${errorBody}`);
+        return {
+          success: false,
+          error: 'Error en reentrenamiento',
+          mensaje: 'Hubo un problema al procesar los datos de ventas para reentrenar el modelo. Por favor, intenta de nuevo mas tarde.',
+        };
+      }
+
+      const result = await response.json();
+      this.logger.log(`Re-entrenamiento completado para tenant=${tenantId}`);
+      return { success: true, ...result };
+    } catch (error: any) {
+      this.logger.error(`Error al contactar ML Service para reentrenamiento: ${error.message}`);
+      return {
+        success: false,
+        error: 'Servicio no disponible',
+        mensaje: 'El sistema de inteligencia artificial no esta disponible en este momento. Por favor, intenta de nuevo en unos minutos.',
+      };
+    }
   }
 
   /**

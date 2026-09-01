@@ -34,6 +34,15 @@ export class PosController {
   }
 
   /**
+   * Obtener productos y stock disponible para venta en mostrador
+   */
+  @Get('productos-disponibles')
+  @Roles(Rol.ROL_ADMIN, Rol.ROL_VENDEDOR, Rol.ROL_SUPER_ADMIN, Rol.ROL_BODEGUERO)
+  async obtenerProductosDisponibles(@Req() req: any) {
+    return this.posService.obtenerProductosDisponibles(req.user.tenantId);
+  }
+
+  /**
    * Registrar una Venta Directa en Mostrador (POS)
    */
   @Post('venta-directa')

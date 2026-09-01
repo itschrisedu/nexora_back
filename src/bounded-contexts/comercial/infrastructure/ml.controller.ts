@@ -16,6 +16,20 @@ export class MlController {
   constructor(private readonly mlBridge: MlBridgeService) {}
 
   /**
+   * GET /ml/prediccion
+   * Genera predicción de demanda para el tenant autenticado mediante query param.
+   */
+  @Get('prediccion')
+  async obtenerPrediccionGet(
+    @Request() req: any,
+    @Query('dias') dias?: string,
+  ) {
+    const tenantId = req.user.tenantId;
+    const horizonte = dias ? parseInt(dias, 10) : 30;
+    return this.mlBridge.obtenerPrediccion(tenantId, horizonte);
+  }
+
+  /**
    * POST /ml/prediccion
    * Genera predicción de demanda para el tenant autenticado.
    */

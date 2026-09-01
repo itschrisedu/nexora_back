@@ -51,6 +51,52 @@ export class PosService {
   }
 
   /**
+   * Obtener catálogo de productos disponibles con existencias por talla para POS
+   */
+  async obtenerProductosDisponibles(tenantId: string | null | undefined) {
+    const tid = await this.resolveTenantId(tenantId);
+    const productos = await this.prisma.product.findMany({
+      where: {
+        active: true,
+        model: { tenantId: tid },
+      },
+      include: {
+        model: true,
+        serie: {
+          include: {
+            tallas: {
+              orderBy: { numero: 'asc' },
+            },
+          },
+        },
+        stockByTalla: true,
+      },
+      orderBy: { model: { name: 'asc' } },
+    });
+
+    return productos.map((p) => {
+      const stockMap = new Map(p.stockByTalla.map((s) => [s.tallaId, s.quantity]));
+      const tallas = (p.serie?.tallas || []).map((t) => ({
+        tallaId: t.id,
+        numero: t.numero,
+        cantidad: stockMap.get(t.id) || 0,
+      }));
+
+      return {
+        id: p.id,
+        baseCode: p.model?.baseCode || p.code,
+        modelName: p.model?.name || 'Calzado',
+        color: p.color || 'Estándar',
+        salePrice: Number(p.salePrice || 0),
+        serieNombre: p.serie?.nombre || 'General',
+        serieId: p.serieId,
+        imageUrl: p.imageUrl || undefined,
+        tallas,
+      };
+    });
+  }
+
+  /**
    * Abrir una nueva sesión de Caja / Turno POS
    */
   async abrirCaja(tenantId: string | null | undefined, userId: string, dto: AbrirCajaDto) {
