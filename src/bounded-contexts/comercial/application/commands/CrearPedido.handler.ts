@@ -167,37 +167,50 @@ export class CrearPedidoHandler {
       try {
         const supplierGroups = new Map<string, { productId: string; cantidad: number; precioCosto: number; observacion: string }[]>();
 
+        // 1. Agrupar faltantes por producto (para sumar 1 sola docena extra por modelo y no por cada talla)
+        const faltantesPorProducto = new Map<string, number>();
         for (const line of lineasProducto) {
           if (line.stockDisponible < line.cantidad) {
             const faltante = line.cantidad - line.stockDisponible;
-            // Pedir el faltante para cumplir el pedido + 1 docena extra (12 pares) para stock
-            const cantidadAComprar = faltante + 12;
+            const actual = faltantesPorProducto.get(line.productId) || 0;
+            faltantesPorProducto.set(line.productId, actual + faltante);
+          }
+        }
 
-            const prodWithModel = await this.prisma.product.findUnique({
-              where: { id: line.productId },
-              include: { model: true },
+        // 2. Por cada producto con déficit, calcular: totalFaltante + 1 docena extra (12 pares) para stock
+        for (const [prodId, totalFaltante] of faltantesPorProducto.entries()) {
+          const cantidadAComprar = totalFaltante + 12;
+
+          const prodWithModel = await this.prisma.product.findUnique({
+            where: { id: prodId },
+            include: { model: true },
+          });
+
+          // Obtener el proveedor vinculado o el primer proveedor activo de la empresa
+          let supplierId = prodWithModel?.model?.supplierId;
+          if (!supplierId) {
+            const defaultSupplier = await this.prisma.supplier.findFirst({
+              where: { activo: true },
             });
+            supplierId = defaultSupplier?.id;
+          }
 
-            // Obtener el proveedor vinculado o el primer proveedor activo de la empresa
-            let supplierId = prodWithModel?.model?.supplierId;
-            if (!supplierId) {
-              const defaultSupplier = await this.prisma.supplier.findFirst({
-                where: { activo: true },
-              });
-              supplierId = defaultSupplier?.id;
-            }
+          if (supplierId) {
+            const nombreCliente = [cli?.nombre, cli?.apellido].filter(Boolean).join(' ').trim() || 'Cliente';
+            const refPedido = pedido.id.substring(0, 6).toUpperCase();
 
-            if (supplierId) {
-              const nombreCliente = [cli?.nombre, cli?.apellido].filter(Boolean).join(' ').trim() || 'Cliente';
-              const refPedido = pedido.id.substring(0, 6).toUpperCase();
-              if (!supplierGroups.has(supplierId)) supplierGroups.set(supplierId, []);
-              supplierGroups.get(supplierId)!.push({
-                productId: line.productId,
-                cantidad: cantidadAComprar,
-                precioCosto: Number(prodWithModel?.costPrice || 10),
-                observacion: `Cliente: ${nombreCliente} | Ref Pedido: #${refPedido} (Faltante: ${faltante} pares + 12 stock)`,
-              });
-            }
+            let faltanteDesc = `${totalFaltante} pares`;
+            if (totalFaltante === 1) faltanteDesc = '1 par';
+            else if (totalFaltante === 6) faltanteDesc = '½ docena (6 pares)';
+            else if (totalFaltante === 12) faltanteDesc = '1 docena (12 pares)';
+
+            if (!supplierGroups.has(supplierId)) supplierGroups.set(supplierId, []);
+            supplierGroups.get(supplierId)!.push({
+              productId: prodId,
+              cantidad: cantidadAComprar,
+              precioCosto: Number(prodWithModel?.costPrice || 10),
+              observacion: `Cliente: ${nombreCliente} | Ref Pedido: #${refPedido} (Déficit pedido: ${faltanteDesc} + 12 pares p/ stock)`,
+            });
           }
         }
 
