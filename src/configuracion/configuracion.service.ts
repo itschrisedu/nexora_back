@@ -580,6 +580,124 @@ export class ConfiguracionService {
     return this.getSucursales(tenantId);
   }
 
+  /**
+   * Actualiza los datos de una sucursal (nombre, dirección, teléfono, email, estado).
+   */
+  async updateSucursal(
+    tenantId: string,
+    sucursalId: string,
+    data: {
+      name?: string;
+      direccion?: string;
+      telefono?: string;
+      email?: string;
+      active?: boolean;
+    },
+  ) {
+    const sucursal = await this.prisma.tenant.findUnique({
+      where: { id: sucursalId },
+      include: { businessConfig: true },
+    });
+
+    if (!sucursal) {
+      throw new NotFoundException('Sucursal no encontrada');
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      // Actualizar Tenant
+      if (data.name !== undefined || data.active !== undefined) {
+        await tx.tenant.update({
+          where: { id: sucursalId },
+          data: {
+            ...(data.name !== undefined && { name: data.name }),
+            ...(data.active !== undefined && { active: data.active }),
+          },
+        });
+      }
+
+      // Actualizar BusinessConfig
+      if (sucursal.businessConfig) {
+        const configData: any = {};
+        if (data.name !== undefined) configData.nombre = data.name;
+        if (data.direccion !== undefined) configData.direccion = data.direccion;
+        if (data.telefono !== undefined) configData.telefono = data.telefono;
+        if (data.email !== undefined) configData.email = data.email;
+
+        if (Object.keys(configData).length > 0) {
+          await tx.businessConfig.update({
+            where: { id: sucursal.businessConfig.id },
+            data: configData,
+          });
+        }
+      }
+    });
+
+    this.logger.log(`Sucursal "${data.name || sucursal.name}" actualizada`);
+    return this.getSucursales(tenantId);
+  }
+
+  /**
+   * Obtiene el personal asignado a una sucursal específica.
+   */
+  async getPersonalBySucursal(sucursalId: string) {
+    return this.prisma.user.findMany({
+      where: { tenantId: sucursalId },
+      select: {
+        id: true,
+        nombre: true,
+        email: true,
+        rol: true,
+        activo: true,
+        permiteCambiarPrecio: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+      orderBy: { createdAt: 'asc' },
+    });
+  }
+
+  /**
+   * Transfiere un colaborador de una sucursal a otra.
+   */
+  async transferirPersonal(
+    tenantId: string,
+    userId: string,
+    targetTenantId: string,
+  ) {
+    if (!targetTenantId) {
+      throw new BadRequestException('Debe especificar la sucursal destino');
+    }
+
+    const user = await this.prisma.user.findFirst({
+      where: { id: userId },
+    });
+
+    if (!user) {
+      throw new NotFoundException('Colaborador no encontrado');
+    }
+
+    const targetTenant = await this.prisma.tenant.findUnique({
+      where: { id: targetTenantId },
+    });
+
+    if (!targetTenant) {
+      throw new NotFoundException('Sucursal destino no encontrada');
+    }
+
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { tenantId: targetTenantId },
+    });
+
+    this.logger.log(
+      `Colaborador "${user.nombre}" transferido a sucursal "${targetTenant.name}"`,
+    );
+
+    return {
+      message: `${user.nombre} transferido a ${targetTenant.name}`,
+    };
+  }
+
   // ══════════════════════════════
   // GESTIÓN DE PERSONAL Y RESEÑA DE CLAVES
   // ══════════════════════════════

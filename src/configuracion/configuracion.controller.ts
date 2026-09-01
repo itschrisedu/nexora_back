@@ -248,6 +248,32 @@ export class ConfiguracionController {
     return this.configuracionService.createSucursal(req.user.tenantId, dto);
   }
 
+  @Put('sucursales/:id')
+  @Roles(Rol.ROL_ADMIN, Rol.ROL_SUPER_ADMIN)
+  async updateSucursal(
+    @Param('id') id: string,
+    @Body() dto: any,
+    @Req() req: any,
+  ) {
+    return this.configuracionService.updateSucursal(req.user.tenantId, id, dto);
+  }
+
+  @Get('sucursales/:id/personal')
+  @Roles(Rol.ROL_ADMIN, Rol.ROL_SUPER_ADMIN)
+  async getPersonalBySucursal(@Param('id') sucursalId: string) {
+    return this.configuracionService.getPersonalBySucursal(sucursalId);
+  }
+
+  @Patch('personal/:id/transferir')
+  @Roles(Rol.ROL_ADMIN, Rol.ROL_SUPER_ADMIN)
+  async transferirPersonal(
+    @Param('id') userId: string,
+    @Body('targetTenantId') targetTenantId: string,
+    @Req() req: any,
+  ) {
+    return this.configuracionService.transferirPersonal(req.user.tenantId, userId, targetTenantId);
+  }
+
   // ══════════════════════════════
   // PERSONAL DEL LOCAL / RESEÑA DE CLAVES
   // ══════════════════════════════
