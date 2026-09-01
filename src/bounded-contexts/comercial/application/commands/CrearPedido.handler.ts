@@ -188,12 +188,14 @@ export class CrearPedidoHandler {
             }
 
             if (supplierId) {
+              const nombreCliente = [cli?.nombre, cli?.apellido].filter(Boolean).join(' ').trim() || 'Cliente';
+              const refPedido = pedido.id.substring(0, 6).toUpperCase();
               if (!supplierGroups.has(supplierId)) supplierGroups.set(supplierId, []);
               supplierGroups.get(supplierId)!.push({
                 productId: line.productId,
                 cantidad: cantidadAComprar,
                 precioCosto: Number(prodWithModel?.costPrice || 10),
-                observacion: `Cliente: ${cli?.nombre || 'Cliente'} | Ref Pedido: #${pedido.id.substring(0, 8)} (Faltante ${faltante} pares + 12 stock)`,
+                observacion: `Cliente: ${nombreCliente} | Ref Pedido: #${refPedido} (Faltante: ${faltante} pares + 12 stock)`,
               });
             }
           }
