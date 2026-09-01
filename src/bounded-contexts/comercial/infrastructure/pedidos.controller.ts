@@ -146,10 +146,9 @@ export class PedidosController {
         orderId: id,
         productId: l.productId,
         tallaId: l.tallaId,
-        serieId: prod.serieId,
+        serieId: prod.serieId || 'DEFAULT_SERIE',
         cantidad: l.cantidad,
         precioUnitario,
-        subtotal,
         tipoVenta: l.tipoVenta || 'SERIE_COMPLETA',
       });
     }

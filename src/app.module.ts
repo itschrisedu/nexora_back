@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { EventEmitterModule } from '@nestjs/event-emitter';
+import { ScheduleModule } from '@nestjs/schedule';
 import { SharedModule } from './shared/shared.module';
 import { AuthModule } from './auth/auth.module';
 import { ConfiguracionModule } from './configuracion/configuracion.module';
@@ -24,6 +25,9 @@ import { ReportesModule } from './bounded-contexts/reportes/infrastructure/repor
 
     // Habilitar Event Emitter para arquitectura dirigida por eventos
     EventEmitterModule.forRoot(),
+
+    // Habilitar tareas programadas / Cron Jobs para auto-despacho a proveedores
+    ScheduleModule.forRoot(),
 
     // Módulo global: PrismaService + EncryptionService
     SharedModule,

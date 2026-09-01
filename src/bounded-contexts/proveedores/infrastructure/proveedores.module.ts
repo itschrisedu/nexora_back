@@ -19,6 +19,9 @@ import { RegistrarSupplierPaymentHandler } from '../application/commands/Registr
 // Application — Queries
 import { ProveedoresQueryService } from '../application/queries/ProveedoresQueryService';
 
+// Services
+import { AutoDespachoOrdenesService } from './services/AutoDespachoOrdenes.service';
+
 // Listeners
 import { IngresoMercanciaInventarioListener } from './listeners/ingreso-mercancia-inventario.listener';
 import { IngresoMercanciaFinancieroListener } from './listeners/ingreso-mercancia-financiero.listener';
@@ -51,6 +54,9 @@ import { IngresoMercanciaFinancieroListener } from './listeners/ingreso-mercanci
     // Queries
     ProveedoresQueryService,
 
+    // Scheduled Services
+    AutoDespachoOrdenesService,
+
     // Listeners
     IngresoMercanciaInventarioListener,
     IngresoMercanciaFinancieroListener,
@@ -60,6 +66,7 @@ import { IngresoMercanciaFinancieroListener } from './listeners/ingreso-mercanci
     'ISupplierOrderRepository',
     'IMerchandiseEntryRepository',
     ProveedoresQueryService,
+    AutoDespachoOrdenesService,
   ],
 })
 export class ProveedoresModule {}

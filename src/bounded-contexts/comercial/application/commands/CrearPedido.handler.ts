@@ -163,48 +163,102 @@ export class CrearPedidoHandler {
         activa: true,
       });
 
-      // Generar orden de compra automática al proveedor si el modelo tiene supplierId vinculado
+      // Generar o acumular orden de compra automática al proveedor en estado BORRADOR
       try {
-        const supplierGroups = new Map<string, { productId: string; cantidad: number; precioCosto: number }[]>();
+        const supplierGroups = new Map<string, { productId: string; cantidad: number; precioCosto: number; observacion: string }[]>();
+
         for (const line of lineasProducto) {
           if (line.stockDisponible < line.cantidad) {
-            const Faltante = line.cantidad - line.stockDisponible;
+            const faltante = line.cantidad - line.stockDisponible;
+            // Pedir el faltante para cumplir el pedido + 1 docena extra (12 pares) para stock
+            const cantidadAComprar = faltante + 12;
+
             const prodWithModel = await this.prisma.product.findUnique({
               where: { id: line.productId },
               include: { model: true },
             });
-            const supplierId = prodWithModel?.model?.supplierId;
+
+            // Obtener el proveedor vinculado o el primer proveedor activo de la empresa
+            let supplierId = prodWithModel?.model?.supplierId;
+            if (!supplierId) {
+              const defaultSupplier = await this.prisma.supplier.findFirst({
+                where: { activo: true },
+              });
+              supplierId = defaultSupplier?.id;
+            }
+
             if (supplierId) {
               if (!supplierGroups.has(supplierId)) supplierGroups.set(supplierId, []);
               supplierGroups.get(supplierId)!.push({
                 productId: line.productId,
-                cantidad: Faltante,
-                precioCosto: Number(prodWithModel?.costPrice || 0),
+                cantidad: cantidadAComprar,
+                precioCosto: Number(prodWithModel?.costPrice || 10),
+                observacion: `Cliente: ${cli?.nombre || 'Cliente'} | Ref Pedido: #${pedido.id.substring(0, 8)} (Faltante ${faltante} pares + 12 stock)`,
               });
             }
           }
         }
 
         for (const [supId, items] of supplierGroups.entries()) {
-          const totalOrder = items.reduce((sum, item) => sum + item.cantidad * item.precioCosto, 0);
-          await this.prisma.supplierOrder.create({
-            data: {
+          // Buscar si ya existe una orden de compra en estado BORRADOR para este proveedor
+          let borrador = await this.prisma.supplierOrder.findFirst({
+            where: {
               supplierId: supId,
-              total: totalOrder,
-              estado: 'PENDIENTE',
-              lines: {
-                create: items.map((item) => ({
+              estado: 'BORRADOR',
+            },
+            include: { lines: true },
+          });
+
+          if (!borrador) {
+            borrador = await this.prisma.supplierOrder.create({
+              data: {
+                supplierId: supId,
+                total: 0,
+                estado: 'BORRADOR',
+                observaciones: 'Orden acumulativa del día (Generada automáticamente por déficit de stock)',
+              },
+              include: { lines: true },
+            });
+          }
+
+          // Anexar o acumular líneas en la orden borrador
+          for (const item of items) {
+            const existingLine = borrador.lines.find((l) => l.productId === item.productId);
+            if (existingLine) {
+              const nuevaCant = existingLine.cantidadPedida + item.cantidad;
+              await this.prisma.supplierOrderLine.update({
+                where: { id: existingLine.id },
+                data: {
+                  cantidadPedida: nuevaCant,
+                  subtotal: nuevaCant * item.precioCosto,
+                },
+              });
+            } else {
+              await this.prisma.supplierOrderLine.create({
+                data: {
+                  supplierOrderId: borrador.id,
                   productId: item.productId,
                   cantidadPedida: item.cantidad,
                   precioCosto: item.precioCosto,
                   subtotal: item.cantidad * item.precioCosto,
-                })),
-              },
-            },
+                  observacionLinea: item.observacion,
+                },
+              });
+            }
+          }
+
+          // Recalcular total acumulado de la orden borrador
+          const allLines = await this.prisma.supplierOrderLine.findMany({
+            where: { supplierOrderId: borrador.id },
+          });
+          const totalRecalculado = allLines.reduce((acc, l) => acc + Number(l.subtotal), 0);
+          await this.prisma.supplierOrder.update({
+            where: { id: borrador.id },
+            data: { total: totalRecalculado },
           });
         }
       } catch (e) {
-        // No bloquear la creación del pedido si falla la orden al proveedor
+        // No bloquear la creación del pedido del cliente si ocurre una advertencia secundaria
       }
     }
 
