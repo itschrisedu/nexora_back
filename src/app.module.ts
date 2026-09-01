@@ -12,6 +12,7 @@ import { ProveedoresModule } from './bounded-contexts/proveedores/infrastructure
 import { NotificacionesModule } from './bounded-contexts/notificaciones/infrastructure/notificaciones.module';
 import { FacturacionSriModule } from './bounded-contexts/facturacion-sri/infrastructure/facturacion-sri.module';
 import { AuditModule } from './shared/infrastructure/audit/audit.module';
+import { ReportesModule } from './bounded-contexts/reportes/infrastructure/reportes.module';
 
 @Module({
   imports: [
@@ -41,6 +42,7 @@ import { AuditModule } from './shared/infrastructure/audit/audit.module';
     NotificacionesModule,
     FacturacionSriModule,
     AuditModule,
+    ReportesModule,
   ],
 })
 export class AppModule {}
