@@ -21,6 +21,18 @@ export interface RegistrarVentaPosDto {
     direccion?: string;
   };
   metodoPago: 'EFECTIVO' | 'TARJETA' | 'TRANSFERENCIA';
+  detallePago?: {
+    // Para Transferencia
+    banco?: string;
+    numeroComprobante?: string;
+    // Para Tarjeta
+    tipoTarjeta?: string; // "DÉBITO" | "CRÉDITO"
+    marcaTarjeta?: string; // "VISA" | "MASTERCARD" | "DINERS" | "DISCOVER" | "OTRA"
+    numeroVoucher?: string;
+    numeroAutorizacion?: string;
+    lote?: string;
+    ultimosDigitos?: string;
+  };
   lineas: {
     productId: string;
     serieId: string;
@@ -265,6 +277,23 @@ export class PosService {
         });
       }
 
+      // Construir descripción detallada de pago si es Transferencia o Tarjeta
+      let textoDetallePago = `Cobro directo en tienda (${dto.metodoPago})`;
+      if (dto.metodoPago === 'TRANSFERENCIA' && dto.detallePago) {
+        const banco = dto.detallePago.banco ? `Banco: ${dto.detallePago.banco}` : '';
+        const comp = dto.detallePago.numeroComprobante ? `Comprobante/Ref: #${dto.detallePago.numeroComprobante}` : '';
+        const detalles = [banco, comp].filter(Boolean).join(' | ');
+        textoDetallePago = detalles ? `Transferencia [${detalles}]` : 'Transferencia Bancaria';
+      } else if (dto.metodoPago === 'TARJETA' && dto.detallePago) {
+        const tipo = dto.detallePago.tipoTarjeta || 'TARJETA';
+        const marca = dto.detallePago.marcaTarjeta ? `(${dto.detallePago.marcaTarjeta})` : '';
+        const voucher = dto.detallePago.numeroVoucher ? `Voucher: #${dto.detallePago.numeroVoucher}` : '';
+        const aut = dto.detallePago.numeroAutorizacion ? `Aut: #${dto.detallePago.numeroAutorizacion}` : '';
+        const lote = dto.detallePago.lote ? `Lote: #${dto.detallePago.lote}` : '';
+        const detalles = [voucher, aut, lote].filter(Boolean).join(' | ');
+        textoDetallePago = `${tipo} ${marca} [${detalles || 'Cobro Datafast/Medianet'}]`.trim();
+      }
+
       // B. Crear Pedido ENTREGADO
       const order = await tx.order.create({
         data: {
@@ -275,7 +304,7 @@ export class PosService {
           canal: CanalEntrada.MANUAL,
           tipoPago: TipoPago.CONTADO,
           montoTotal,
-          notas: dto.notas || 'Venta directa mostrador POS',
+          notas: dto.notas ? `${dto.notas} - ${textoDetallePago}` : textoDetallePago,
           lines: {
             create: dto.lineas.map((l) => ({
               productId: l.productId,
@@ -346,7 +375,7 @@ export class PosService {
         },
       });
 
-      // D. Crear Registro de Cobro Saldado
+      // D. Crear Registro de Cobro Saldado con el detalle específico
       const cobro = await tx.cobro.create({
         data: {
           tenantId: tid,
@@ -361,7 +390,7 @@ export class PosService {
               monto: montoTotal,
               metodo: dto.metodoPago,
               userId,
-              notas: `Cobro en mostrador POS via ${dto.metodoPago}`,
+              notas: textoDetallePago,
             },
           },
         },
