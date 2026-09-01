@@ -38,10 +38,22 @@ export class ConfiguracionService {
   async getBusinessConfig(tenantId: string) {
     if (!tenantId) return null;
     const config = await this.prisma.businessConfig.findUnique({ where: { tenantId } });
-    if (!config) return null;
+    const tenant = await this.prisma.tenant.findUnique({ where: { id: tenantId } });
+    const nombreNegocio = config?.nombre || tenant?.name || 'Local Comercial';
+
+    if (!config) {
+      return {
+        nombre: nombreNegocio,
+        ruc: '',
+        direccion: 'Cantón Cevallos, Tungurahua',
+        telefono: '',
+        tieneP12: false,
+      };
+    }
 
     return {
       ...config,
+      nombre: nombreNegocio,
       ruc: this.encryption.decrypt(config.ruc), // Descifrar RUC para mostrar
       firmaPasswordEnc: undefined, // Nunca enviar contraseña cifrada al frontend
       tieneP12: !!config.firmaP12Path, // Indicador booleano para el frontend

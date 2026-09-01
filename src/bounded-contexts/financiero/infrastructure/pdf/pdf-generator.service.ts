@@ -60,21 +60,20 @@ export class PdfGeneratorService {
 
         // ── ENCABEZADO ──────────────────────────────────────────────────
         doc
-          .fontSize(20)
+          .fontSize(18)
           .fillColor('#1a1a2e')
           .font('Helvetica-Bold')
-          .text('NEXORA', 50, 50);
+          .text(data.negocioNombre || 'COMPROBANTE COMERCIAL', 50, 50);
 
         doc
           .fontSize(9)
           .fillColor('#555')
           .font('Helvetica')
-          .text(data.negocioNombre, 50, 75)
-          .text(`RUC: ${data.negocioRuc}`, 50, 87)
-          .text(data.negocioDireccion, 50, 99);
+          .text(`RUC: ${data.negocioRuc || '0000000000001'}`, 50, 75)
+          .text(data.negocioDireccion || 'Cevallos, Tungurahua', 50, 87);
 
         if (data.negocioTelefono) {
-          doc.text(`Tel: ${data.negocioTelefono}`, 50, 111);
+          doc.text(`Tel: ${data.negocioTelefono}`, 50, 99);
         }
 
         // ── TÍTULO NOTA DE VENTA ─────────────────────────────────────────

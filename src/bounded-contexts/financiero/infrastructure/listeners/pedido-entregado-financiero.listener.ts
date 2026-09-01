@@ -92,16 +92,19 @@ export class PedidoEntregadoFinancieroListener {
       const descuento = Math.max(0, subtotal - total);
 
       // 4. Generar PDF
-      const negocioConfig = await this.prisma.businessConfig.findFirst({ where: { tenantId } });
+      const [negocioConfig, tenant] = await Promise.all([
+        this.prisma.businessConfig.findFirst({ where: { tenantId } }),
+        this.prisma.tenant.findUnique({ where: { id: tenantId } }),
+      ]);
       const pdfData = {
         numero,
         fecha: new Date(),
         clienteNombre: cliente
           ? `${cliente.nombre} ${cliente.apellido}`
           : 'Cliente',
-        negocioNombre: negocioConfig?.nombre ?? 'NEXORA',
+        negocioNombre: negocioConfig?.nombre || tenant?.name || 'Local Comercial',
         negocioRuc: negocioConfig?.ruc ?? '0000000000001',
-        negocioDireccion: negocioConfig?.direccion ?? 'Ecuador',
+        negocioDireccion: negocioConfig?.direccion ?? 'Cevallos, Tungurahua',
         negocioTelefono: negocioConfig?.telefono ?? undefined,
         lines: lines.map((l) => ({
           nombre: l.nombre,

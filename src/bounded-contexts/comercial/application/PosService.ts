@@ -10,6 +10,16 @@ export interface AbrirCajaDto {
 
 export interface RegistrarVentaPosDto {
   clienteId?: string;
+  tipoComprobante?: 'CONSUMIDOR_FINAL' | 'FACTURA';
+  clienteData?: {
+    cedula?: string;
+    ruc?: string;
+    nombre: string;
+    apellido?: string;
+    email?: string;
+    telefono?: string;
+    direccion?: string;
+  };
   metodoPago: 'EFECTIVO' | 'TARJETA' | 'TRANSFERENCIA';
   lineas: {
     productId: string;
@@ -160,9 +170,46 @@ export class PosService {
       throw new BadRequestException('Debe incluir al menos un artículo para la venta.');
     }
 
-    // 1. Obtener o asignar Consumidor Final por defecto
+    // 1. Obtener o asignar Cliente según Tipo de Comprobante (Factura o Consumidor Final)
     let clienteId = dto.clienteId;
-    if (!clienteId) {
+
+    if (dto.tipoComprobante === 'FACTURA' && dto.clienteData) {
+      const { cedula, ruc, nombre, apellido, email, telefono, direccion } = dto.clienteData;
+      const ident = (cedula || ruc || '').trim();
+
+      let clienteExistente = null;
+      if (ident && ident !== '9999999999') {
+        const encryptedIdent = this.encryption.encrypt(ident);
+        clienteExistente = await this.prisma.client.findFirst({
+          where: {
+            tenantId: tid,
+            OR: [
+              { cedula: encryptedIdent },
+              { ruc: encryptedIdent },
+              { cedula: ident },
+              { ruc: ident },
+            ],
+          },
+        });
+      }
+
+      if (!clienteExistente) {
+        clienteExistente = await this.prisma.client.create({
+          data: {
+            nombre: nombre?.trim() || 'Cliente Mostrador',
+            apellido: (apellido || '').trim() || 'Factura',
+            telefono: telefono?.trim() || '0000000000',
+            email: email?.trim() || undefined,
+            cedula: ident.length === 10 ? this.encryption.encrypt(ident) : undefined,
+            ruc: ident.length === 13 ? this.encryption.encrypt(ident) : undefined,
+            direccion: direccion?.trim() || undefined,
+            nivelCredito: 'SIN_CREDITO',
+            tenant: { connect: { id: tid } },
+          },
+        });
+      }
+      clienteId = clienteExistente.id;
+    } else if (!clienteId) {
       let consumidorFinal = await this.prisma.client.findFirst({
         where: { tenantId: tid, nombre: 'Consumidor Final' },
       });
@@ -172,7 +219,7 @@ export class PosService {
             nombre: 'Consumidor',
             apellido: 'Final',
             telefono: '0000000000',
-            cedula: '9999999999',
+            cedula: this.encryption.encrypt('9999999999'),
             nivelCredito: 'SIN_CREDITO',
             tenant: { connect: { id: tid } },
           },
