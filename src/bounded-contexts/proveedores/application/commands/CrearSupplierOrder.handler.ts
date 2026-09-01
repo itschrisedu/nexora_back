@@ -24,11 +24,27 @@ export class CrearSupplierOrderHandler {
       throw new NotFoundException(`Proveedor con ID "${command.supplierId}" no encontrado.`);
     }
 
-    // 2. Obtener correlativo de la secuencia supplier_order_seq
-    const seqResult = await this.prisma.$queryRaw<[{ nextval: bigint }]>`
-      SELECT nextval('supplier_order_seq')
-    `;
-    const numero = Number(seqResult[0].nextval);
+    // 2. Obtener correlativo de la secuencia de órdenes de compra
+    let numero = 1;
+    try {
+      const seqResult = await this.prisma.$queryRaw<[{ nextval: bigint }]>`
+        SELECT nextval('supplier_order_seq')
+      `;
+      numero = Number(seqResult[0].nextval);
+    } catch {
+      try {
+        await this.prisma.$executeRawUnsafe(`CREATE SEQUENCE IF NOT EXISTS supplier_order_seq START 1;`);
+        const seqResult = await this.prisma.$queryRaw<[{ nextval: bigint }]>`
+          SELECT nextval('supplier_order_seq')
+        `;
+        numero = Number(seqResult[0].nextval);
+      } catch {
+        const lastOrder = await this.prisma.supplierOrder.findFirst({
+          orderBy: { numero: 'desc' },
+        });
+        numero = (lastOrder?.numero ?? 0) + 1;
+      }
+    }
 
     const orderId = crypto.randomUUID();
     const order = SupplierOrder.crear(

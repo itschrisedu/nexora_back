@@ -391,7 +391,39 @@ export class FinancieroQueryService {
       include: { lines: true, cobro: true },
     });
     if (!nota) throw new NotFoundException(`Nota de Venta ${saleNoteId} no encontrada`);
-    return nota;
+
+    const client = await this.prisma.client.findUnique({
+      where: { id: nota.clientId },
+    });
+
+    let clienteCedula = client?.cedula || '—';
+    if (client?.cedula) {
+      try {
+        clienteCedula = this.encryptionService.decrypt(client.cedula);
+      } catch {
+        clienteCedula = client.cedula;
+      }
+    }
+
+    let clienteRuc = client?.ruc || '';
+    if (client?.ruc) {
+      try {
+        clienteRuc = this.encryptionService.decrypt(client.ruc);
+      } catch {
+        clienteRuc = client.ruc;
+      }
+    }
+
+    return {
+      ...nota,
+      client: client
+        ? {
+            ...client,
+            cedula: clienteCedula,
+            ruc: clienteRuc,
+          }
+        : null,
+    };
   }
 
   async listarNotasVentaCliente(clientId: string, tenantId?: string | null) {

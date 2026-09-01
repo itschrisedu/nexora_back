@@ -46,6 +46,13 @@ export class FacturacionSriService {
     // 1. Obtener configuración del negocio (firma, RUC, ambiente)
     const config = await this.obtenerConfigSri(tenantId);
 
+    let identificacionLimpia = datosVenta.comprador.identificacion;
+    if (identificacionLimpia && (identificacionLimpia.includes(':') || identificacionLimpia.length > 20)) {
+      try {
+        identificacionLimpia = this.encryption.decrypt(identificacionLimpia);
+      } catch {}
+    }
+
     // 2. Armar el DTO para el microservicio SRI
     const facturaDto = {
       ambiente: config.sriAmbiente === '2' ? '2' : '1', // 1=Pruebas, 2=Producción
@@ -62,7 +69,7 @@ export class FacturacionSriService {
       },
       comprador: {
         tipoIdentificacion: datosVenta.comprador.tipoIdentificacion,
-        identificacion: datosVenta.comprador.identificacion,
+        identificacion: identificacionLimpia,
         razonSocial: datosVenta.comprador.razonSocial,
         direccion: datosVenta.comprador.direccion || '',
         email: datosVenta.comprador.email || '',

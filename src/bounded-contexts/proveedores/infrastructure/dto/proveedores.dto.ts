@@ -44,6 +44,10 @@ export class CrearSupplierOrderDto {
   @IsString()
   supplierId: string;
 
+  @IsOptional()
+  @IsString()
+  observaciones?: string;
+
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => CrearSupplierOrderLineDto)
