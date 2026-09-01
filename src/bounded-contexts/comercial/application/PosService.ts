@@ -242,25 +242,59 @@ export class PosService {
         },
       });
 
-      // C. Crear Nota de Venta
+      // C. Crear Nota de Venta con número correlativo secuencial
+      let nextNumero = 1;
+      try {
+        const lastNote = await tx.saleNote.findFirst({
+          orderBy: { numero: 'desc' },
+          select: { numero: true },
+        });
+        nextNumero = (lastNote?.numero || 0) + 1;
+      } catch {
+        nextNumero = Math.floor(Date.now() / 1000) % 1000000;
+      }
+
+      // Obtener detalles de productos y tallas para la nota de venta
+      const productIds = dto.lineas.map((l) => l.productId);
+      const productosDb = await tx.product.findMany({
+        where: { id: { in: productIds } },
+        include: { model: true, serie: true },
+      });
+      const prodMap = new Map(productosDb.map((p) => [p.id, p]));
+
+      const tallaIds = dto.lineas.map((l) => l.tallaId);
+      const tallasDb = await tx.tallaConfig.findMany({
+        where: { id: { in: tallaIds } },
+      });
+      const tallasMap = new Map(tallasDb.map((t) => [t.id, t]));
+
       const saleNote = await tx.saleNote.create({
         data: {
           tenantId: tid,
+          numero: nextNumero,
           orderId: order.id,
           clientId: clienteId,
           subtotal: montoTotal,
           descuento: 0,
           total: montoTotal,
           lines: {
-            create: dto.lineas.map((l) => ({
-              productId: l.productId,
-              nombre: 'Calzado Mostrador POS',
-              serie: l.serieId,
-              talla: l.tallaId,
-              cantidad: l.cantidad,
-              precioUnitario: l.precioUnitario,
-              subtotal: l.cantidad * l.precioUnitario,
-            })),
+            create: dto.lineas.map((l) => {
+              const p = prodMap.get(l.productId);
+              const t = tallasMap.get(l.tallaId);
+              const nombre = p?.model ? `${p.model.name} (${p.color})` : 'Calzado Mostrador POS';
+              const serie = p?.serie?.nombre || 'General';
+              const talla = t ? String(t.numero) : '38';
+
+              return {
+                productId: l.productId,
+                nombre,
+                serie,
+                talla,
+                cantidad: l.cantidad,
+                precioUnitario: l.precioUnitario,
+                subtotal: l.cantidad * l.precioUnitario,
+              };
+            }),
           },
         },
       });
