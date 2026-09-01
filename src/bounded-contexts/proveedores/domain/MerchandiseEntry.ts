@@ -7,8 +7,11 @@ export interface MerchandiseEntryLineProps {
   productId: string;
   tallaId: string;
   cantidadIngresada: number;
+  cantidadEsperada?: number;
+  diferencia?: number;
   precioCosto: number;
   subtotal: number;
+  observacionLinea?: string;
 }
 
 export class MerchandiseEntrySinLineasException extends DomainException {
@@ -37,7 +40,9 @@ export class MerchandiseEntry extends AggregateRoot {
     private readonly _supplierId: string,
     private readonly _total: number,
     private readonly _lines: MerchandiseEntryLineProps[],
-    private readonly _fechaIngreso: Date,
+    private readonly _observaciones?: string,
+    private readonly _estado: string = 'COMPLETA',
+    private readonly _fechaIngreso: Date = new Date(),
   ) {
     super();
   }
@@ -46,8 +51,19 @@ export class MerchandiseEntry extends AggregateRoot {
     id: string,
     numero: number,
     supplierId: string,
-    lines: Array<{ id: string; productId: string; tallaId: string; cantidadIngresada: number; precioCosto: number }>,
+    lines: Array<{
+      id: string;
+      productId: string;
+      tallaId: string;
+      cantidadIngresada: number;
+      cantidadEsperada?: number;
+      diferencia?: number;
+      precioCosto: number;
+      observacionLinea?: string;
+    }>,
     supplierOrderId?: string,
+    observaciones?: string,
+    estado: string = 'COMPLETA',
   ): MerchandiseEntry {
     if (lines.length === 0) {
       throw new MerchandiseEntrySinLineasException();
@@ -65,8 +81,11 @@ export class MerchandiseEntry extends AggregateRoot {
         productId: l.productId,
         tallaId: l.tallaId,
         cantidadIngresada: l.cantidadIngresada,
+        cantidadEsperada: l.cantidadEsperada,
+        diferencia: l.diferencia,
         precioCosto: l.precioCosto,
         subtotal: l.cantidadIngresada * l.precioCosto,
+        observacionLinea: l.observacionLinea,
       };
     });
 
@@ -79,6 +98,8 @@ export class MerchandiseEntry extends AggregateRoot {
       supplierId,
       total,
       entryLines,
+      observaciones,
+      estado,
       new Date(),
     );
 
@@ -108,6 +129,8 @@ export class MerchandiseEntry extends AggregateRoot {
   get supplierId(): string { return this._supplierId; }
   get total(): number { return this._total; }
   get lines(): ReadonlyArray<MerchandiseEntryLineProps> { return this._lines; }
+  get observaciones(): string | undefined { return this._observaciones; }
+  get estado(): string { return this._estado; }
   get fechaIngreso(): Date { return this._fechaIngreso; }
 
   static reconstruir(
@@ -117,8 +140,10 @@ export class MerchandiseEntry extends AggregateRoot {
     supplierId: string,
     total: number,
     lines: MerchandiseEntryLineProps[],
-    fechaIngreso: Date,
+    observaciones?: string,
+    estado: string = 'COMPLETA',
+    fechaIngreso: Date = new Date(),
   ): MerchandiseEntry {
-    return new MerchandiseEntry(id, numero, supplierOrderId, supplierId, total, lines, fechaIngreso);
+    return new MerchandiseEntry(id, numero, supplierOrderId, supplierId, total, lines, observaciones, estado, fechaIngreso);
   }
 }

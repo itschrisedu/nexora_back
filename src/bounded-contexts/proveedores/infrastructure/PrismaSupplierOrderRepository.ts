@@ -35,6 +35,7 @@ export class PrismaSupplierOrderRepository extends ISupplierOrderRepository {
         supplierId: order.supplierId,
         total: order.total,
         estado: order.estado,
+        observaciones: order.observaciones,
         lines: {
           create: order.lines.map((l) => ({
             id: l.id,
@@ -42,6 +43,7 @@ export class PrismaSupplierOrderRepository extends ISupplierOrderRepository {
             cantidadPedida: l.cantidadPedida,
             precioCosto: l.precioCosto,
             subtotal: l.subtotal,
+            observacionLinea: l.observacionLinea,
           })),
         },
       },
@@ -49,11 +51,30 @@ export class PrismaSupplierOrderRepository extends ISupplierOrderRepository {
   }
 
   async update(order: SupplierOrder): Promise<void> {
-    await this.prisma.supplierOrder.update({
-      where: { id: order.id },
-      data: {
-        estado: order.estado,
-      },
+    // Recreate lines or update order
+    await this.prisma.$transaction(async (tx) => {
+      await tx.supplierOrderLine.deleteMany({
+        where: { supplierOrderId: order.id },
+      });
+
+      await tx.supplierOrder.update({
+        where: { id: order.id },
+        data: {
+          total: order.total,
+          estado: order.estado,
+          observaciones: order.observaciones,
+          lines: {
+            create: order.lines.map((l) => ({
+              id: l.id,
+              productId: l.productId,
+              cantidadPedida: l.cantidadPedida,
+              precioCosto: l.precioCosto,
+              subtotal: l.subtotal,
+              observacionLinea: l.observacionLinea,
+            })),
+          },
+        },
+      });
     });
   }
 
@@ -81,6 +102,7 @@ export class PrismaSupplierOrderRepository extends ISupplierOrderRepository {
       cantidadPedida: l.cantidadPedida,
       precioCosto: Number(l.precioCosto),
       subtotal: Number(l.subtotal),
+      observacionLinea: l.observacionLinea,
     }));
 
     return SupplierOrder.reconstruir(
@@ -90,6 +112,7 @@ export class PrismaSupplierOrderRepository extends ISupplierOrderRepository {
       Number(raw.total),
       raw.estado,
       lines,
+      raw.observaciones,
       raw.createdAt,
     );
   }

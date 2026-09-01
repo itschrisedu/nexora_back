@@ -12,7 +12,9 @@ import { PrismaMerchandiseEntryRepository } from './PrismaMerchandiseEntryReposi
 // Application — Command Handlers
 import { RegistrarSupplierHandler } from '../application/commands/RegistrarSupplier.handler';
 import { CrearSupplierOrderHandler } from '../application/commands/CrearSupplierOrder.handler';
+import { ActualizarSupplierOrderHandler } from '../application/commands/ActualizarSupplierOrder.handler';
 import { RegistrarMerchandiseEntryHandler } from '../application/commands/RegistrarMerchandiseEntry.handler';
+import { RegistrarSupplierPaymentHandler } from '../application/commands/RegistrarSupplierPayment.handler';
 
 // Application — Queries
 import { ProveedoresQueryService } from '../application/queries/ProveedoresQueryService';
@@ -42,7 +44,9 @@ import { IngresoMercanciaFinancieroListener } from './listeners/ingreso-mercanci
     // Command Handlers
     RegistrarSupplierHandler,
     CrearSupplierOrderHandler,
+    ActualizarSupplierOrderHandler,
     RegistrarMerchandiseEntryHandler,
+    RegistrarSupplierPaymentHandler,
 
     // Queries
     ProveedoresQueryService,

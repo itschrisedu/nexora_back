@@ -36,14 +36,19 @@ export class PrismaMerchandiseEntryRepository extends IMerchandiseEntryRepositor
         supplierId: entry.supplierId,
         total: entry.total,
         fechaIngreso: entry.fechaIngreso,
+        observaciones: entry.observaciones,
+        estado: entry.estado,
         lines: {
           create: entry.lines.map((l) => ({
             id: l.id,
             productId: l.productId,
             tallaId: l.tallaId,
             cantidadIngresada: l.cantidadIngresada,
+            cantidadEsperada: l.cantidadEsperada,
+            diferencia: l.diferencia,
             precioCosto: l.precioCosto,
             subtotal: l.subtotal,
+            observacionLinea: l.observacionLinea,
           })),
         },
       },
@@ -73,8 +78,11 @@ export class PrismaMerchandiseEntryRepository extends IMerchandiseEntryRepositor
       productId: l.productId,
       tallaId: l.tallaId,
       cantidadIngresada: l.cantidadIngresada,
+      cantidadEsperada: l.cantidadEsperada ?? undefined,
+      diferencia: l.diferencia ?? undefined,
       precioCosto: Number(l.precioCosto),
       subtotal: Number(l.subtotal),
+      observacionLinea: l.observacionLinea ?? undefined,
     }));
 
     return MerchandiseEntry.reconstruir(
@@ -84,6 +92,8 @@ export class PrismaMerchandiseEntryRepository extends IMerchandiseEntryRepositor
       raw.supplierId,
       Number(raw.total),
       lines,
+      raw.observaciones,
+      raw.estado || 'COMPLETA',
       raw.fechaIngreso,
     );
   }

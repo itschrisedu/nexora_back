@@ -5,6 +5,7 @@ import { SupplierOrder } from '../../domain/SupplierOrder';
 import { CrearSupplierOrderCommand } from './CrearSupplierOrder.command';
 import { PrismaService } from '../../../../shared/infrastructure/prisma/prisma.service';
 import { EventBus } from '../../../../shared/infrastructure/event-bus/event-bus.service';
+import { SupplierOrderStatus } from '@prisma/client';
 
 @Injectable()
 export class CrearSupplierOrderHandler {
@@ -47,6 +48,10 @@ export class CrearSupplierOrderHandler {
     }
 
     const orderId = crypto.randomUUID();
+    const estadoInicial = command.estado === 'PENDIENTE' 
+      ? SupplierOrderStatus.PENDIENTE 
+      : SupplierOrderStatus.BORRADOR;
+
     const order = SupplierOrder.crear(
       orderId,
       numero,
@@ -56,7 +61,10 @@ export class CrearSupplierOrderHandler {
         productId: l.productId,
         cantidadPedida: l.cantidadPedida,
         precioCosto: l.precioCosto,
+        observacionLinea: l.observacionLinea,
       })),
+      command.observaciones,
+      estadoInicial,
     );
 
     await this.orderRepository.save(order);

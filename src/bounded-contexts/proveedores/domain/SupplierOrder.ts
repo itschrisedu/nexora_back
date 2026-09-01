@@ -9,6 +9,7 @@ export interface SupplierOrderLineProps {
   cantidadPedida: number;
   precioCosto: number;
   subtotal: number;
+  observacionLinea?: string;
 }
 
 export class SupplierOrderSinLineasException extends DomainException {
@@ -42,8 +43,9 @@ export class SupplierOrder extends AggregateRoot {
     private readonly _supplierId: string,
     private _total: number,
     private _estado: SupplierOrderStatus,
-    private readonly _lines: SupplierOrderLineProps[],
-    private readonly _createdAt: Date,
+    private _lines: SupplierOrderLineProps[],
+    private _observaciones?: string,
+    private readonly _createdAt: Date = new Date(),
   ) {
     super();
   }
@@ -52,7 +54,9 @@ export class SupplierOrder extends AggregateRoot {
     id: string,
     numero: number,
     supplierId: string,
-    lines: Array<{ id: string; productId: string; cantidadPedida: number; precioCosto: number }>,
+    lines: Array<{ id: string; productId: string; cantidadPedida: number; precioCosto: number; observacionLinea?: string }>,
+    observaciones?: string,
+    estadoInicial: SupplierOrderStatus = SupplierOrderStatus.BORRADOR,
   ): SupplierOrder {
     if (lines.length === 0) {
       throw new SupplierOrderSinLineasException();
@@ -71,6 +75,7 @@ export class SupplierOrder extends AggregateRoot {
         cantidadPedida: l.cantidadPedida,
         precioCosto: l.precioCosto,
         subtotal: l.cantidadPedida * l.precioCosto,
+        observacionLinea: l.observacionLinea,
       };
     });
 
@@ -81,8 +86,9 @@ export class SupplierOrder extends AggregateRoot {
       numero,
       supplierId,
       total,
-      SupplierOrderStatus.PENDIENTE,
+      estadoInicial,
       orderLines,
+      observaciones,
       new Date(),
     );
 
@@ -97,19 +103,60 @@ export class SupplierOrder extends AggregateRoot {
   get total(): number { return this._total; }
   get estado(): SupplierOrderStatus { return this._estado; }
   get lines(): ReadonlyArray<SupplierOrderLineProps> { return this._lines; }
+  get observaciones(): string | undefined { return this._observaciones; }
   get createdAt(): Date { return this._createdAt; }
 
   // Métodos de Negocio
-  marcarComoRecibida(): void {
-    if (this._estado !== SupplierOrderStatus.PENDIENTE) {
+  actualizar(
+    lines: Array<{ id: string; productId: string; cantidadPedida: number; precioCosto: number; observacionLinea?: string }>,
+    observaciones?: string,
+  ): void {
+    if (this._estado !== SupplierOrderStatus.BORRADOR && this._estado !== SupplierOrderStatus.PENDIENTE) {
       throw new EstadoOrdenInvalidoException(this._estado);
     }
-    this._estado = SupplierOrderStatus.RECIBIDA;
+    if (lines.length === 0) {
+      throw new SupplierOrderSinLineasException();
+    }
+
+    const orderLines: SupplierOrderLineProps[] = lines.map((l) => {
+      if (l.cantidadPedida <= 0) {
+        throw new CantidadPedidaInvalidaException();
+      }
+      if (l.precioCosto <= 0) {
+        throw new PrecioCostoInvalidoException();
+      }
+      return {
+        id: l.id,
+        productId: l.productId,
+        cantidadPedida: l.cantidadPedida,
+        precioCosto: l.precioCosto,
+        subtotal: l.cantidadPedida * l.precioCosto,
+        observacionLinea: l.observacionLinea,
+      };
+    });
+
+    this._lines = orderLines;
+    this._total = orderLines.reduce((acc, curr) => acc + curr.subtotal, 0);
+    this._observaciones = observaciones;
+  }
+
+  confirmarEnvio(): void {
+    if (this._estado !== SupplierOrderStatus.BORRADOR) {
+      throw new EstadoOrdenInvalidoException(this._estado);
+    }
+    this._estado = SupplierOrderStatus.PENDIENTE;
+  }
+
+  marcarComoRecibida(parcial: boolean = false): void {
+    if (this._estado !== SupplierOrderStatus.PENDIENTE && this._estado !== SupplierOrderStatus.BORRADOR && this._estado !== SupplierOrderStatus.RECIBIDA_PARCIAL) {
+      throw new EstadoOrdenInvalidoException(this._estado);
+    }
+    this._estado = parcial ? SupplierOrderStatus.RECIBIDA_PARCIAL : SupplierOrderStatus.RECIBIDA;
     this.addDomainEvent(new SupplierOrderRecibidoEvent(this._id, this._supplierId));
   }
 
   cancelar(): void {
-    if (this._estado !== SupplierOrderStatus.PENDIENTE) {
+    if (this._estado !== SupplierOrderStatus.PENDIENTE && this._estado !== SupplierOrderStatus.BORRADOR) {
       throw new EstadoOrdenInvalidoException(this._estado);
     }
     this._estado = SupplierOrderStatus.CANCELADA;
@@ -122,8 +169,9 @@ export class SupplierOrder extends AggregateRoot {
     total: number,
     estado: SupplierOrderStatus,
     lines: SupplierOrderLineProps[],
-    createdAt: Date,
+    observaciones?: string,
+    createdAt: Date = new Date(),
   ): SupplierOrder {
-    return new SupplierOrder(id, numero, supplierId, total, estado, lines, createdAt);
+    return new SupplierOrder(id, numero, supplierId, total, estado, lines, observaciones, createdAt);
   }
 }

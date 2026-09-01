@@ -617,7 +617,9 @@ model DeudaPago {
 // ══════════════════════════════════════════
 
 enum SupplierOrderStatus {
+  BORRADOR
   PENDIENTE
+  RECIBIDA_PARCIAL
   RECIBIDA
   CANCELADA
 }
@@ -633,6 +635,7 @@ model Supplier {
   activo      Boolean            @default(true)
   orders      SupplierOrder[]
   entries     MerchandiseEntry[]
+  payments    SupplierPayment[]
   productModels ProductModel[]
   createdAt   DateTime           @default(now())
   updatedAt   DateTime           @updatedAt
@@ -642,28 +645,31 @@ model Supplier {
 }
 
 model SupplierOrder {
-  id         String              @id @default(uuid())
-  numero     Int                 @unique @default(autoincrement())
-  supplierId String
-  total      Decimal             @db.Decimal(10, 2)
-  estado     SupplierOrderStatus @default(PENDIENTE)
-  lines      SupplierOrderLine[]
-  entry      MerchandiseEntry?
-  supplier   Supplier            @relation(fields: [supplierId], references: [id])
-  createdAt  DateTime            @default(now())
-  updatedAt  DateTime            @updatedAt
+  id            String              @id @default(uuid())
+  numero        Int                 @unique @default(autoincrement())
+  supplierId    String
+  total         Decimal             @db.Decimal(10, 2)
+  estado        SupplierOrderStatus @default(BORRADOR)
+  observaciones String?
+  lines         SupplierOrderLine[]
+  entry         MerchandiseEntry?
+  payments      SupplierPayment[]
+  supplier      Supplier            @relation(fields: [supplierId], references: [id])
+  createdAt     DateTime            @default(now())
+  updatedAt     DateTime            @updatedAt
 
   @@map("supplier_orders")
 }
 
 model SupplierOrderLine {
-  id              String        @id @default(uuid())
-  supplierOrderId String
-  productId       String
-  cantidadPedida  Int
-  precioCosto     Decimal       @db.Decimal(10, 2)
-  subtotal        Decimal       @db.Decimal(10, 2)
-  order           SupplierOrder @relation(fields: [supplierOrderId], references: [id], onDelete: Cascade)
+  id                String        @id @default(uuid())
+  supplierOrderId   String
+  productId         String
+  cantidadPedida    Int
+  precioCosto       Decimal       @db.Decimal(10, 2)
+  subtotal          Decimal       @db.Decimal(10, 2)
+  observacionLinea  String?
+  order             SupplierOrder @relation(fields: [supplierOrderId], references: [id], onDelete: Cascade)
 
   @@map("supplier_order_lines")
 }
@@ -675,6 +681,8 @@ model MerchandiseEntry {
   supplierId      String
   total           Decimal                @db.Decimal(10, 2)
   fechaIngreso    DateTime               @default(now())
+  observaciones   String?
+  estado          String                 @default("COMPLETA") // COMPLETA | RECIBIDA_PARCIAL | CON_DIFERENCIAS
   lines           MerchandiseEntryLine[]
   supplierOrder   SupplierOrder?         @relation(fields: [supplierOrderId], references: [id])
   supplier        Supplier               @relation(fields: [supplierId], references: [id])
@@ -689,11 +697,30 @@ model MerchandiseEntryLine {
   productId          String
   tallaId            String
   cantidadIngresada  Int
+  cantidadEsperada   Int?
+  diferencia         Int?
   precioCosto        Decimal          @db.Decimal(10, 2)
   subtotal           Decimal          @db.Decimal(10, 2)
+  observacionLinea   String?
   entry              MerchandiseEntry @relation(fields: [merchandiseEntryId], references: [id], onDelete: Cascade)
 
   @@map("merchandise_entry_lines")
+}
+
+model SupplierPayment {
+  id              String         @id @default(uuid())
+  supplierId      String
+  supplierOrderId String?
+  monto           Decimal        @db.Decimal(10, 2)
+  metodo          String         // EFECTIVO | TRANSFERENCIA | CHEQUE
+  comprobante     String?
+  banco           String?
+  notas           String?
+  createdAt       DateTime       @default(now())
+  supplier        Supplier       @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+  supplierOrder   SupplierOrder? @relation(fields: [supplierOrderId], references: [id])
+
+  @@map("supplier_payments")
 }
 
 // ──────────────────────────────────────────
