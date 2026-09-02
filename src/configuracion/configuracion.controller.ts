@@ -237,7 +237,7 @@ export class ConfiguracionController {
   // ══════════════════════════════
 
   @Get('sucursales')
-  @Roles(Rol.ROL_ADMIN, Rol.ROL_SUPER_ADMIN)
+  @Roles(Rol.ROL_ADMIN, Rol.ROL_SUPER_ADMIN, Rol.ROL_VENDEDOR, Rol.ROL_BODEGUERO)
   async getSucursales(@Req() req: any) {
     return this.configuracionService.getSucursales(req.user.tenantId);
   }

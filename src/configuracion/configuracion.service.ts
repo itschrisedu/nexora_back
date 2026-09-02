@@ -467,11 +467,19 @@ export class ConfiguracionService {
    * Obtiene la lista de todas las sucursales pertenecientes a la organización.
    */
   async getSucursales(tenantId: string) {
+    const mainTenant = await this.prisma.tenant.findUnique({
+      where: { id: tenantId },
+      include: { businessConfig: true },
+    });
+
+    const rucToMatch = mainTenant?.businessConfig?.ruc;
+
     const sucursales = await this.prisma.tenant.findMany({
       where: {
+        active: true,
         OR: [
           { id: tenantId },
-          { name: { contains: 'Sucursal', mode: 'insensitive' } },
+          ...(rucToMatch ? [{ businessConfig: { ruc: rucToMatch } }] : []),
         ],
       },
       include: {
