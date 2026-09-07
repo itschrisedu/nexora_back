@@ -225,11 +225,11 @@ export class CrearPedidoHandler {
         inicioHoy.setHours(0, 0, 0, 0);
 
         for (const [supId, items] of supplierGroups.entries()) {
-          // Buscar si ya existe una orden de compra generada HOY en estado PENDIENTE para este proveedor
+          // Buscar si ya existe una orden de compra generada HOY en estado BORRADOR (Pendiente del día) para este proveedor
           let ordenCompra = await this.prisma.supplierOrder.findFirst({
             where: {
               supplierId: supId,
-              estado: 'PENDIENTE',
+              estado: 'BORRADOR',
               createdAt: { gte: inicioHoy },
             },
             include: { lines: true },
@@ -240,8 +240,8 @@ export class CrearPedidoHandler {
               data: {
                 supplierId: supId,
                 total: 0,
-                estado: 'PENDIENTE',
-                observaciones: 'Orden generada automáticamente por déficit de stock',
+                estado: 'BORRADOR',
+                observaciones: 'Orden acumulativa del día (Generada automáticamente por déficit de stock)',
               },
               include: { lines: true },
             });
