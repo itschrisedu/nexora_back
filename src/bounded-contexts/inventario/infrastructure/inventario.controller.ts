@@ -17,7 +17,7 @@ import {
 import { JwtAuthGuard } from '../../../auth/jwt-auth.guard';
 import { RolesGuard } from '../../../shared/guards/roles.guard';
 import { Roles } from '../../../shared/guards/roles.decorator';
-import { Rol, MovimientoTipo } from '@prisma/client';
+import { Rol, MovimientoTipo, AccionAuditoria } from '@prisma/client';
 import {
   CrearModeloDto,
   AgregarColorDto,
@@ -27,6 +27,7 @@ import {
   BuscarProductosDto,
   ActualizarModeloDto,
   ActualizarProductoDto,
+  TransferirStockDto,
 } from './dto/inventario.dto';
 import { IProductoRepository } from '../domain/IProductoRepository';
 import { Producto } from '../domain/Producto';
@@ -337,6 +338,201 @@ export class InventarioController {
     );
     await this.descontarStockHandler.execute(command);
     return { message: 'Stock descontado exitosamente' };
+  }
+
+  @Post('transferir-stock')
+  @Roles(Rol.ROL_ADMIN, Rol.ROL_BODEGUERO)
+  async transferirStock(@Body() dto: TransferirStockDto, @Req() req: any) {
+    const origenTenantId = req.user.tenantId;
+    if (!origenTenantId) {
+      throw new BadRequestException('No se determinó la sucursal de origen');
+    }
+    if (origenTenantId === dto.destinoTenantId) {
+      throw new BadRequestException('La sucursal de destino debe ser diferente a la sucursal de origen');
+    }
+
+    // 1. Validar que la sucursal destino exista y pertenezca a la misma empresa
+    const origenTenant = await this.prisma.tenant.findUnique({
+      where: { id: origenTenantId },
+      include: { businessConfig: true },
+    });
+    const destinoTenant = await this.prisma.tenant.findUnique({
+      where: { id: dto.destinoTenantId },
+      include: { businessConfig: true },
+    });
+
+    if (!origenTenant || !destinoTenant) {
+      throw new NotFoundException('Sucursal de origen o destino no encontrada');
+    }
+
+    if (origenTenant.businessConfig?.ruc !== destinoTenant.businessConfig?.ruc) {
+      throw new BadRequestException('Solo se puede transferir mercadería entre sucursales de la misma empresa');
+    }
+
+    // 2. Buscar producto origen y validar stock
+    const productoOrigen = await this.prisma.product.findUnique({
+      where: { id: dto.productId },
+      include: {
+        model: true,
+        serie: { include: { tallas: true } },
+        stockByTalla: { include: { talla: true } },
+      },
+    });
+
+    if (!productoOrigen) {
+      throw new NotFoundException('Producto de origen no encontrado');
+    }
+
+    const stockOrigen = productoOrigen.stockByTalla.find((s) => s.tallaId === dto.tallaId);
+    if (!stockOrigen || stockOrigen.quantity < dto.cantidad) {
+      throw new BadRequestException(
+        `Stock insuficiente en ${origenTenant.name}. Disponible: ${stockOrigen?.quantity || 0} pares`,
+      );
+    }
+
+    const tallaObj = stockOrigen.talla;
+
+    // 3. Ejecutar transacción de transferencia
+    await this.prisma.$transaction(async (tx) => {
+      // A. Descontar en origen
+      await tx.stockByTalla.update({
+        where: { id: stockOrigen.id },
+        data: { quantity: stockOrigen.quantity - dto.cantidad },
+      });
+
+      await tx.stockMovement.create({
+        data: {
+          productId: productoOrigen.id,
+          tallaId: dto.tallaId,
+          type: MovimientoTipo.AJUSTE,
+          quantity: -dto.cantidad,
+          reason: `Despacho hacia ${destinoTenant.name}: ${dto.motivo}`,
+          userId: req.user.sub,
+        },
+      });
+
+      // B. Buscar o crear modelo en destino
+      const destSuffix = destinoTenant.id.substring(0, 4).toUpperCase();
+      let modeloDestino = await tx.productModel.findFirst({
+        where: {
+          tenantId: destinoTenant.id,
+          name: productoOrigen.model.name,
+        },
+      });
+
+      if (!modeloDestino) {
+        let newBaseCode = `${productoOrigen.model.baseCode}-${destSuffix}`;
+        const existeCode = await tx.productModel.findUnique({ where: { baseCode: newBaseCode } });
+        if (existeCode) {
+          newBaseCode = `${productoOrigen.model.baseCode}-${Math.floor(Math.random() * 899 + 100)}`;
+        }
+
+        modeloDestino = await tx.productModel.create({
+          data: {
+            tenantId: destinoTenant.id,
+            baseCode: newBaseCode,
+            name: productoOrigen.model.name,
+            brand: productoOrigen.model.brand,
+            material: productoOrigen.model.material,
+            supplierId: productoOrigen.model.supplierId,
+          },
+        });
+      }
+
+      // Buscar o crear producto variante en destino
+      let productoDestino = await tx.product.findFirst({
+        where: {
+          modelId: modeloDestino.id,
+          color: productoOrigen.color,
+          serieId: productoOrigen.serieId,
+        },
+      });
+
+      if (!productoDestino) {
+        let newProdCode = `${productoOrigen.code}-${destSuffix}`;
+        const existeProdCode = await tx.product.findUnique({ where: { code: newProdCode } });
+        if (existeProdCode) {
+          newProdCode = `${productoOrigen.code}-${Math.floor(Math.random() * 899 + 100)}`;
+        }
+
+        productoDestino = await tx.product.create({
+          data: {
+            modelId: modeloDestino.id,
+            code: newProdCode,
+            color: productoOrigen.color,
+            imageUrl: productoOrigen.imageUrl,
+            costPrice: productoOrigen.costPrice,
+            salePrice: productoOrigen.salePrice,
+            serieId: productoOrigen.serieId,
+          },
+        });
+      }
+
+      // C. Aumentar stock en destino
+      const stockDestino = await tx.stockByTalla.findUnique({
+        where: {
+          productId_tallaId: {
+            productId: productoDestino.id,
+            tallaId: dto.tallaId,
+          },
+        },
+      });
+
+      if (stockDestino) {
+        await tx.stockByTalla.update({
+          where: { id: stockDestino.id },
+          data: { quantity: stockDestino.quantity + dto.cantidad },
+        });
+      } else {
+        await tx.stockByTalla.create({
+          data: {
+            productId: productoDestino.id,
+            tallaId: dto.tallaId,
+            quantity: dto.cantidad,
+            reservedQuantity: 0,
+            minStock: 0,
+          },
+        });
+      }
+
+      await tx.stockMovement.create({
+        data: {
+          productId: productoDestino.id,
+          tallaId: dto.tallaId,
+          type: MovimientoTipo.ENTRADA_MERCANCIA,
+          quantity: dto.cantidad,
+          reason: `Recepción desde ${origenTenant.name}: ${dto.motivo}`,
+          userId: req.user.sub,
+        },
+      });
+
+      // D. Registro en AuditLog
+      await tx.auditLog.create({
+        data: {
+          tenantId: origenTenantId,
+          userId: req.user.sub,
+          userEmail: req.user.email,
+          userRol: req.user.rol,
+          accion: AccionAuditoria.OPERACION_CRITICA,
+          entidad: 'Product',
+          entidadId: productoOrigen.id,
+          detalles: {
+            tipoOperacion: 'TRANSFERENCIA_STOCK',
+            modelo: productoOrigen.model.name,
+            color: productoOrigen.color,
+            talla: tallaObj?.numero || 'N/A',
+            cantidad: dto.cantidad,
+            origen: origenTenant.name,
+            destino: destinoTenant.name,
+            motivo: dto.motivo,
+          },
+        },
+      });
+    });
+
+    return {
+      message: `Se transfirieron ${dto.cantidad} pares de ${productoOrigen.model.name} (${productoOrigen.color}) desde ${origenTenant.name} hacia ${destinoTenant.name} exitosamente.`,
+    };
   }
 
   @Patch('modelos/:id/toggle')

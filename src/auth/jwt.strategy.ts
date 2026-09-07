@@ -27,10 +27,11 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
       ignoreExpiration: false,
       secretOrKey: configService.getOrThrow<string>('JWT_SECRET'),
+      passReqToCallback: true,
     });
   }
 
-  async validate(payload: JwtPayload) {
+  async validate(req: any, payload: JwtPayload) {
     const user = await this.prisma.user.findUnique({
       where: { id: payload.sub },
       select: {
@@ -53,13 +54,46 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       throw new UnauthorizedException('Tu sesión ha expirado o se ha iniciado sesión en otro dispositivo.');
     }
 
+    let activeTenantId = user.tenantId;
+    const isAllSucursales = req?.headers?.['x-sucursal-id'] === 'TODAS';
+    const targetSucursalId = req?.headers?.['x-sucursal-id'];
+
+    if (
+      targetSucursalId &&
+      targetSucursalId !== 'TODAS' &&
+      (user.rol === 'ROL_ADMIN' || user.rol === 'ROL_SUPER_ADMIN')
+    ) {
+      if (user.tenantId) {
+        const userConfig = await this.prisma.businessConfig.findUnique({
+          where: { tenantId: user.tenantId },
+          select: { ruc: true },
+        });
+
+        if (userConfig?.ruc) {
+          const sucursalValida = await this.prisma.businessConfig.findFirst({
+            where: {
+              tenantId: targetSucursalId,
+              ruc: userConfig.ruc,
+            },
+          });
+          if (sucursalValida) {
+            activeTenantId = targetSucursalId;
+          }
+        }
+      } else if (user.rol === 'ROL_SUPER_ADMIN') {
+        activeTenantId = targetSucursalId;
+      }
+    }
+
     return {
       id: user.id,
       sub: user.id,
       email: user.email,
       rol: user.rol,
       nombre: user.nombre,
-      tenantId: user.tenantId,
+      tenantId: activeTenantId,
+      originalTenantId: user.tenantId,
+      isAllSucursales,
       permiteCambiarPrecio: user.permiteCambiarPrecio,
     };
   }

@@ -16,7 +16,8 @@ export interface CreateAuditDto {
 }
 
 export interface AuditFilterDto {
-  tenantId: string;
+  tenantId?: string;
+  tenantIds?: string[];
   userId?: string;
   accion?: AccionAuditoria;
   entidad?: string;
@@ -66,7 +67,9 @@ export class AuditService {
     const skip = (page - 1) * limit;
 
     const where: any = {};
-    if (filter.tenantId) {
+    if (filter.tenantIds && filter.tenantIds.length > 0) {
+      where.tenantId = { in: filter.tenantIds };
+    } else if (filter.tenantId) {
       where.tenantId = filter.tenantId;
     }
 
@@ -102,9 +105,13 @@ export class AuditService {
   /**
    * Obtener resumen de actividades de seguridad del tenant o global.
    */
-  async obtenerResumenSeguridad(tenantId?: string) {
+  async obtenerResumenSeguridad(tenantId?: string, tenantIds?: string[]) {
     const where: any = {};
-    if (tenantId) where.tenantId = tenantId;
+    if (tenantIds && tenantIds.length > 0) {
+      where.tenantId = { in: tenantIds };
+    } else if (tenantId) {
+      where.tenantId = tenantId;
+    }
 
     const totalEventos = await this.prisma.auditLog.count({ where });
     const operacionesCriticas = await this.prisma.auditLog.count({

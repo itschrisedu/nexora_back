@@ -8,11 +8,32 @@ import {
 import { JwtAuthGuard } from '../../../auth/jwt-auth.guard';
 import { AuditService } from './audit.service';
 import { AccionAuditoria } from '@prisma/client';
+import { PrismaService } from '../prisma/prisma.service';
 
 @Controller('auditoria')
 @UseGuards(JwtAuthGuard)
 export class AuditController {
-  constructor(private readonly auditService: AuditService) {}
+  constructor(
+    private readonly auditService: AuditService,
+    private readonly prisma: PrismaService,
+  ) {}
+
+  private async resolverTenantIds(req: any): Promise<{ tenantId?: string; tenantIds?: string[] }> {
+    if (req.user.isAllSucursales && req.user.originalTenantId) {
+      const userConfig = await this.prisma.businessConfig.findUnique({
+        where: { tenantId: req.user.originalTenantId },
+        select: { ruc: true },
+      });
+      if (userConfig?.ruc) {
+        const hermanas = await this.prisma.businessConfig.findMany({
+          where: { ruc: userConfig.ruc },
+          select: { tenantId: true },
+        });
+        return { tenantIds: hermanas.map((h) => h.tenantId) };
+      }
+    }
+    return { tenantId: req.user.tenantId };
+  }
 
   /**
    * GET /auditoria
@@ -29,9 +50,10 @@ export class AuditController {
     @Query('page') page?: string,
     @Query('limit') limit?: string,
   ) {
-    const tenantId = req.user.tenantId;
+    const { tenantId, tenantIds } = await this.resolverTenantIds(req);
     return this.auditService.buscarLogs({
       tenantId,
+      tenantIds,
       userId,
       accion,
       entidad,
@@ -48,13 +70,13 @@ export class AuditController {
    */
   @Get('resumen')
   async obtenerResumen(@Request() req: any) {
-    const tenantId = req.user.tenantId;
-    return this.auditService.obtenerResumenSeguridad(tenantId);
+    const { tenantId, tenantIds } = await this.resolverTenantIds(req);
+    return this.auditService.obtenerResumenSeguridad(tenantId, tenantIds);
   }
 
   @Get('stats')
   async obtenerStats(@Request() req: any) {
-    const tenantId = req.user.tenantId;
-    return this.auditService.obtenerResumenSeguridad(tenantId);
+    const { tenantId, tenantIds } = await this.resolverTenantIds(req);
+    return this.auditService.obtenerResumenSeguridad(tenantId, tenantIds);
   }
 }

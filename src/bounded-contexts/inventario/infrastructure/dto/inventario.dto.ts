@@ -231,3 +231,27 @@ export class ActualizarProductoDto {
   @IsOptional()
   tallas?: { tallaId?: string; numero?: number; cantidad: number }[];
 }
+
+// ── Transferir stock entre sucursales ──
+export class TransferirStockDto {
+  @IsString()
+  @IsNotEmpty()
+  destinoTenantId!: string;
+
+  @IsString()
+  @IsNotEmpty()
+  productId!: string;
+
+  @IsString()
+  @IsNotEmpty()
+  tallaId!: string;
+
+  @IsInt()
+  @Min(1)
+  cantidad!: number;
+
+  @IsString()
+  @IsNotEmpty()
+  motivo!: string;
+}
+
