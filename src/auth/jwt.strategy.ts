@@ -32,18 +32,36 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
   }
 
   async validate(req: any, payload: JwtPayload) {
-    const user = await this.prisma.user.findUnique({
-      where: { id: payload.sub },
-      select: {
-        id: true,
-        email: true,
-        rol: true,
-        activo: true,
-        nombre: true,
-        tenantId: true,
-        permiteCambiarPrecio: true,
-      },
-    });
+    let user: any = null;
+    try {
+      user = await this.prisma.user.findUnique({
+        where: { id: payload.sub },
+        select: {
+          id: true,
+          email: true,
+          rol: true,
+          activo: true,
+          nombre: true,
+          tenantId: true,
+          permiteCambiarPrecio: true,
+        },
+      });
+    } catch (dbError: any) {
+      // Si la base de datos está temporalmente inaccesible o en modo offline,
+      // el token ya fue validado criptográficamente por Passport con JWT_SECRET.
+      // Retornar el usuario con los claims del token para NO invalidar la sesión del usuario.
+      return {
+        id: payload.sub,
+        sub: payload.sub,
+        email: payload.email,
+        rol: payload.rol,
+        nombre: payload.email ? payload.email.split('@')[0] : 'Usuario',
+        tenantId: payload.tenantId,
+        originalTenantId: payload.tenantId,
+        isAllSucursales: req?.headers?.['x-sucursal-id'] === 'TODAS',
+        permiteCambiarPrecio: false,
+      };
+    }
 
     if (!user || !user.activo) {
       throw new UnauthorizedException('Usuario no encontrado o desactivado');

@@ -201,7 +201,7 @@ export class PdfGeneratorService {
           .font('Helvetica')
           .fontSize(7)
           .text(
-            'Este documento es una Nota de Venta — NEXORA Sistema de Gestión',
+            `Este documento es una Nota de Venta — ${data.negocioNombre || 'Comprobante Comercial'}`,
             50,
             750,
             { align: 'center', width: 495 },
