@@ -20,5 +20,6 @@ export class CrearModeloCommand {
     // Los tallaIds pueden repetirse para indicar stock extra en esa talla
     public readonly customTallas: Record<string, string[]> | null = null,
     public readonly supplierId: string | null = null,
+    public readonly alternateSupplierIds: string[] = [],
   ) {}
 }

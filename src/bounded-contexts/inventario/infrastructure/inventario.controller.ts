@@ -130,6 +130,7 @@ export class InventarioController {
       dto.seriesPrices ?? null,
       dto.customTallas ?? null,
       dto.supplierId ?? null,
+      dto.alternateSupplierIds ?? [],
     );
     const result = await this.crearProductoHandler.execute(command);
     return { ...result, message: 'Modelo y variantes creados exitosamente' };
@@ -587,6 +588,8 @@ export class InventarioController {
         ...(dto.brand && { brand: dto.brand }),
         ...(dto.material !== undefined && { material: dto.material }),
         ...(dto.baseCode && { baseCode: dto.baseCode }),
+        ...(dto.supplierId !== undefined && { supplierId: dto.supplierId }),
+        ...(dto.alternateSupplierIds !== undefined && { alternateSupplierIds: dto.alternateSupplierIds }),
       },
     });
 

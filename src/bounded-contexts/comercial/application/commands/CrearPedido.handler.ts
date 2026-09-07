@@ -1,4 +1,4 @@
-import { Inject, Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Inject, Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
 import { IPedidoRepository } from '../../domain/IPedidoRepository';
 import { IOrderQueueRepository } from '../../domain/IOrderQueueRepository';
 import { Pedido } from '../../domain/Pedido';
@@ -18,6 +18,8 @@ import { EstadoPedido as PrismaEstadoPedido } from '@prisma/client';
 
 @Injectable()
 export class CrearPedidoHandler {
+  private readonly logger = new Logger(CrearPedidoHandler.name);
+
   constructor(
     @Inject('IPedidoRepository')
     private readonly pedidoRepository: IPedidoRepository,
@@ -186,6 +188,11 @@ export class CrearPedidoHandler {
             include: { model: true },
           });
 
+          // Si el producto o modelo tiene la reorden automática desactivada (producto que ya no se vende), omitir
+          if (prodWithModel?.reordenAutomatica === false || prodWithModel?.model?.reordenAutomatica === false) {
+            continue;
+          }
+
           // Obtener el proveedor vinculado o el primer proveedor activo de la empresa
           let supplierId = prodWithModel?.model?.supplierId;
           if (!supplierId) {
@@ -214,31 +221,35 @@ export class CrearPedidoHandler {
           }
         }
 
+        const inicioHoy = new Date();
+        inicioHoy.setHours(0, 0, 0, 0);
+
         for (const [supId, items] of supplierGroups.entries()) {
-          // Buscar si ya existe una orden de compra en estado BORRADOR para este proveedor
-          let borrador = await this.prisma.supplierOrder.findFirst({
+          // Buscar si ya existe una orden de compra generada HOY en estado PENDIENTE para este proveedor
+          let ordenCompra = await this.prisma.supplierOrder.findFirst({
             where: {
               supplierId: supId,
-              estado: 'BORRADOR',
+              estado: 'PENDIENTE',
+              createdAt: { gte: inicioHoy },
             },
             include: { lines: true },
           });
 
-          if (!borrador) {
-            borrador = await this.prisma.supplierOrder.create({
+          if (!ordenCompra) {
+            ordenCompra = await this.prisma.supplierOrder.create({
               data: {
                 supplierId: supId,
                 total: 0,
-                estado: 'BORRADOR',
-                observaciones: 'Orden acumulativa del día (Generada automáticamente por déficit de stock)',
+                estado: 'PENDIENTE',
+                observaciones: 'Orden generada automáticamente por déficit de stock',
               },
               include: { lines: true },
             });
           }
 
-          // Anexar o acumular líneas en la orden borrador
+          // Anexar o acumular líneas en la orden
           for (const item of items) {
-            const existingLine = borrador.lines.find((l) => l.productId === item.productId);
+            const existingLine = ordenCompra.lines.find((l) => l.productId === item.productId);
             if (existingLine) {
               const nuevaCant = existingLine.cantidadPedida + item.cantidad;
               await this.prisma.supplierOrderLine.update({
@@ -251,7 +262,7 @@ export class CrearPedidoHandler {
             } else {
               await this.prisma.supplierOrderLine.create({
                 data: {
-                  supplierOrderId: borrador.id,
+                  supplierOrderId: ordenCompra.id,
                   productId: item.productId,
                   cantidadPedida: item.cantidad,
                   precioCosto: item.precioCosto,
@@ -262,18 +273,18 @@ export class CrearPedidoHandler {
             }
           }
 
-          // Recalcular total acumulado de la orden borrador
+          // Recalcular total acumulado de la orden
           const allLines = await this.prisma.supplierOrderLine.findMany({
-            where: { supplierOrderId: borrador.id },
+            where: { supplierOrderId: ordenCompra.id },
           });
           const totalRecalculado = allLines.reduce((acc, l) => acc + Number(l.subtotal), 0);
           await this.prisma.supplierOrder.update({
-            where: { id: borrador.id },
+            where: { id: ordenCompra.id },
             data: { total: totalRecalculado },
           });
         }
-      } catch (e) {
-        // No bloquear la creación del pedido del cliente si ocurre una advertencia secundaria
+      } catch (e: any) {
+        this.logger.error(`Error al generar orden automática a proveedor: ${e?.message || e}`);
       }
     }
 

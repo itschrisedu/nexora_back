@@ -64,7 +64,9 @@ export class InventarioQueryService {
     const productos = await this.prisma.product.findMany({
       where,
       include: {
-        model: true,
+        model: {
+          include: { supplier: true },
+        },
         serie: true,
         stockByTalla: {
           include: { talla: true },
@@ -149,33 +151,123 @@ export class InventarioQueryService {
       where.tenantId = tenantId;
     }
 
-    const modelos = await this.prisma.productModel.findMany({
-      where,
-      include: {
-        products: {
-          include: {
-            serie: true,
-            stockByTalla: {
-              include: { talla: true },
-              orderBy: { talla: { numero: 'asc' } },
+    const [modelos, allSuppliers] = await Promise.all([
+      this.prisma.productModel.findMany({
+        where,
+        include: {
+          supplier: true,
+          products: {
+            include: {
+              serie: true,
+              stockByTalla: {
+                include: { talla: true },
+                orderBy: { talla: { numero: 'asc' } },
+              },
             },
+            orderBy: { code: 'asc' },
           },
-          orderBy: { code: 'asc' },
         },
-      },
-      orderBy: { name: 'asc' },
-    });
+        orderBy: { name: 'asc' },
+      }),
+      this.prisma.supplier.findMany({
+        where: tenantId ? { tenantId } : {},
+        include: {
+          _count: { select: { orders: true } },
+        },
+      }),
+    ]);
 
-    return modelos.map((m: any) => ({
-      id: m.id,
-      baseCode: m.baseCode,
-      name: m.name,
-      brand: m.brand,
-      material: m.material,
-      active: m.active,
-      createdAt: m.createdAt,
-      products: m.products.map((p: any) => this.formatProducto(p, m)),
-    }));
+    const suppliersMap = new Map<string, any>(
+      allSuppliers.map((s) => [
+        s.id,
+        {
+          id: s.id,
+          razonSocial: s.razonSocial,
+          ruc: s.ruc,
+          contacto: s.contacto,
+          direccion: s.direccion,
+          email: s.email,
+          totalOrdenes: s._count?.orders || 0,
+        },
+      ]),
+    );
+
+    return modelos.map((m: any) => {
+      const associatedSuppliers: any[] = [];
+      const seenIds = new Set<string>();
+
+      if (m.supplierId && suppliersMap.has(m.supplierId)) {
+        const sup = suppliersMap.get(m.supplierId);
+        associatedSuppliers.push({
+          ...sup,
+          isPrimary: true,
+        });
+        seenIds.add(m.supplierId);
+      } else if (m.supplier) {
+        associatedSuppliers.push({
+          id: m.supplier.id,
+          razonSocial: m.supplier.razonSocial,
+          ruc: m.supplier.ruc,
+          contacto: m.supplier.contacto,
+          direccion: m.supplier.direccion,
+          email: m.supplier.email,
+          totalOrdenes: 0,
+          isPrimary: true,
+        });
+        seenIds.add(m.supplier.id);
+      }
+
+      if (Array.isArray(m.alternateSupplierIds)) {
+        for (const altId of m.alternateSupplierIds) {
+          if (!seenIds.has(altId) && suppliersMap.has(altId)) {
+            associatedSuppliers.push({
+              ...suppliersMap.get(altId),
+              isPrimary: false,
+            });
+            seenIds.add(altId);
+          }
+        }
+      }
+
+      let mostFrequentId: string | null = null;
+      let maxOrders = -1;
+      for (const s of associatedSuppliers) {
+        if (s.totalOrdenes > maxOrders) {
+          maxOrders = s.totalOrdenes;
+          mostFrequentId = s.id;
+        }
+      }
+
+      const enrichedSuppliers = associatedSuppliers.map((s) => ({
+        ...s,
+        isMostFrequent: s.id === mostFrequentId && maxOrders > 0,
+      }));
+
+      return {
+        id: m.id,
+        baseCode: m.baseCode,
+        name: m.name,
+        brand: m.brand,
+        material: m.material,
+        active: m.active,
+        reordenAutomatica: m.reordenAutomatica,
+        supplierId: m.supplierId,
+        supplier: m.supplier
+          ? {
+              id: m.supplier.id,
+              razonSocial: m.supplier.razonSocial,
+              ruc: m.supplier.ruc,
+              contacto: m.supplier.contacto,
+              direccion: m.supplier.direccion,
+              email: m.supplier.email,
+            }
+          : null,
+        alternateSupplierIds: m.alternateSupplierIds || [],
+        suppliers: enrichedSuppliers,
+        createdAt: m.createdAt,
+        products: m.products.map((p: any) => this.formatProducto(p, m)),
+      };
+    });
   }
 
   // ── Formatear respuesta ─────────────────────
@@ -200,10 +292,13 @@ export class InventarioQueryService {
       createdAt: record.createdAt,
       updatedAt: record.updatedAt,
       tallas: (() => {
-        const positiveQuantities = (record.stockByTalla || []).map((s: any) => s.quantity).filter((q: number) => q > 0);
+        const sorted = (record.stockByTalla || [])
+          .slice()
+          .sort((a: any, b: any) => (Number(a.talla?.numero) || 0) - (Number(b.talla?.numero) || 0));
+        const positiveQuantities = sorted.map((s: any) => s.quantity).filter((q: number) => q > 0);
         const minPositive = positiveQuantities.length > 0 ? Math.min(...positiveQuantities) : 1;
 
-        return record.stockByTalla?.map((s: any) => {
+        return sorted.map((s: any) => {
           const baseRatio = minPositive > 0 ? Math.max(1, Math.round(s.quantity / minPositive)) : 1;
           return {
             id: s.tallaId,
@@ -219,20 +314,23 @@ export class InventarioQueryService {
             bajoPorMinimo:
               s.minStock > 0 && s.quantity - s.reservedQuantity < s.minStock,
           };
-        }) || [];
+        });
       })(),
-      stockPorTalla: record.stockByTalla?.map((s: any) => ({
-        id: s.tallaId,
-        tallaId: s.tallaId,
-        numero: s.talla?.numero,
-        cantidad: s.quantity,
-        stock: s.quantity,
-        cantidadReservada: s.reservedQuantity,
-        disponible: s.quantity - s.reservedQuantity,
-        stockMinimo: s.minStock,
-        bajoPorMinimo:
-          s.minStock > 0 && s.quantity - s.reservedQuantity < s.minStock,
-      })) || [],
+      stockPorTalla: (record.stockByTalla || [])
+        .slice()
+        .sort((a: any, b: any) => (Number(a.talla?.numero) || 0) - (Number(b.talla?.numero) || 0))
+        .map((s: any) => ({
+          id: s.tallaId,
+          tallaId: s.tallaId,
+          numero: s.talla?.numero,
+          cantidad: s.quantity,
+          stock: s.quantity,
+          cantidadReservada: s.reservedQuantity,
+          disponible: s.quantity - s.reservedQuantity,
+          stockMinimo: s.minStock,
+          bajoPorMinimo:
+            s.minStock > 0 && s.quantity - s.reservedQuantity < s.minStock,
+        })),
       priceHistory: record.priceHistory?.map((h: any) => ({
         precioCostoAnterior: Number(h.previousCostPrice),
         precioVentaAnterior: Number(h.previousSalePrice),

@@ -35,6 +35,7 @@ export class CrearProductoHandler {
         brand: command.brand,
         material: command.material,
         supplierId: command.supplierId || undefined,
+        alternateSupplierIds: command.alternateSupplierIds || [],
         tenantId: command.tenantId!,
       },
     });

@@ -10,6 +10,7 @@ import {
   Logger,
   UseGuards,
   Req,
+  BadRequestException,
 } from '@nestjs/common';
 import { AuthService } from './auth.service';
 import { LoginDto, RecuperarContrasenaDto, ResetContrasenaDto, CrearUsuarioDto } from './dto/auth.dto';
@@ -40,8 +41,12 @@ export class AuthController {
    */
   @Post('refresh')
   @HttpCode(HttpStatus.OK)
-  async refresh(@Body('refreshToken') refreshToken: string) {
-    return this.authService.refreshToken(refreshToken);
+  async refresh(@Body() body: { refreshToken?: string; token?: string }) {
+    const token = body?.refreshToken || body?.token;
+    if (!token) {
+      throw new BadRequestException('El refresh token es obligatorio.');
+    }
+    return this.authService.refreshToken(token);
   }
 
   /**

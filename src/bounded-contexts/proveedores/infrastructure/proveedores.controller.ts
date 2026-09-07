@@ -9,6 +9,8 @@ import {
   Query,
   UseGuards,
   Req,
+  NotFoundException,
+  BadRequestException,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../../../auth/jwt-auth.guard';
 import { RolesGuard } from '../../../shared/guards/roles.guard';
@@ -26,6 +28,7 @@ import { RegistrarMerchandiseEntryCommand } from '../application/commands/Regist
 import { RegistrarSupplierPaymentHandler } from '../application/commands/RegistrarSupplierPayment.handler';
 
 import { ProveedoresQueryService } from '../application/queries/ProveedoresQueryService';
+import { PrismaService } from '../../../shared/infrastructure/prisma/prisma.service';
 import {
   RegistrarSupplierDto,
   CrearSupplierOrderDto,
@@ -44,6 +47,7 @@ export class ProveedoresController {
     private readonly registrarEntryHandler: RegistrarMerchandiseEntryHandler,
     private readonly registrarPaymentHandler: RegistrarSupplierPaymentHandler,
     private readonly queryService: ProveedoresQueryService,
+    private readonly prisma: PrismaService,
   ) {}
 
   // ══════════════════════════════════════════
@@ -138,6 +142,95 @@ export class ProveedoresController {
       new ActualizarSupplierOrderCommand(id, undefined, undefined, 'CANCELADA'),
     );
     return { ok: true, message: 'Orden de compra cancelada correctamente.' };
+  }
+
+  @Patch('ordenes-compra/:id/cancelar-y-desactivar-reorden')
+  @Roles(Rol.ROL_ADMIN)
+  async cancelarOrdenYDesactivarReorden(@Param('id') id: string) {
+    // 1. Cancelar la orden de compra
+    await this.actualizarOrderHandler.execute(
+      new ActualizarSupplierOrderCommand(id, undefined, undefined, 'CANCELADA'),
+    );
+
+    // 2. Obtener productos de la orden para desactivar su reorden automática
+    const orden = await this.prisma.supplierOrder.findUnique({
+      where: { id },
+      include: { lines: true },
+    });
+
+    if (orden && orden.lines.length > 0) {
+      const productIds = orden.lines.map((l: any) => l.productId);
+
+      // Desactivar en Producto
+      await this.prisma.product.updateMany({
+        where: { id: { in: productIds } },
+        data: { reordenAutomatica: false },
+      });
+
+      // Desactivar en Modelo Base
+      const prods = await this.prisma.product.findMany({
+        where: { id: { in: productIds } },
+        select: { modelId: true },
+      });
+      const modelIds = Array.from(new Set(prods.map((p: any) => p.modelId)));
+      await this.prisma.productModel.updateMany({
+        where: { id: { in: modelIds } },
+        data: { reordenAutomatica: false },
+      });
+
+      // Limpiar líneas pendientes de estos productos en cualquier otra orden BORRADOR
+      await this.prisma.supplierOrderLine.deleteMany({
+        where: {
+          productId: { in: productIds },
+          order: { estado: 'BORRADOR' },
+        },
+      });
+    }
+
+    return {
+      ok: true,
+      message: 'Orden cancelada y reorden automática desactivada. El sistema no volverá a auto-generar pedidos para estos productos.',
+    };
+  }
+
+  @Patch('ordenes-compra/:id/reasignar-proveedor')
+  @Roles(Rol.ROL_ADMIN)
+  async reasignarProveedorOrden(
+    @Param('id') id: string,
+    @Body('nuevoSupplierId') nuevoSupplierId: string,
+  ) {
+    const orden = await this.prisma.supplierOrder.findUnique({ where: { id } });
+    if (!orden) throw new NotFoundException(`Orden con ID ${id} no encontrada`);
+
+    if (orden.estado !== 'PENDIENTE' && orden.estado !== 'BORRADOR') {
+      throw new BadRequestException('Solo se pueden reasignar órdenes en estado PENDIENTE o BORRADOR.');
+    }
+
+    const nuevoSupplier = await this.prisma.supplier.findUnique({ where: { id: nuevoSupplierId } });
+    if (!nuevoSupplier) throw new NotFoundException(`Proveedor con ID ${nuevoSupplierId} no encontrado`);
+
+    await this.prisma.supplierOrder.update({
+      where: { id },
+      data: { supplierId: nuevoSupplierId },
+    });
+
+    return {
+      ok: true,
+      message: `Orden reasignada exitosamente al proveedor "${nuevoSupplier.razonSocial}".`,
+    };
+  }
+
+  @Patch('productos/:id/reorden-automatica')
+  @Roles(Rol.ROL_ADMIN)
+  async alternarReordenAutomatica(
+    @Param('id') id: string,
+    @Body('reordenAutomatica') reordenAutomatica: boolean,
+  ) {
+    const updated = await this.prisma.product.update({
+      where: { id },
+      data: { reordenAutomatica },
+    });
+    return { ok: true, data: updated };
   }
 
   // ══════════════════════════════════════════

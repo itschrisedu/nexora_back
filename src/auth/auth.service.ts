@@ -129,11 +129,13 @@ export class AuthService {
       throw new UnauthorizedException('Refresh token expirado');
     }
 
+    const currentSessionId = ActiveSessionStore.get(storedToken.user.id);
     const payload: JwtPayload = {
       sub: storedToken.user.id,
       email: storedToken.user.email,
       rol: storedToken.user.rol,
       tenantId: storedToken.user.tenantId,
+      sessionId: currentSessionId,
     };
 
     const sessionHours = await this.getTenantSessionHours(storedToken.user.tenantId);

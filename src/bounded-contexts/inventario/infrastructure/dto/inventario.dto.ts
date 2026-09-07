@@ -79,6 +79,11 @@ export class CrearModeloDto {
   @IsString()
   @IsOptional()
   supplierId?: string;
+
+  @IsArray()
+  @IsString({ each: true })
+  @IsOptional()
+  alternateSupplierIds?: string[];
 }
 
 // ── Agregar nuevo color a un modelo existente ──
@@ -201,6 +206,15 @@ export class ActualizarModeloDto {
   @IsString()
   @IsOptional()
   material?: string;
+
+  @IsString()
+  @IsOptional()
+  supplierId?: string | null;
+
+  @IsArray()
+  @IsString({ each: true })
+  @IsOptional()
+  alternateSupplierIds?: string[];
 }
 
 // ── Actualizar producto / variante (foto, precios, color, serie, tallas) ──

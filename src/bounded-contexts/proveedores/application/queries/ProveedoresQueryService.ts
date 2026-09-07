@@ -231,6 +231,7 @@ export class ProveedoresQueryService {
             nombre: prod.model ? `${prod.model.brand} ${prod.model.name}` : prod.code,
             marca: prod.model?.brand,
             serie: prod.serie?.name,
+            reordenAutomatica: prod.reordenAutomatica ?? true,
           } : undefined,
         };
       }),
@@ -279,6 +280,7 @@ export class ProveedoresQueryService {
             codigo: prod.code,
             imageUrl: prod.imageUrl,
             nombre: prod.model ? `${prod.model.brand} ${prod.model.name}` : prod.code,
+            reordenAutomatica: prod.reordenAutomatica ?? true,
           } : undefined,
         };
       }),
