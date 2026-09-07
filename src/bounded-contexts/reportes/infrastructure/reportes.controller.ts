@@ -46,8 +46,12 @@ export class ReportesController {
       canal,
     };
 
-    // Resolver los tenantIds según la selección del usuario
-    const tenantIds = await this.resolverTenantIds(req.user.tenantId, sucursalId);
+    // Resolver los tenantIds según la selección del usuario.
+    // Si no se envía sucursalId como query param, se usa req.user.tenantId
+    // (que ya fue conmutado por JwtStrategy según el header x-sucursal-id).
+    const tenantIds = sucursalId
+      ? await this.resolverTenantIds(req.user.tenantId, sucursalId)
+      : [req.user.tenantId];
 
     return this.reportesService.obtenerReporteEjecutivo(tenantIds, filtros);
   }
