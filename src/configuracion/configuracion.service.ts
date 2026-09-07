@@ -711,11 +711,25 @@ export class ConfiguracionService {
   // ══════════════════════════════
 
   /**
-   * Obtiene la lista de colaboradores del local/sucursal.
+   * Obtiene la lista de colaboradores de todas las sucursales de la empresa.
    */
   async getPersonal(tenantId: string) {
+    const mainTenant = await this.prisma.tenant.findUnique({
+      where: { id: tenantId },
+      include: { businessConfig: true },
+    });
+    const ruc = mainTenant?.businessConfig?.ruc;
+    let targetTenants = [tenantId];
+    if (ruc) {
+      const rel = await this.prisma.tenant.findMany({
+        where: { businessConfig: { ruc }, active: true },
+        select: { id: true },
+      });
+      targetTenants = Array.from(new Set([tenantId, ...rel.map((r) => r.id)]));
+    }
+
     return this.prisma.user.findMany({
-      where: { tenantId },
+      where: { tenantId: { in: targetTenants } },
       select: {
         id: true,
         nombre: true,
@@ -723,15 +737,16 @@ export class ConfiguracionService {
         rol: true,
         activo: true,
         permiteCambiarPrecio: true,
+        tenantId: true,
         createdAt: true,
         updatedAt: true,
       },
-      orderBy: { createdAt: 'asc' },
+      orderBy: { createdAt: 'desc' },
     });
   }
 
   /**
-   * Actualiza los datos de un colaborador (nombre, email, rol, activo, permisos).
+   * Actualiza los datos de un colaborador (nombre, email, rol, activo, permisos, sucursal).
    */
   async updatePersonal(
     tenantId: string,
@@ -742,14 +757,35 @@ export class ConfiguracionService {
       rol?: Rol;
       activo?: boolean;
       permiteCambiarPrecio?: boolean;
+      tenantId?: string;
     },
   ) {
+    const mainTenant = await this.prisma.tenant.findUnique({
+      where: { id: tenantId },
+      include: { businessConfig: true },
+    });
+    const ruc = mainTenant?.businessConfig?.ruc;
+    let allowedTenants = [tenantId];
+    if (ruc) {
+      const rel = await this.prisma.tenant.findMany({
+        where: { businessConfig: { ruc }, active: true },
+        select: { id: true },
+      });
+      allowedTenants = Array.from(new Set([tenantId, ...rel.map((r) => r.id)]));
+    }
+
     const user = await this.prisma.user.findFirst({
-      where: { id: userId, tenantId },
+      where: { id: userId, tenantId: { in: allowedTenants } },
     });
 
     if (!user) {
-      throw new NotFoundException('Colaborador no encontrado en este local');
+      throw new NotFoundException('Colaborador no encontrado en la empresa');
+    }
+
+    // Si se envía cambio de sucursal, validar que pertenezca a la empresa
+    let targetTenantId = user.tenantId;
+    if (data.tenantId && allowedTenants.includes(data.tenantId)) {
+      targetTenantId = data.tenantId;
     }
 
     const updated = await this.prisma.user.update({
@@ -763,6 +799,7 @@ export class ConfiguracionService {
           data.permiteCambiarPrecio !== undefined
             ? data.permiteCambiarPrecio
             : user.permiteCambiarPrecio,
+        tenantId: targetTenantId,
       },
       select: {
         id: true,
@@ -771,6 +808,7 @@ export class ConfiguracionService {
         rol: true,
         activo: true,
         permiteCambiarPrecio: true,
+        tenantId: true,
       },
     });
 

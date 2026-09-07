@@ -30,11 +30,14 @@ export class ReportesService {
   // ══════════════════════════════════════════════════════════════
   // 1. OBTENER RESUMEN EJECUTIVO & BUSINESS INTELLIGENCE
   // ══════════════════════════════════════════════════════════════
-  async obtenerReporteEjecutivo(tenantId: string, filtros: FiltrosReporteDto) {
+  async obtenerReporteEjecutivo(tenantIds: string[], filtros: FiltrosReporteDto) {
     const { inicio, fin } = this.calcularRangoFechas(filtros);
 
+    const tenantFilter = tenantIds.length === 1 ? tenantIds[0] : { in: tenantIds };
+
     const whereOrder: any = {
-      tenantId,
+      tenantId: tenantFilter,
+      estado: { not: 'CANCELADO' },
       createdAt: { gte: inicio, lte: fin },
     };
 
@@ -58,7 +61,7 @@ export class ReportesService {
     // 2. Consultar Abonos / Cobranzas del periodo
     const whereAbono: any = {
       createdAt: { gte: inicio, lte: fin },
-      cobro: { tenantId },
+      cobro: { tenantId: tenantFilter },
     };
 
     const abonos = await this.prisma.cobroAbono.findMany({
@@ -78,7 +81,7 @@ export class ReportesService {
 
     // 3. Consultar Productos, Modelos y Series para cruce de datos
     const products = await this.prisma.product.findMany({
-      where: { model: { tenantId } },
+      where: { model: { tenantId: tenantFilter } },
       include: {
         model: true,
         serie: true,
@@ -91,7 +94,7 @@ export class ReportesService {
 
     // 4. Consultar Usuarios / Vendedores para ranking
     const usuarios = await this.prisma.user.findMany({
-      where: { tenantId },
+      where: { tenantId: tenantFilter },
       select: {
         id: true,
         nombre: true,
@@ -270,7 +273,7 @@ export class ReportesService {
 
     // Saldo Total de Cartera Pendiente en la empresa
     const saldoCarteraRes = await this.prisma.cobro.aggregate({
-      where: { tenantId, estado: { not: 'SALDADO' } },
+      where: { tenantId: tenantFilter, estado: { not: 'SALDADO' } },
       _sum: { saldoPendiente: true },
     });
     const saldoCarteraTotal = Number(saldoCarteraRes._sum.saldoPendiente || 0);
@@ -316,6 +319,31 @@ export class ReportesService {
     const margenPorcentaje = totalIngresos > 0 ? (gananciaBruta / totalIngresos) * 100 : 0;
     const ticketPromedio = orders.length > 0 ? totalIngresos / orders.length : 0;
 
+    // Rendimiento Comercial por Sucursal
+    const sucursalesList = await this.prisma.tenant.findMany({
+      where: { id: { in: tenantIds } },
+      select: { id: true, name: true },
+    });
+
+    const sucursalTotalesMap = new Map<string, number>();
+    tenantIds.forEach((id) => sucursalTotalesMap.set(id, 0));
+
+    orders.forEach((o) => {
+      const cur = sucursalTotalesMap.get(o.tenantId) || 0;
+      sucursalTotalesMap.set(o.tenantId, cur + Number(o.montoTotal || 0));
+    });
+
+    const totalIngresosSafe = totalIngresos > 0 ? totalIngresos : 1;
+    const ventasPorSucursal = sucursalesList.map((s) => {
+      const tot = sucursalTotalesMap.get(s.id) || 0;
+      return {
+        sucursalId: s.id,
+        sucursalNombre: s.name,
+        total: tot,
+        porcentaje: totalIngresos > 0 ? Math.round((tot / totalIngresosSafe) * 100) : 0,
+      };
+    });
+
     return {
       filtrosAplicados: {
         periodo: filtros.periodo || 'MENSUAL',
@@ -342,6 +370,7 @@ export class ReportesService {
       distribucionCanales: canalesMap,
       distribucionFormasPago: formasPagoMap,
       distribucionMetodosAbono: metodosAbonoMap,
+      ventasPorSucursal,
     };
   }
 

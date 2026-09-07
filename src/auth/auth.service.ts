@@ -234,8 +234,26 @@ export class AuthService {
     if (requestUser.rol === 'ROL_SUPER_ADMIN') {
       // Super Admin ve todos los usuarios
     } else if (requestUser.rol === 'ROL_ADMIN') {
-      // Admin ve solo a los usuarios de su tenant (excluyéndose a sí mismo opcionalmente)
-      where.tenantId = requestUser.tenantId;
+      const mainTenant = requestUser.tenantId
+        ? await this.prisma.tenant.findUnique({
+            where: { id: requestUser.tenantId },
+            include: { businessConfig: true },
+          })
+        : null;
+      const ruc = mainTenant?.businessConfig?.ruc;
+
+      const tenantIds: (string | null)[] = [requestUser.tenantId];
+      if (ruc) {
+        const relatedTenants = await this.prisma.tenant.findMany({
+          where: { businessConfig: { ruc }, active: true },
+          select: { id: true },
+        });
+        relatedTenants.forEach((t) => {
+          if (!tenantIds.includes(t.id)) tenantIds.push(t.id);
+        });
+      }
+
+      where.tenantId = { in: tenantIds.filter(Boolean) };
       where.rol = { in: [Rol.ROL_VENDEDOR, Rol.ROL_BODEGUERO, Rol.ROL_ADMIN] };
     } else {
       // Vendedores y bodegueros no deberían listar usuarios
@@ -282,15 +300,9 @@ export class AuthService {
 
     // Determinar el tenantId del nuevo usuario
     let tenantId: string | null = null;
-    if (requestUser.rol === 'ROL_SUPER_ADMIN') {
-      // Super Admin puede asignar a un tenant específico mediante explicitTenantId
-      if (explicitTenantId) {
-        tenantId = explicitTenantId;
-      } else {
-        tenantId = requestUser.tenantId;
-      }
+    if (explicitTenantId) {
+      tenantId = explicitTenantId;
     } else {
-      // Admin crea personal en su propio tenant
       tenantId = requestUser.tenantId;
     }
 
