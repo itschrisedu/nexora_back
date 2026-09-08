@@ -9,7 +9,7 @@ import {
   ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
-import { CanalEntrada, TipoPago, TipoVenta, EstadoPedido } from '@prisma/client';
+import { CanalEntrada, TipoPago, TipoVenta, EstadoPedido, TipoEntrega, AsumeFlete } from '@prisma/client';
 
 class LineaPedidoDto {
   @IsString()
@@ -50,6 +50,63 @@ export class CrearPedidoDto {
   @IsString()
   @IsOptional()
   notas?: string;
+
+  // Logística de Entrega (Fase E1)
+  @IsEnum(TipoEntrega)
+  @IsOptional()
+  tipoEntrega?: TipoEntrega;
+
+  @IsEnum(AsumeFlete)
+  @IsOptional()
+  asumeFlete?: AsumeFlete;
+
+  @IsOptional()
+  costoEnvio?: number;
+
+  @IsString()
+  @IsOptional()
+  guiaEnvio?: string;
+
+  @IsString()
+  @IsOptional()
+  courier?: string;
+
+  @IsString()
+  @IsOptional()
+  direccionEnvio?: string;
+
+  @IsString()
+  @IsOptional()
+  ciudadEnvio?: string;
+}
+
+export class ActualizarEnvioPedidoDto {
+  @IsEnum(TipoEntrega)
+  @IsNotEmpty()
+  tipoEntrega!: TipoEntrega;
+
+  @IsEnum(AsumeFlete)
+  @IsOptional()
+  asumeFlete?: AsumeFlete;
+
+  @IsOptional()
+  costoEnvio?: number;
+
+  @IsString()
+  @IsOptional()
+  guiaEnvio?: string;
+
+  @IsString()
+  @IsOptional()
+  courier?: string;
+
+  @IsString()
+  @IsOptional()
+  direccionEnvio?: string;
+
+  @IsString()
+  @IsOptional()
+  ciudadEnvio?: string;
 }
 
 export class CancelarPedidoDto {

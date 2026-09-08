@@ -29,6 +29,37 @@ enum SeasonTipo {
   OTRA
 }
 
+enum TipoEntrega {
+  PRESENCIAL
+  ENVIO
+}
+
+enum AsumeFlete {
+  NO_APLICA
+  CLIENTE
+  EMPRESA
+}
+
+enum GastoCategoria {
+  SERVICIOS_BASICOS
+  ARRIENDOS
+  PERSONAL_NOMINA
+  LOGISTICA_ENVIOS
+  SUMINISTROS_LOCAL
+  MARKETING_PUBLICIDAD
+  MANTENIMIENTO_REPARACIONES
+  FINANCIERO_BANCARIO
+  OTRO
+}
+
+enum MetodoPagoGasto {
+  EFECTIVO
+  TRANSFERENCIA
+  TARJETA
+  CHEQUE
+  OTRO
+}
+
 // ──────────────────────────────────────────
 // SAAS — Tenants
 // ──────────────────────────────────────────
@@ -54,6 +85,7 @@ model Tenant {
   facturasElectronicas FacturaElectronica[]
   cierresCaja    CierreCaja[]
   auditLogs      AuditLog[]
+  gastos         Gasto[]
 
   @@map("tenants")
 }
@@ -80,6 +112,7 @@ model User {
   refreshTokens  RefreshToken[]
   passwordResets PasswordReset[]
   vendorLocations VendorLocation[]
+  gastos         Gasto[]
 
   @@map("users")
 }
@@ -414,9 +447,17 @@ model Order {
   montoTotal    Decimal        @db.Decimal(10, 2)
   notas         String?
   userId        String         // quién creó el pedido
+  tipoEntrega   TipoEntrega    @default(PRESENCIAL)
+  asumeFlete    AsumeFlete     @default(NO_APLICA)
+  costoEnvio    Decimal?       @default(0.00) @db.Decimal(10, 2)
+  guiaEnvio     String?
+  courier       String?
+  direccionEnvio String?
+  ciudadEnvio   String?
   lines         OrderLine[]
   queueEntry    OrderQueue?
   dispatchOrder DispatchOrder?
+  gastos        Gasto[]
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
   tenant        Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
@@ -884,6 +925,36 @@ model AuditLog {
 
   @@map("audit_logs")
 }
+
+// ──────────────────────────────────────────
+// GASTOS OPERATIVOS Y FLETES (OPEX)
+// ──────────────────────────────────────────
+
+model Gasto {
+  id                String          @id @default(uuid())
+  tenantId          String
+  userId            String?
+  orderId           String?
+  categoria         GastoCategoria
+  concepto          String
+  monto             Decimal         @db.Decimal(10, 2)
+  metodoPago        MetodoPagoGasto @default(EFECTIVO)
+  fecha             DateTime        @default(now())
+  numeroComprobante String?
+  proveedorServicio String?
+  comprobanteUrl    String?
+  observaciones     String?
+
+  tenant            Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user              User?           @relation(fields: [userId], references: [id], onDelete: SetNull)
+  order             Order?          @relation(fields: [orderId], references: [id], onDelete: SetNull)
+
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+
+  @@map("gastos")
+}
+
 
 
 

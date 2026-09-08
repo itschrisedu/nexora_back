@@ -16,7 +16,13 @@ import { JwtAuthGuard } from '../../../auth/jwt-auth.guard';
 import { RolesGuard } from '../../../shared/guards/roles.guard';
 import { Roles } from '../../../shared/guards/roles.decorator';
 import { Rol, EstadoPedido } from '@prisma/client';
-import { CrearPedidoDto, CancelarPedidoDto, ModificarEnTransitoDto, ActualizarEstadoPedidoDto } from './dto/pedidos.dto';
+import {
+  CrearPedidoDto,
+  CancelarPedidoDto,
+  ModificarEnTransitoDto,
+  ActualizarEstadoPedidoDto,
+  ActualizarEnvioPedidoDto,
+} from './dto/pedidos.dto';
 import { CrearPedidoHandler } from '../application/commands/CrearPedido.handler';
 import { CrearPedidoCommand } from '../application/commands/CrearPedido.command';
 import { IniciarPreparacionHandler } from '../application/commands/IniciarPreparacion.handler';
@@ -92,9 +98,16 @@ export class PedidosController {
       dto.canal,
       dto.tipoPago,
       dto.lineas,
-      req.user.sub,
+      req.user.sub || req.user.id,
       req.user.tenantId,
       dto.notas,
+      dto.tipoEntrega,
+      dto.asumeFlete,
+      dto.costoEnvio,
+      dto.guiaEnvio,
+      dto.courier,
+      dto.direccionEnvio,
+      dto.ciudadEnvio,
     );
     const id = await this.crearPedidoHandler.execute(command);
     return { id, message: 'Pedido creado exitosamente' };
@@ -367,4 +380,81 @@ export class PedidosController {
       fechaUltimaVenta: ultimaLinea?.order?.createdAt || null,
     };
   }
+
+  /**
+   * Actualizar o cambiar los datos de logística de envío y flete de un pedido (Fase E1).
+   * Si la empresa asume el flete y costo > 0, genera o actualiza automáticamente el gasto operativo.
+   */
+  @Put(':id/envio')
+  @Roles(Rol.ROL_ADMIN, Rol.ROL_VENDEDOR, Rol.ROL_BODEGUERO)
+  async actualizarEnvioPedido(
+    @Param('id') id: string,
+    @Body() dto: ActualizarEnvioPedidoDto,
+    @Req() req: any,
+  ) {
+    const userId = req.user.sub || req.user.id;
+
+    const order = await this.prisma.order.findUnique({
+      where: { id },
+    });
+
+    if (!order) {
+      throw new NotFoundException(`Pedido con ID "${id}" no encontrado`);
+    }
+
+    const updated = await this.prisma.order.update({
+      where: { id },
+      data: {
+        tipoEntrega: dto.tipoEntrega,
+        asumeFlete: dto.asumeFlete || 'NO_APLICA',
+        costoEnvio: dto.costoEnvio || 0,
+        guiaEnvio: dto.guiaEnvio || null,
+        courier: dto.courier || null,
+        direccionEnvio: dto.direccionEnvio || null,
+        ciudadEnvio: dto.ciudadEnvio || null,
+      },
+    });
+
+    // Si la empresa asume el flete y costo > 0, crear o actualizar el registro de gasto operativo
+    if (dto.asumeFlete === 'EMPRESA' && dto.costoEnvio && Number(dto.costoEnvio) > 0) {
+      const gastoExistente = await this.prisma.gasto.findFirst({
+        where: { orderId: id, categoria: 'LOGISTICA_ENVIOS' },
+      });
+
+      if (gastoExistente) {
+        await this.prisma.gasto.update({
+          where: { id: gastoExistente.id },
+          data: {
+            monto: dto.costoEnvio,
+            numeroComprobante: dto.guiaEnvio || null,
+            proveedorServicio: dto.courier || 'Empresa de Envíos',
+            observaciones: `Envío a ${dto.ciudadEnvio || ''} - ${dto.direccionEnvio || ''}`.trim(),
+          },
+        });
+      } else {
+        await this.prisma.gasto.create({
+          data: {
+            tenantId: order.tenantId,
+            userId,
+            orderId: id,
+            categoria: 'LOGISTICA_ENVIOS',
+            concepto: `Flete de envío pedido #${id.slice(0, 8)} (${dto.courier || 'Transporte'})`,
+            monto: dto.costoEnvio,
+            metodoPago: 'EFECTIVO',
+            numeroComprobante: dto.guiaEnvio || null,
+            proveedorServicio: dto.courier || 'Empresa de Envíos',
+            observaciones: `Envío a ${dto.ciudadEnvio || ''} - ${dto.direccionEnvio || ''}`.trim(),
+          },
+        });
+      }
+    } else if (dto.asumeFlete !== 'EMPRESA') {
+      // Si ya no es asumido por la empresa, eliminar gasto de flete si existía
+      await this.prisma.gasto.deleteMany({
+        where: { orderId: id, categoria: 'LOGISTICA_ENVIOS' },
+      });
+    }
+
+    return { success: true, message: 'Logística de envío y flete actualizada', order: updated };
+  }
 }
+

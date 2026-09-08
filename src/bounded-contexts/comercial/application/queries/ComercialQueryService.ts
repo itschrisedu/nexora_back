@@ -104,7 +104,9 @@ export class ComercialQueryService {
 
   private async attachClientNames(orders: any[]) {
     const clientIds = Array.from(new Set(orders.map((o) => o.clientId).filter(Boolean)));
+    const userIds = Array.from(new Set(orders.map((o) => o.userId).filter(Boolean)));
     const clientMap = new Map<string, string>();
+    const userMap = new Map<string, string>();
 
     if (clientIds.length > 0) {
       const clients = await this.prisma.client.findMany({
@@ -114,6 +116,16 @@ export class ComercialQueryService {
       clients.forEach((c) => {
         const full = `${c.nombre || ''} ${c.apellido || ''}`.trim();
         clientMap.set(c.id, full || 'Consumidor Final');
+      });
+    }
+
+    if (userIds.length > 0) {
+      const users = await this.prisma.user.findMany({
+        where: { id: { in: userIds as string[] } },
+        select: { id: true, nombre: true, email: true },
+      });
+      users.forEach((u) => {
+        userMap.set(u.id, u.nombre || u.email || 'Vendedor');
       });
     }
 
@@ -154,6 +166,7 @@ export class ComercialQueryService {
       return {
         ...formatted,
         clienteNombre: clientMap.get(o.clientId) || 'Consumidor Final',
+        vendedorNombre: userMap.get(o.userId) || 'Vendedor',
       };
     });
   }
@@ -174,6 +187,13 @@ export class ComercialQueryService {
       montoTotal: Number(record.montoTotal),
       notas: record.notas,
       userId: record.userId,
+      tipoEntrega: record.tipoEntrega || 'PRESENCIAL',
+      asumeFlete: record.asumeFlete || 'NO_APLICA',
+      costoEnvio: record.costoEnvio ? Number(record.costoEnvio) : 0,
+      guiaEnvio: record.guiaEnvio || null,
+      courier: record.courier || null,
+      direccionEnvio: record.direccionEnvio || null,
+      ciudadEnvio: record.ciudadEnvio || null,
       createdAt: record.createdAt,
       updatedAt: record.updatedAt,
       lines: record.lines?.map((l: any) => {

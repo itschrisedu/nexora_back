@@ -1,4 +1,4 @@
-import { CanalEntrada, TipoPago, TipoVenta } from '@prisma/client';
+import { CanalEntrada, TipoPago, TipoVenta, TipoEntrega, AsumeFlete } from '@prisma/client';
 
 export interface LineaPedidoInput {
   productId: string;
@@ -16,5 +16,12 @@ export class CrearPedidoCommand {
     public readonly userId: string,
     public readonly tenantId: string,
     public readonly notas?: string,
+    public readonly tipoEntrega?: TipoEntrega,
+    public readonly asumeFlete?: AsumeFlete,
+    public readonly costoEnvio?: number,
+    public readonly guiaEnvio?: string,
+    public readonly courier?: string,
+    public readonly direccionEnvio?: string,
+    public readonly ciudadEnvio?: string,
   ) {}
 }

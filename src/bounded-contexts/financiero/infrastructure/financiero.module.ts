@@ -5,6 +5,7 @@ import { ClientesModule } from '../../clientes/infrastructure/clientes.module';
 // Infrastructure
 import { FinancieroController } from './financiero.controller';
 import { DevolucionesController } from './devoluciones.controller';
+import { GastosController } from './gastos.controller';
 import { PrismaCobroRepository } from './PrismaCobroRepository';
 import { PrismaDeudaProveedorRepository } from './PrismaDeudaProveedorRepository';
 import { PdfGeneratorService } from './pdf/pdf-generator.service';
@@ -18,13 +19,14 @@ import { RegistrarAbonoHandler } from '../application/commands/RegistrarAbono.ha
 import { RegistrarPagoProveedorHandler } from '../application/commands/RegistrarPagoProveedor.handler';
 import { CrearDeudaProveedorHandler } from '../application/commands/CrearDeudaProveedor.handler';
 import { DevolucionesService } from '../application/DevolucionesService';
+import { GastosService } from '../application/GastosService';
 
 // Application — Queries
 import { FinancieroQueryService } from '../application/queries/FinancieroQueryService';
 
 @Module({
   imports: [AuthModule, ClientesModule],
-  controllers: [FinancieroController, DevolucionesController],
+  controllers: [FinancieroController, DevolucionesController, GastosController],
   providers: [
     // Repositories
     {
@@ -44,8 +46,9 @@ import { FinancieroQueryService } from '../application/queries/FinancieroQuerySe
     RegistrarPagoProveedorHandler,
     CrearDeudaProveedorHandler,
 
-    // Devoluciones
+    // Devoluciones & Gastos
     DevolucionesService,
+    GastosService,
 
     // Queries
     FinancieroQueryService,
@@ -61,6 +64,7 @@ import { FinancieroQueryService } from '../application/queries/FinancieroQuerySe
     RegistrarPagoProveedorHandler,
     CrearDeudaProveedorHandler,
     DevolucionesService,
+    GastosService,
   ],
 })
 export class FinancieroModule {}

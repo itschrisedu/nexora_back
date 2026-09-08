@@ -153,6 +153,48 @@ export class CrearPedidoHandler {
     // Persistir el pedido
     await this.pedidoRepository.save(pedido, command.tenantId);
 
+    // Actualizar campos de logística de entrega (Fase E1)
+    if (
+      command.tipoEntrega ||
+      command.asumeFlete ||
+      command.costoEnvio ||
+      command.guiaEnvio ||
+      command.courier ||
+      command.direccionEnvio ||
+      command.ciudadEnvio
+    ) {
+      await this.prisma.order.update({
+        where: { id: pedidoId },
+        data: {
+          tipoEntrega: command.tipoEntrega || 'PRESENCIAL',
+          asumeFlete: command.asumeFlete || 'NO_APLICA',
+          costoEnvio: command.costoEnvio || 0,
+          guiaEnvio: command.guiaEnvio || null,
+          courier: command.courier || null,
+          direccionEnvio: command.direccionEnvio || null,
+          ciudadEnvio: command.ciudadEnvio || null,
+        },
+      });
+
+      // Si la empresa cubre el flete y tiene costo > 0, registrar automáticamente el gasto operativo de envío
+      if (command.asumeFlete === 'EMPRESA' && command.costoEnvio && Number(command.costoEnvio) > 0) {
+        await this.prisma.gasto.create({
+          data: {
+            tenantId: command.tenantId,
+            userId: command.userId,
+            orderId: pedidoId,
+            categoria: 'LOGISTICA_ENVIOS',
+            concepto: `Flete de envío pedido #${pedidoId.slice(0, 8)} (${command.courier || 'Transporte'})`,
+            monto: command.costoEnvio,
+            metodoPago: 'EFECTIVO',
+            numeroComprobante: command.guiaEnvio || null,
+            proveedorServicio: command.courier || 'Empresa de Envíos',
+            observaciones: `Envío a ${command.ciudadEnvio || ''} - ${command.direccionEnvio || ''}`.trim(),
+          },
+        });
+      }
+    }
+
     // 6. Si falta stock, registrar en la cola de prioridad y enviar solicitud al proveedor si está vinculado
     if (estadoInicial === PrismaEstadoPedido.EN_ESPERA_STOCK) {
       const cli = await this.clientesQueryService.obtenerCliente(command.clientId);
