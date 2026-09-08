@@ -914,4 +914,117 @@ export class ConfiguracionService {
 
     return resultados;
   }
+
+  // ══════════════════════════════
+  // LOGÍSTICA & EMPRESAS DE TRANSPORTE
+  // ══════════════════════════════
+
+  async getTransportes(tenantId: string) {
+    if (!tenantId) return [];
+
+    let transportes = await this.prisma.empresaTransporte.findMany({
+      where: { tenantId, activo: true },
+      orderBy: [{ esPredeterminada: 'desc' }, { nombre: 'asc' }],
+    });
+
+    if (transportes.length === 0) {
+      // Auto-seed default list for this tenant with Transporte Los Andes as default
+      const defaultList = [
+        { nombre: 'Transporte Los Andes', esPredeterminada: true },
+        { nombre: 'Servientrega', esPredeterminada: false },
+        { nombre: 'Cooperativa Baños', esPredeterminada: false },
+        { nombre: 'Cooperativa Cevallos', esPredeterminada: false },
+        { nombre: 'Transportes Santa', esPredeterminada: false },
+        { nombre: 'Cooperativa Cita Express', esPredeterminada: false },
+        { nombre: 'Flota Pelileo', esPredeterminada: false },
+        { nombre: 'Urbano Express', esPredeterminada: false },
+        { nombre: 'Encomienda Provincial / Transporte', esPredeterminada: false },
+      ];
+
+      for (const item of defaultList) {
+        await this.prisma.empresaTransporte.create({
+          data: {
+            tenantId,
+            nombre: item.nombre,
+            esPredeterminada: item.esPredeterminada,
+            activo: true,
+          },
+        });
+      }
+
+      transportes = await this.prisma.empresaTransporte.findMany({
+        where: { tenantId, activo: true },
+        orderBy: [{ esPredeterminada: 'desc' }, { nombre: 'asc' }],
+      });
+    }
+
+    return transportes;
+  }
+
+  async createTransporte(
+    tenantId: string,
+    dto: { nombre: string; telefono?: string; direccion?: string; esPredeterminada?: boolean },
+  ) {
+    if (!dto.nombre || !dto.nombre.trim()) {
+      throw new BadRequestException('El nombre del transporte es obligatorio.');
+    }
+
+    if (dto.esPredeterminada) {
+      // Desactivar predeterminada anterior
+      await this.prisma.empresaTransporte.updateMany({
+        where: { tenantId },
+        data: { esPredeterminada: false },
+      });
+    }
+
+    return this.prisma.empresaTransporte.create({
+      data: {
+        tenantId,
+        nombre: dto.nombre.trim(),
+        telefono: dto.telefono?.trim() || null,
+        direccion: dto.direccion?.trim() || null,
+        esPredeterminada: dto.esPredeterminada ?? false,
+        activo: true,
+      },
+    });
+  }
+
+  async setPredeterminadaTransporte(id: string, tenantId: string) {
+    const item = await this.prisma.empresaTransporte.findFirst({
+      where: { id, tenantId },
+    });
+
+    if (!item) {
+      throw new NotFoundException('Empresa de transporte no encontrada.');
+    }
+
+    // Desactivar todas las demás predeterminadas
+    await this.prisma.empresaTransporte.updateMany({
+      where: { tenantId },
+      data: { esPredeterminada: false },
+    });
+
+    // Activar la seleccionada
+    return this.prisma.empresaTransporte.update({
+      where: { id },
+      data: { esPredeterminada: true },
+    });
+  }
+
+  async deleteTransporte(id: string, tenantId: string) {
+    const item = await this.prisma.empresaTransporte.findFirst({
+      where: { id, tenantId },
+    });
+
+    if (!item) {
+      throw new NotFoundException('Empresa de transporte no encontrada.');
+    }
+
+    await this.prisma.empresaTransporte.delete({
+      where: { id },
+    });
+
+    return { message: 'Transporte eliminado exitosamente.' };
+  }
 }
+

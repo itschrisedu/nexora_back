@@ -164,4 +164,225 @@ export class ClientesQueryService {
       updatedAt: record.updatedAt,
     };
   }
+
+  // ══════════════════════════════
+  // CRM & FIDELIZACIÓN: CLIENTES INACTIVOS (> 30 DÍAS)
+  // ══════════════════════════════
+
+  async obtenerClientesInactivos(tenantId: string, diasMinimos = 30) {
+    const clients = await this.prisma.client.findMany({
+      where: {
+        tenantId,
+        activo: true,
+      },
+      include: {
+        orders: {
+          orderBy: { createdAt: 'desc' },
+          take: 1,
+          select: {
+            id: true,
+            createdAt: true,
+            montoTotal: true,
+            numero: true,
+            estado: true,
+          },
+        },
+        saleNotes: {
+          orderBy: { createdAt: 'desc' },
+          take: 1,
+          select: {
+            id: true,
+            createdAt: true,
+            total: true,
+            numero: true,
+          },
+        },
+      },
+    });
+
+    const now = new Date();
+    const inactivos: any[] = [];
+
+    for (const c of clients) {
+      // Determinar la fecha de la última actividad comercial
+      const ultimaOrden = c.orders && c.orders.length > 0 ? c.orders[0] : null;
+      const ultimaNota = c.saleNotes && c.saleNotes.length > 0 ? c.saleNotes[0] : null;
+
+      let ultimaFecha: Date | null = null;
+      let ultimoMonto = 0;
+
+      if (ultimaOrden && ultimaNota) {
+        if (new Date(ultimaOrden.createdAt) >= new Date(ultimaNota.createdAt)) {
+          ultimaFecha = new Date(ultimaOrden.createdAt);
+          ultimoMonto = Number(ultimaOrden.montoTotal || 0);
+        } else {
+          ultimaFecha = new Date(ultimaNota.createdAt);
+          ultimoMonto = Number(ultimaNota.total || 0);
+        }
+      } else if (ultimaOrden) {
+        ultimaFecha = new Date(ultimaOrden.createdAt);
+        ultimoMonto = Number(ultimaOrden.montoTotal || 0);
+      } else if (ultimaNota) {
+        ultimaFecha = new Date(ultimaNota.createdAt);
+        ultimoMonto = Number(ultimaNota.total || 0);
+      } else {
+        // Nunca ha comprado: usar fecha de registro
+        ultimaFecha = new Date(c.createdAt);
+        ultimoMonto = 0;
+      }
+
+      const diffMs = now.getTime() - ultimaFecha.getTime();
+      const diasSinComprar = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+
+      if (diasSinComprar >= diasMinimos) {
+        let rango = '30_A_60_DIAS';
+        if (diasSinComprar > 90) rango = 'MAS_DE_90_DIAS';
+        else if (diasSinComprar > 60) rango = '60_A_90_DIAS';
+
+        const formatted = this.formatCliente(c);
+
+        inactivos.push({
+          ...formatted,
+          diasSinComprar,
+          ultimaCompraFecha: ultimaFecha.toISOString(),
+          ultimoMonto,
+          nuncaCompro: !ultimaOrden && !ultimaNota,
+          rangoInactividad: rango,
+        });
+      }
+    }
+
+    // Ordenar de mayor a menor días de inactividad
+    return inactivos.sort((a, b) => b.diasSinComprar - a.diasSinComprar);
+  }
+
+  // ══════════════════════════════
+  // CRM & CAMPAÑAS PROMOCIONALES / CUPONES
+  // ══════════════════════════════
+
+  async obtenerPromociones(tenantId: string) {
+    if (!tenantId) return [];
+    return this.prisma.campanaPromocion.findMany({
+      where: { tenantId },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  async crearPromocion(tenantId: string, dto: any) {
+    const codigoClean = (dto.codigo || '').toUpperCase().trim();
+    if (!codigoClean) {
+      throw new NotFoundException('El código del cupón o promoción es obligatorio.');
+    }
+
+    const existe = await this.prisma.campanaPromocion.findUnique({
+      where: {
+        tenantId_codigo: {
+          tenantId,
+          codigo: codigoClean,
+        },
+      },
+    });
+
+    if (existe) {
+      throw new NotFoundException(`El código "${codigoClean}" ya existe para este negocio.`);
+    }
+
+    return this.prisma.campanaPromocion.create({
+      data: {
+        tenantId,
+        codigo: codigoClean,
+        titulo: dto.titulo?.trim() || `Promoción ${codigoClean}`,
+        descripcion: dto.descripcion?.trim() || null,
+        tipoDescuento: dto.tipoDescuento || 'PORCENTAJE',
+        valorDescuento: Number(dto.valorDescuento) || 10,
+        minimoPares: Number(dto.minimoPares) || 1,
+        maximoCanjes: Number(dto.maximoCanjes) || 10, // ej. primeras 10 personas
+        canjesUsados: 0,
+        fechaFin: dto.fechaFin ? new Date(dto.fechaFin) : null,
+        activo: true,
+        mensajePlantilla: dto.mensajePlantilla?.trim() || null,
+      },
+    });
+  }
+
+  async validarCupon(tenantId: string, codigo: string, totalPares = 1, totalMonto = 0) {
+    const codigoClean = (codigo || '').toUpperCase().trim();
+    const promo = await this.prisma.campanaPromocion.findUnique({
+      where: {
+        tenantId_codigo: {
+          tenantId,
+          codigo: codigoClean,
+        },
+      },
+    });
+
+    if (!promo || !promo.activo) {
+      return { valido: false, mensaje: 'El cupón no existe o está inactivo.' };
+    }
+
+    if (promo.fechaFin && new Date() > new Date(promo.fechaFin)) {
+      return { valido: false, mensaje: 'El cupón ha expirado.' };
+    }
+
+    if (promo.canjesUsados >= promo.maximoCanjes) {
+      return {
+        valido: false,
+        mensaje: `Este cupón ya alcanzó el límite de personas permitido (${promo.maximoCanjes} canjes).`,
+      };
+    }
+
+    if (totalPares < promo.minimoPares) {
+      return {
+        valido: false,
+        mensaje: `Este cupón requiere un mínimo de ${promo.minimoPares} pares de calzado.`,
+      };
+    }
+
+    let montoDescuento = 0;
+    const valor = Number(promo.valorDescuento);
+
+    if (promo.tipoDescuento === 'PORCENTAJE') {
+      montoDescuento = (totalMonto * valor) / 100;
+    } else if (promo.tipoDescuento === 'MONTO_FIJO') {
+      montoDescuento = Math.min(totalMonto, valor);
+    } else if (promo.tipoDescuento === 'DESCUENTO_POR_PAR') {
+      montoDescuento = valor * totalPares;
+    }
+
+    return {
+      valido: true,
+      promocion: promo,
+      cuposRestantes: promo.maximoCanjes - promo.canjesUsados,
+      descuentoCalculado: Number(montoDescuento.toFixed(2)),
+      mensaje: `¡Cupón válido! Descuento de $${montoDescuento.toFixed(2)} (${promo.maximoCanjes - promo.canjesUsados} cupos restantes).`,
+    };
+  }
+
+  async registrarCanjeCupon(tenantId: string, codigo: string) {
+    const codigoClean = (codigo || '').toUpperCase().trim();
+    const promo = await this.prisma.campanaPromocion.findUnique({
+      where: {
+        tenantId_codigo: {
+          tenantId,
+          codigo: codigoClean,
+        },
+      },
+    });
+
+    if (promo && promo.canjesUsados < promo.maximoCanjes) {
+      await this.prisma.campanaPromocion.update({
+        where: { id: promo.id },
+        data: {
+          canjesUsados: promo.canjesUsados + 1,
+        },
+      });
+    }
+  }
+
+  async eliminarPromocion(id: string, tenantId: string) {
+    return this.prisma.campanaPromocion.delete({
+      where: { id, tenantId },
+    });
+  }
 }
+

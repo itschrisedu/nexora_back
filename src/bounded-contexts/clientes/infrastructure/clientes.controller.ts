@@ -48,11 +48,58 @@ export class ClientesController {
     return this.queryService.buscarClientes(query, req.user.tenantId);
   }
 
+  // ── CRM: Clientes Inactivos (>30 días) ──
+  @Get('inactivos')
+  @Roles(Rol.ROL_ADMIN, Rol.ROL_VENDEDOR)
+  async obtenerClientesInactivos(@Query('dias') dias: string, @Req() req: any) {
+    return this.queryService.obtenerClientesInactivos(
+      req.user.tenantId,
+      dias ? parseInt(dias, 10) : 30,
+    );
+  }
+
+  // ── CRM: Campañas Promocionales & Cupones ──
+  @Get('promociones')
+  @Roles(Rol.ROL_ADMIN, Rol.ROL_VENDEDOR)
+  async obtenerPromociones(@Req() req: any) {
+    return this.queryService.obtenerPromociones(req.user.tenantId);
+  }
+
+  @Post('promociones')
+  @Roles(Rol.ROL_ADMIN)
+  async crearPromocion(@Body() dto: any, @Req() req: any) {
+    return this.queryService.crearPromocion(req.user.tenantId, dto);
+  }
+
+  @Post('promociones/validar')
+  @Roles(Rol.ROL_ADMIN, Rol.ROL_VENDEDOR)
+  async validarCupon(@Body() dto: any, @Req() req: any) {
+    return this.queryService.validarCupon(
+      req.user.tenantId,
+      dto.codigo,
+      dto.totalPares,
+      dto.totalMonto,
+    );
+  }
+
+  @Post('promociones/canjear')
+  @Roles(Rol.ROL_ADMIN, Rol.ROL_VENDEDOR)
+  async canjearCupon(@Body() dto: any, @Req() req: any) {
+    return this.queryService.registrarCanjeCupon(req.user.tenantId, dto.codigo);
+  }
+
+  @Delete('promociones/:id')
+  @Roles(Rol.ROL_ADMIN)
+  async eliminarPromocion(@Param('id') id: string, @Req() req: any) {
+    return this.queryService.eliminarPromocion(id, req.user.tenantId);
+  }
+
   @Get(':id')
   @Roles(Rol.ROL_ADMIN, Rol.ROL_VENDEDOR)
   async obtenerCliente(@Param('id') id: string) {
     return this.queryService.obtenerCliente(id);
   }
+
 
   @Get(':id/historial-credito')
   @Roles(Rol.ROL_ADMIN, Rol.ROL_VENDEDOR)

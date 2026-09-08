@@ -86,6 +86,8 @@ model Tenant {
   cierresCaja    CierreCaja[]
   auditLogs      AuditLog[]
   gastos         Gasto[]
+  empresasTransporte EmpresaTransporte[]
+  campanasPromociones CampanaPromocion[]
 
   @@map("tenants")
 }
@@ -954,6 +956,59 @@ model Gasto {
 
   @@map("gastos")
 }
+
+// ──────────────────────────────────────────
+// LOGÍSTICA — Empresas de Transporte y Envíos
+// ──────────────────────────────────────────
+
+model EmpresaTransporte {
+  id               String   @id @default(uuid())
+  tenantId         String
+  nombre           String
+  telefono         String?
+  direccion        String?
+  esPredeterminada Boolean  @default(false)
+  activo           Boolean  @default(true)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  tenant           Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@map("empresas_transporte")
+}
+
+// ──────────────────────────────────────────
+// CRM & MARKETING — Campañas y Cupones
+// ──────────────────────────────────────────
+
+enum TipoDescuentoCupon {
+  PORCENTAJE
+  MONTO_FIJO
+  DESCUENTO_POR_PAR
+}
+
+model CampanaPromocion {
+  id               String              @id @default(uuid())
+  tenantId         String
+  codigo           String
+  titulo           String
+  descripcion      String?
+  tipoDescuento    TipoDescuentoCupon  @default(PORCENTAJE)
+  valorDescuento   Decimal             @db.Decimal(10, 2)
+  minimoPares      Int                 @default(1)
+  maximoCanjes     Int                 @default(10)
+  canjesUsados     Int                 @default(0)
+  fechaInicio      DateTime            @default(now())
+  fechaFin         DateTime?
+  activo           Boolean             @default(true)
+  mensajePlantilla String?
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
+  tenant           Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, codigo])
+  @@map("campanas_promociones")
+}
+
 
 
 

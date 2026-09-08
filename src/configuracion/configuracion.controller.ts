@@ -324,4 +324,33 @@ export class ConfiguracionController {
       search.trim(),
     );
   }
+
+  // ══════════════════════════════
+  // LOGÍSTICA & EMPRESAS DE TRANSPORTE
+  // ══════════════════════════════
+
+  @Get('transportes')
+  @Roles(Rol.ROL_ADMIN, Rol.ROL_VENDEDOR, Rol.ROL_BODEGUERO, Rol.ROL_SUPER_ADMIN)
+  async getTransportes(@Req() req: any) {
+    return this.configuracionService.getTransportes(req.user.tenantId);
+  }
+
+  @Post('transportes')
+  @Roles(Rol.ROL_ADMIN, Rol.ROL_SUPER_ADMIN)
+  async createTransporte(@Body() dto: any, @Req() req: any) {
+    return this.configuracionService.createTransporte(req.user.tenantId, dto);
+  }
+
+  @Patch('transportes/:id/predeterminada')
+  @Roles(Rol.ROL_ADMIN, Rol.ROL_SUPER_ADMIN)
+  async setPredeterminadaTransporte(@Param('id') id: string, @Req() req: any) {
+    return this.configuracionService.setPredeterminadaTransporte(id, req.user.tenantId);
+  }
+
+  @Delete('transportes/:id')
+  @Roles(Rol.ROL_ADMIN, Rol.ROL_SUPER_ADMIN)
+  async deleteTransporte(@Param('id') id: string, @Req() req: any) {
+    return this.configuracionService.deleteTransporte(id, req.user.tenantId);
+  }
 }
+
