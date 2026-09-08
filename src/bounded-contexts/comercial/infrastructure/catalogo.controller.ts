@@ -53,7 +53,8 @@ export class CatalogoController {
         // Ignorar error si el token no es válido o está malformado
       }
     }
-    return this.catalogoService.obtenerCatalogoPublico(resolvedTenantId);
+    const result = await this.catalogoService.obtenerCatalogoPublico(resolvedTenantId);
+    return result.modelos || [];
   }
 
   /**
