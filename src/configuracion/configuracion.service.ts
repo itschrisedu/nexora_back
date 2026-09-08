@@ -91,6 +91,18 @@ export class ConfiguracionService {
     if (dto.creditScoreMinimo !== undefined) data.creditScoreMinimo = dto.creditScoreMinimo;
     if (dto.creditTasaMoraPct !== undefined) data.creditTasaMoraPct = dto.creditTasaMoraPct;
 
+    // Landing Page & Catálogo Online Público (Fase E3)
+    if (dto.heroTitulo !== undefined) data.heroTitulo = dto.heroTitulo;
+    if (dto.heroSubtitulo !== undefined) data.heroSubtitulo = dto.heroSubtitulo;
+    if (dto.heroBannerUrl !== undefined) data.heroBannerUrl = dto.heroBannerUrl;
+    if (dto.sobreNosotros !== undefined) data.sobreNosotros = dto.sobreNosotros;
+    if (dto.whatsappContacto !== undefined) data.whatsappContacto = dto.whatsappContacto;
+    if (dto.facebookUrl !== undefined) data.facebookUrl = dto.facebookUrl;
+    if (dto.instagramUrl !== undefined) data.instagramUrl = dto.instagramUrl;
+    if (dto.tiktokUrl !== undefined) data.tiktokUrl = dto.tiktokUrl;
+    if (dto.mostrarPreciosPublico !== undefined) data.mostrarPreciosPublico = dto.mostrarPreciosPublico;
+    if (dto.mostrarStockPublico !== undefined) data.mostrarStockPublico = dto.mostrarStockPublico;
+
     if (existing) {
       if (existing.logoUrl && existing.logoUrl !== dto.logoUrl && existing.logoUrl.includes('cloudinary.com')) {
         await this.cloudinary.deleteImage(existing.logoUrl);

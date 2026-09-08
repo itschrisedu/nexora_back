@@ -170,6 +170,18 @@ model BusinessConfig {
   sriPuntoEmision       String   @default("001")
   sriObligadoContabilidad Boolean @default(false)
 
+  // Landing Page & Catálogo Online Público (Fase E3)
+  heroTitulo            String?  @default("Calzado Ecuatoriano 100% Cuero de Cevallos")
+  heroSubtitulo         String?  @default("Venta al por mayor y menor directamente desde fábrica con los mejores estándares de calidad y durabilidad.")
+  heroBannerUrl         String?
+  sobreNosotros         String?  @default("Somos productores y comercializadores de calzado de cuero en el cantón Cevallos, Tungurahua. Garantizamos calidad de exportación, acabados finos y precios directos de fabricante.")
+  whatsappContacto      String?  @default("593999999999")
+  facebookUrl           String?
+  instagramUrl          String?
+  tiktokUrl             String?
+  mostrarPreciosPublico Boolean  @default(true)
+  mostrarStockPublico   Boolean  @default(true)
+
   updatedAt             DateTime @updatedAt
   tenant                Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
@@ -986,6 +998,12 @@ enum TipoDescuentoCupon {
   DESCUENTO_POR_PAR
 }
 
+enum AplicaModalidadPago {
+  AMBAS
+  SOLO_CONTADO
+  SOLO_CREDITO
+}
+
 model CampanaPromocion {
   id               String              @id @default(uuid())
   tenantId         String
@@ -997,6 +1015,7 @@ model CampanaPromocion {
   minimoPares      Int                 @default(1)
   maximoCanjes     Int                 @default(10)
   canjesUsados     Int                 @default(0)
+  aplicaPara       AplicaModalidadPago @default(AMBAS)
   fechaInicio      DateTime            @default(now())
   fechaFin         DateTime?
   activo           Boolean             @default(true)

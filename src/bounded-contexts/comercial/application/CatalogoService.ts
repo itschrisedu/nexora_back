@@ -34,7 +34,7 @@ export class CatalogoService {
   ) {}
 
   /**
-   * Obtiene la información pública de la tienda (Razón social, teléfono WhatsApp, dirección, logo).
+   * Obtiene la información pública de la tienda (Razón social, teléfono WhatsApp, dirección, logo, redes).
    */
   async obtenerInfoTienda(tenantIdParam?: string) {
     const tenant = await this.resolveTenant(tenantIdParam);
@@ -45,19 +45,109 @@ export class CatalogoService {
     return {
       tenantId: tenant.id,
       nombreNegocio: config?.nombre || tenant.name,
-      direccion: config?.direccion || 'Ecuador',
+      direccion: config?.direccion || 'Cantón Cevallos, Tungurahua',
       telefono: config?.telefono || '',
       email: config?.email || '',
       logoUrl: config?.logoUrl || null,
       ruc: config ? this.encryption.decrypt(config.ruc) : '',
+      heroTitulo: config?.heroTitulo || 'Calzado Ecuatoriano 100% Cuero de Cevallos',
+      heroSubtitulo: config?.heroSubtitulo || 'Venta al por mayor y menor directamente desde fábrica con los mejores estándares de calidad y durabilidad.',
+      heroBannerUrl: config?.heroBannerUrl || null,
+      sobreNosotros: config?.sobreNosotros || 'Somos productores y comercializadores de calzado de cuero en el cantón Cevallos, Tungurahua. Garantizamos calidad de exportación, acabados finos y precios directos de fabricante.',
+      whatsappContacto: config?.whatsappContacto || config?.telefono || '593999999999',
+      facebookUrl: config?.facebookUrl || null,
+      instagramUrl: config?.instagramUrl || null,
+      tiktokUrl: config?.tiktokUrl || null,
+      mostrarPreciosPublico: config?.mostrarPreciosPublico ?? true,
+      mostrarStockPublico: config?.mostrarStockPublico ?? true,
     };
   }
 
   /**
-   * Obtiene los modelos de calzado activos con sus productos, series, tallas y stock disponible.
+   * Obtiene los datos completos de la Landing Page pública incluyendo sucursales activas.
+   */
+  async obtenerLandingPublica(tenantIdParam?: string) {
+    const tenant = await this.resolveTenant(tenantIdParam);
+    const infoTienda = await this.obtenerInfoTienda(tenant.id);
+
+    const mainTenant = await this.prisma.tenant.findUnique({
+      where: { id: tenant.id },
+      include: { businessConfig: true },
+    });
+
+    const rucToMatch = mainTenant?.businessConfig?.ruc;
+
+    const sucursalesRaw = await this.prisma.tenant.findMany({
+      where: {
+        active: true,
+        OR: [
+          { id: tenant.id },
+          ...(rucToMatch ? [{ businessConfig: { ruc: rucToMatch } }] : []),
+        ],
+      },
+      include: {
+        businessConfig: true,
+        _count: {
+          select: {
+            productModels: { where: { active: true } },
+          },
+        },
+      },
+      orderBy: { createdAt: 'asc' },
+    });
+
+    const sucursales = sucursalesRaw.map((s) => ({
+      id: s.id,
+      nombre: s.name,
+      direccion: s.businessConfig?.direccion || 'Cantón Cevallos, Tungurahua',
+      telefono: s.businessConfig?.telefono || s.businessConfig?.whatsappContacto || infoTienda.telefono,
+      whatsapp: s.businessConfig?.whatsappContacto || s.businessConfig?.telefono || infoTienda.whatsappContacto,
+      email: s.businessConfig?.email || infoTienda.email,
+      totalModelos: s._count.productModels,
+      isMatriz: s.id === tenant.id,
+    }));
+
+    return {
+      negocio: infoTienda,
+      sucursales,
+    };
+  }
+
+  /**
+   * Obtiene los modelos de calzado activos con sus productos, series, tallas y stock disponible para una sucursal específica.
    */
   async obtenerCatalogoPublico(tenantIdParam?: string) {
     const tenant = await this.resolveTenant(tenantIdParam);
+    const infoTienda = await this.obtenerInfoTienda(tenant.id);
+
+    const mainTenant = await this.prisma.tenant.findUnique({
+      where: { id: tenant.id },
+      include: { businessConfig: true },
+    });
+    const rucToMatch = mainTenant?.businessConfig?.ruc;
+
+    const sucursalesRaw = await this.prisma.tenant.findMany({
+      where: {
+        active: true,
+        OR: [
+          { id: tenant.id },
+          ...(rucToMatch ? [{ businessConfig: { ruc: rucToMatch } }] : []),
+        ],
+      },
+      include: {
+        businessConfig: true,
+      },
+      orderBy: { createdAt: 'asc' },
+    });
+
+    const sucursales = sucursalesRaw.map((s) => ({
+      id: s.id,
+      nombre: s.name,
+      direccion: s.businessConfig?.direccion || 'Cantón Cevallos, Tungurahua',
+      telefono: s.businessConfig?.telefono || s.businessConfig?.whatsappContacto || infoTienda.telefono,
+      whatsapp: s.businessConfig?.whatsappContacto || s.businessConfig?.telefono || infoTienda.whatsappContacto,
+      isCurrent: s.id === tenant.id,
+    }));
 
     const modelos = await this.prisma.productModel.findMany({
       where: {
@@ -83,8 +173,7 @@ export class CatalogoService {
       orderBy: { name: 'asc' },
     });
 
-    // Formatear para consumo limpio del frontend del catálogo público
-    return modelos.map((m) => ({
+    const formattedModelos = modelos.map((m) => ({
       id: m.id,
       baseCode: m.baseCode,
       name: m.name,
@@ -121,6 +210,19 @@ export class CatalogoService {
         };
       }),
     }));
+
+    return {
+      sucursalActual: {
+        id: tenant.id,
+        nombre: tenant.name,
+        direccion: infoTienda.direccion,
+        telefono: infoTienda.telefono,
+        whatsappContacto: infoTienda.whatsappContacto,
+      },
+      negocio: infoTienda,
+      sucursales,
+      modelos: formattedModelos,
+    };
   }
 
   /**

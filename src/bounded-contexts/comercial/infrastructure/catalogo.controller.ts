@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, Query, Req } from '@nestjs/common';
+import { Controller, Get, Post, Body, Query, Req, Param } from '@nestjs/common';
 import { CatalogoService } from '../application/CatalogoService';
 import type { RegistrarPedidoWhatsAppDto } from '../application/CatalogoService';
 
@@ -16,6 +16,22 @@ export class CatalogoController {
   @Get('tienda')
   async obtenerInfoTienda(@Query('tenantId') tenantId?: string) {
     return this.catalogoService.obtenerInfoTienda(tenantId);
+  }
+
+  /**
+   * Obtener datos completos de la Landing Page pública (Hero, Sobre Nosotros, Sucursales activas)
+   */
+  @Get('landing')
+  async obtenerLandingPublica(@Query('tenantId') tenantId?: string) {
+    return this.catalogoService.obtenerLandingPublica(tenantId);
+  }
+
+  /**
+   * Obtener catálogo de calzado disponible por sucursal específica
+   */
+  @Get('sucursal/:sucursalId')
+  async obtenerCatalogoSucursal(@Param('sucursalId') sucursalId: string) {
+    return this.catalogoService.obtenerCatalogoPublico(sucursalId);
   }
 
   /**

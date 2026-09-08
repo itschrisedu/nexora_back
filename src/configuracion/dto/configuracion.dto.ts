@@ -84,6 +84,47 @@ export class UpdateBusinessConfigDto {
 
   @IsOptional()
   creditTasaMoraPct?: number;
+
+  // ── Landing Page & Catálogo Online Público (Fase E3) ──
+  @IsString()
+  @IsOptional()
+  heroTitulo?: string;
+
+  @IsString()
+  @IsOptional()
+  heroSubtitulo?: string;
+
+  @IsString()
+  @IsOptional()
+  heroBannerUrl?: string;
+
+  @IsString()
+  @IsOptional()
+  sobreNosotros?: string;
+
+  @IsString()
+  @IsOptional()
+  whatsappContacto?: string;
+
+  @IsString()
+  @IsOptional()
+  facebookUrl?: string;
+
+  @IsString()
+  @IsOptional()
+  instagramUrl?: string;
+
+  @IsString()
+  @IsOptional()
+  tiktokUrl?: string;
+
+  @IsBoolean()
+  @IsOptional()
+  mostrarPreciosPublico?: boolean;
+
+  @IsBoolean()
+  @IsOptional()
+  mostrarStockPublico?: boolean;
 }
 
 export class RegistrarUbicacionDto {

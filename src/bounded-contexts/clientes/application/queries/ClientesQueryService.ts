@@ -175,38 +175,24 @@ export class ClientesQueryService {
         tenantId,
         activo: true,
       },
-      include: {
-        orders: {
-          orderBy: { createdAt: 'desc' },
-          take: 1,
-          select: {
-            id: true,
-            createdAt: true,
-            montoTotal: true,
-            numero: true,
-            estado: true,
-          },
-        },
-        saleNotes: {
-          orderBy: { createdAt: 'desc' },
-          take: 1,
-          select: {
-            id: true,
-            createdAt: true,
-            total: true,
-            numero: true,
-          },
-        },
-      },
     });
 
     const now = new Date();
     const inactivos: any[] = [];
 
     for (const c of clients) {
-      // Determinar la fecha de la última actividad comercial
-      const ultimaOrden = c.orders && c.orders.length > 0 ? c.orders[0] : null;
-      const ultimaNota = c.saleNotes && c.saleNotes.length > 0 ? c.saleNotes[0] : null;
+      // Buscar la última orden y la última nota de venta
+      const ultimaOrden = await this.prisma.order.findFirst({
+        where: { tenantId, clientId: c.id },
+        orderBy: { createdAt: 'desc' },
+        select: { id: true, createdAt: true, montoTotal: true, estado: true },
+      });
+
+      const ultimaNota = await this.prisma.saleNote.findFirst({
+        where: { tenantId, clientId: c.id },
+        orderBy: { createdAt: 'desc' },
+        select: { id: true, createdAt: true, total: true, numero: true },
+      });
 
       let ultimaFecha: Date | null = null;
       let ultimoMonto = 0;
@@ -298,6 +284,7 @@ export class ClientesQueryService {
         minimoPares: Number(dto.minimoPares) || 1,
         maximoCanjes: Number(dto.maximoCanjes) || 10, // ej. primeras 10 personas
         canjesUsados: 0,
+        aplicaPara: (dto.aplicaPara as any) || 'AMBAS',
         fechaFin: dto.fechaFin ? new Date(dto.fechaFin) : null,
         activo: true,
         mensajePlantilla: dto.mensajePlantilla?.trim() || null,
@@ -305,7 +292,13 @@ export class ClientesQueryService {
     });
   }
 
-  async validarCupon(tenantId: string, codigo: string, totalPares = 1, totalMonto = 0) {
+  async validarCupon(
+    tenantId: string,
+    codigo: string,
+    totalPares = 1,
+    totalMonto = 0,
+    tipoPago?: 'CONTADO' | 'CREDITO',
+  ) {
     const codigoClean = (codigo || '').toUpperCase().trim();
     const promo = await this.prisma.campanaPromocion.findUnique({
       where: {
@@ -336,6 +329,21 @@ export class ClientesQueryService {
         valido: false,
         mensaje: `Este cupón requiere un mínimo de ${promo.minimoPares} pares de calzado.`,
       };
+    }
+
+    if (tipoPago) {
+      if (promo.aplicaPara === 'SOLO_CONTADO' && tipoPago === 'CREDITO') {
+        return {
+          valido: false,
+          mensaje: 'Este cupón es exclusivo para pagos de Contado.',
+        };
+      }
+      if (promo.aplicaPara === 'SOLO_CREDITO' && tipoPago === 'CONTADO') {
+        return {
+          valido: false,
+          mensaje: 'Este cupón es exclusivo para compras a Crédito.',
+        };
+      }
     }
 
     let montoDescuento = 0;

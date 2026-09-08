@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   ParseFloatPipe,
@@ -79,6 +80,7 @@ export class ClientesController {
       dto.codigo,
       dto.totalPares,
       dto.totalMonto,
+      dto.tipoPago,
     );
   }
 
