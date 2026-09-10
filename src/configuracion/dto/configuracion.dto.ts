@@ -54,6 +54,11 @@ export class UpdateBusinessConfigDto {
   @IsOptional()
   duracionSesionHoras?: number;
 
+  // ── Switch de Despacho Automático (Fase E5) ──
+  @IsBoolean()
+  @IsOptional()
+  autoDespachoHabilitado?: boolean;
+
   // ── Facturación Electrónica SRI (Fase 12) ──
 
   @IsString()

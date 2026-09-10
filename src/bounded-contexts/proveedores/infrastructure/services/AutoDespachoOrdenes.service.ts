@@ -11,6 +11,7 @@ export class AutoDespachoOrdenesService {
   /**
    * Cron Job ejecutado cada minuto para verificar si coincide con la hora
    * programada de despacho automático de órdenes de compra a proveedores (por defecto 08:00 AM).
+   * Solo se ejecuta si el switch autoDespachoHabilitado está activado en BusinessConfig.
    */
   @Cron(CronExpression.EVERY_MINUTE)
   async verificarYDespacharOrdenesProgramadas() {
@@ -23,6 +24,17 @@ export class AutoDespachoOrdenesService {
 
       // Obtener configuraciones de negocio registradas
       const configs = await this.prisma.businessConfig.findMany();
+
+      // Verificar si el auto-despacho está habilitado (Fase E5)
+      const autoDespachoActivo = configs.length > 0
+        ? (configs[0].autoDespachoHabilitado ?? true)
+        : true;
+
+      if (!autoDespachoActivo) {
+        // El administrador desactivó el despacho automático; no ejecutar
+        return;
+      }
+
       const horaConfigurada = configs.length > 0 && configs[0].horaInicioOperativa
         ? configs[0].horaInicioOperativa
         : '08:00';

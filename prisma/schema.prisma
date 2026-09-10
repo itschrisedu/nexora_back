@@ -162,6 +162,9 @@ model BusinessConfig {
   horaFinOperativa      String?  @default("19:00")
   duracionSesionHoras   Int      @default(24)
 
+  // Switch de Despacho Automático de Órdenes a Proveedores (Fase E5)
+  autoDespachoHabilitado Boolean @default(true)
+
   // Configuración Facturación Electrónica SRI (Fase 12)
   firmaP12Path          String?
   firmaPasswordEnc      String?  // Contraseña .p12 cifrada con AES-256

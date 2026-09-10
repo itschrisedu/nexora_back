@@ -78,6 +78,7 @@ export class ConfiguracionService {
     if (dto.horaInicioOperativa !== undefined) data.horaInicioOperativa = dto.horaInicioOperativa;
     if (dto.horaFinOperativa !== undefined) data.horaFinOperativa = dto.horaFinOperativa;
     if (dto.duracionSesionHoras !== undefined) data.duracionSesionHoras = dto.duracionSesionHoras;
+    if (dto.autoDespachoHabilitado !== undefined) data.autoDespachoHabilitado = dto.autoDespachoHabilitado;
 
     // Campos SRI opcionales (solo incluir si fueron enviados)
     if (dto.sriAmbiente !== undefined) data.sriAmbiente = dto.sriAmbiente;
