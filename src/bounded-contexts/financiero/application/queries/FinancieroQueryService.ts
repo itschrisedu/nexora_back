@@ -223,17 +223,45 @@ export class FinancieroQueryService {
       }),
     );
 
-    // 3. Resolver vendedor original de cada cobro (vía Order.userId) y sucursal
+    // 3. Resolver vendedor original de cada cobro (vía Order.userId), logística y líneas de calzado
     const orderIds = cobros
       .map((c) => c.saleNote?.orderId)
       .filter(Boolean) as string[];
     const orders = orderIds.length > 0
       ? await this.prisma.order.findMany({
           where: { id: { in: orderIds } },
-          select: { id: true, userId: true },
+          select: {
+            id: true,
+            userId: true,
+            tipoEntrega: true,
+            courier: true,
+            ciudadEnvio: true,
+            lines: true,
+          },
         })
       : [];
+    const orderMap = new Map(orders.map((o) => [o.id, o]));
     const orderUserMap = new Map(orders.map((o) => [o.id, o.userId]));
+
+    // Obtener información de productos y tallas para las líneas de pedidos
+    const allOrderLines = orders.flatMap((o) => o.lines || []);
+    const productIds = [...new Set(allOrderLines.map((l) => l.productId).filter(Boolean))];
+    const products = productIds.length > 0
+      ? await this.prisma.product.findMany({
+          where: { id: { in: productIds } },
+          include: { model: true, serie: true },
+        })
+      : [];
+    const productMap = new Map(products.map((p) => [p.id, p]));
+
+    const tallaIds = [...new Set(allOrderLines.map((l) => l.tallaId).filter(Boolean))];
+    const tallas = tallaIds.length > 0
+      ? await this.prisma.tallaConfig.findMany({
+          where: { id: { in: tallaIds } },
+          select: { id: true, numero: true },
+        })
+      : [];
+    const tallaMap = new Map(tallas.map((t) => [t.id, t.numero]));
 
     // Resolver usuarios (vendedores de la orden + cajeros de abonos)
     const abonoUserIds = cobros.flatMap((c) =>
@@ -253,11 +281,46 @@ export class FinancieroQueryService {
     return cobros.map((cobro) => {
       const client = clientMap.get(cobro.clientId);
 
-      // Datos del vendedor original
-      const vendedorId = cobro.saleNote?.orderId
-        ? orderUserMap.get(cobro.saleNote.orderId)
+      // Datos del vendedor original y logística del pedido
+      const order = cobro.saleNote?.orderId
+        ? orderMap.get(cobro.saleNote.orderId)
         : null;
+      const vendedorId = order ? order.userId : null;
       const vendedor = vendedorId ? userMap.get(vendedorId) : null;
+
+      // Líneas de pedido enriquecidas
+      const orderLinesEnriched = order?.lines?.map((l) => {
+        const prod = productMap.get(l.productId);
+        const numTalla = tallaMap.get(l.tallaId);
+        return {
+          id: l.id,
+          productId: l.productId,
+          cantidad: l.cantidad,
+          precioUnitario: Number(l.precioUnitario),
+          subtotal: l.cantidad * Number(l.precioUnitario),
+          tipoVenta: l.tipoVenta,
+          modelName: prod?.model?.name || 'Calzado',
+          color: prod?.color || '',
+          imageUrl: prod?.imageUrl || null,
+          serieNombre: prod?.serie?.nombre || 'Estándar',
+          numeroTalla: numTalla ?? 38,
+        };
+      }) || [];
+
+      // Consolidar líneas finales
+      const finalLines = (cobro.saleNote?.lines && cobro.saleNote.lines.length > 0)
+        ? cobro.saleNote.lines.map((l: any) => ({
+            id: l.id,
+            productId: l.productId,
+            cantidad: l.cantidad,
+            precioUnitario: Number(l.precioUnitario),
+            subtotal: Number(l.subtotal ?? (l.cantidad * Number(l.precioUnitario))),
+            modelName: l.nombre || 'Calzado',
+            color: '',
+            serieNombre: l.serie || 'Estándar',
+            numeroTalla: l.talla || '38',
+          }))
+        : orderLinesEnriched;
 
       // Enriquecer abonos con datos del cajero
       const abonosEnriquecidos = cobro.abonos.map((a) => {
@@ -284,6 +347,10 @@ export class FinancieroQueryService {
         vendedorEmail: vendedor?.email || '',
         vendedorRol: vendedor?.rol || '',
         sucursalNombre: (cobro as any).tenant?.name || '',
+        tipoEntrega: order?.tipoEntrega || 'PRESENCIAL',
+        courier: order?.courier || null,
+        ciudadEnvio: order?.ciudadEnvio || null,
+        lines: finalLines,
       };
     });
   }
