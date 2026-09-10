@@ -309,17 +309,22 @@ export class FinancieroQueryService {
 
       // Consolidar líneas finales
       const finalLines = (cobro.saleNote?.lines && cobro.saleNote.lines.length > 0)
-        ? cobro.saleNote.lines.map((l: any) => ({
-            id: l.id,
-            productId: l.productId,
-            cantidad: l.cantidad,
-            precioUnitario: Number(l.precioUnitario),
-            subtotal: Number(l.subtotal ?? (l.cantidad * Number(l.precioUnitario))),
-            modelName: l.nombre || 'Calzado',
-            color: '',
-            serieNombre: l.serie || 'Estándar',
-            numeroTalla: l.talla || '38',
-          }))
+        ? cobro.saleNote.lines.map((l: any) => {
+            const prod = productMap.get(l.productId);
+            return {
+              id: l.id,
+              productId: l.productId,
+              cantidad: l.cantidad,
+              precioUnitario: Number(l.precioUnitario),
+              subtotal: Number(l.subtotal ?? (l.cantidad * Number(l.precioUnitario))),
+              modelName: l.nombre || prod?.model?.name || 'Calzado',
+              color: prod?.color || '',
+              imageUrl: prod?.imageUrl || null,
+              serieNombre: l.serie || prod?.serie?.nombre || 'Estándar',
+              numeroTalla: l.talla || '38',
+              tipoVenta: 'POR_TALLA',
+            };
+          })
         : orderLinesEnriched;
 
       // Enriquecer abonos con datos del cajero
