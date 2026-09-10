@@ -13,6 +13,7 @@ export class ClientesQueryService {
   async obtenerCliente(id: string) {
     const client = await this.prisma.client.findUnique({
       where: { id },
+      include: { tenant: { select: { id: true, name: true } } },
     });
 
     if (!client) {
@@ -50,6 +51,7 @@ export class ClientesQueryService {
 
     const clients = await this.prisma.client.findMany({
       where,
+      include: { tenant: { select: { id: true, name: true } } },
       orderBy: [{ apellido: 'asc' }, { nombre: 'asc' }],
     });
 
@@ -160,6 +162,8 @@ export class ClientesQueryService {
       creditoUtilizado: Number(record.creditoUtilizado),
       creditoDisponible: Math.max(0, Number(record.limiteCredito) - Number(record.creditoUtilizado)),
       activo: record.activo,
+      tenantId: record.tenantId,
+      sucursalNombre: record.tenant?.name || '',
       createdAt: record.createdAt,
       updatedAt: record.updatedAt,
     };
@@ -175,6 +179,7 @@ export class ClientesQueryService {
         tenantId,
         activo: true,
       },
+      include: { tenant: { select: { id: true, name: true } } },
     });
 
     const now = new Date();

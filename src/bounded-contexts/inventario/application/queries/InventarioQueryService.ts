@@ -14,7 +14,9 @@ export class InventarioQueryService {
     const producto = await this.prisma.product.findUnique({
       where: { id },
       include: {
-        model: true,
+        model: {
+          include: { tenant: { select: { id: true, name: true } } },
+        },
         serie: true,
         stockByTalla: {
           include: { talla: true },
@@ -65,7 +67,10 @@ export class InventarioQueryService {
       where,
       include: {
         model: {
-          include: { supplier: true },
+          include: {
+            supplier: true,
+            tenant: { select: { id: true, name: true } },
+          },
         },
         serie: true,
         stockByTalla: {
@@ -88,7 +93,9 @@ export class InventarioQueryService {
     const productos = await this.prisma.product.findMany({
       where,
       include: {
-        model: true,
+        model: {
+          include: { tenant: { select: { id: true, name: true } } },
+        },
         serie: true,
         stockByTalla: {
           include: { talla: true },
@@ -117,7 +124,9 @@ export class InventarioQueryService {
     const productos = await this.prisma.product.findMany({
       where,
       include: {
-        model: true,
+        model: {
+          include: { tenant: { select: { id: true, name: true } } },
+        },
         serie: true,
         stockByTalla: {
           include: { talla: true },
@@ -156,6 +165,7 @@ export class InventarioQueryService {
         where,
         include: {
           supplier: true,
+          tenant: { select: { id: true, name: true } },
           products: {
             include: {
               serie: true,
@@ -245,6 +255,8 @@ export class InventarioQueryService {
 
       return {
         id: m.id,
+        tenantId: m.tenantId,
+        sucursalNombre: m.tenant?.name || '',
         baseCode: m.baseCode,
         name: m.name,
         brand: m.brand,
@@ -276,6 +288,8 @@ export class InventarioQueryService {
     const mdl = modelo || record.model;
     return {
       id: record.id,
+      tenantId: mdl?.tenantId,
+      sucursalNombre: mdl?.tenant?.name || '',
       codigo: record.code,
       nombre: mdl?.name ?? '',
       marca: mdl?.brand ?? '',
