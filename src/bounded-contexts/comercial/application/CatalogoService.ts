@@ -49,6 +49,7 @@ export class CatalogoService {
       telefono: config?.telefono || '',
       email: config?.email || '',
       logoUrl: config?.logoUrl || null,
+      primaryColor: config?.primaryColor || '#0F172A',
       ruc: config ? this.encryption.decrypt(config.ruc) : '',
       heroTitulo: config?.heroTitulo || 'Calzado Ecuatoriano 100% Cuero de Cevallos',
       heroSubtitulo: config?.heroSubtitulo || 'Venta al por mayor y menor directamente desde fábrica con los mejores estándares de calidad y durabilidad.',
@@ -64,7 +65,7 @@ export class CatalogoService {
   }
 
   /**
-   * Obtiene los datos completos de la Landing Page pública incluyendo sucursales activas.
+   * Obtiene los datos completos de la Landing Page pública incluyendo sucursales activas y catálogo de modelos con variantes.
    */
   async obtenerLandingPublica(tenantIdParam?: string) {
     const tenant = await this.resolveTenant(tenantIdParam);
@@ -96,6 +97,9 @@ export class CatalogoService {
       orderBy: { createdAt: 'asc' },
     });
 
+    const tenantIdsToQuery = sucursalesRaw.map((s) => s.id);
+    if (!tenantIdsToQuery.includes(tenant.id)) tenantIdsToQuery.push(tenant.id);
+
     const sucursales = sucursalesRaw.map((s) => ({
       id: s.id,
       nombre: s.name,
@@ -107,9 +111,77 @@ export class CatalogoService {
       isMatriz: s.id === tenant.id,
     }));
 
+    // Cargar todos los modelos activos de la empresa con sus variantes de color y fotos
+    const modelosRaw = await this.prisma.productModel.findMany({
+      where: {
+        tenantId: { in: tenantIdsToQuery },
+        active: true,
+      },
+      include: {
+        tenant: { select: { id: true, name: true } },
+        products: {
+          where: { active: true },
+          include: {
+            serie: true,
+            stockByTalla: {
+              include: { talla: true },
+              orderBy: { talla: { numero: 'asc' } },
+            },
+          },
+          orderBy: { code: 'asc' },
+        },
+      },
+      orderBy: { name: 'asc' },
+    });
+
+    const modelos = modelosRaw.map((m) => {
+      let precioMin = 0;
+      let precioMax = 0;
+      const precios = m.products.map((p) => Number(p.salePrice)).filter((pr) => pr > 0);
+      if (precios.length > 0) {
+        precioMin = Math.min(...precios);
+        precioMax = Math.max(...precios);
+      }
+
+      return {
+        id: m.id,
+        baseCode: m.baseCode,
+        name: m.name,
+        brand: m.brand,
+        material: m.material || '100% Cuero Vacuno',
+        sucursalNombre: m.tenant?.name || 'Matriz',
+        precioMin,
+        precioMax,
+        variantes: m.products.map((p) => {
+          const sortedStock = (p.stockByTalla || [])
+            .slice()
+            .sort((a, b) => (Number(a.talla?.numero) || 0) - (Number(b.talla?.numero) || 0));
+
+          const totalStock = sortedStock.reduce((acc, curr) => acc + (curr.quantity || 0), 0);
+
+          return {
+            id: p.id,
+            code: p.code,
+            color: p.color,
+            imageUrl: p.imageUrl,
+            salePrice: Number(p.salePrice),
+            serieNombre: p.serie?.nombre || '',
+            totalStock,
+            tallas: sortedStock.map((st) => ({
+              tallaId: st.tallaId,
+              numero: st.talla?.numero,
+              stock: st.quantity,
+              disponible: (st.quantity || 0) - (st.reservedQuantity || 0),
+            })),
+          };
+        }),
+      };
+    });
+
     return {
       negocio: infoTienda,
       sucursales,
+      modelos,
     };
   }
 

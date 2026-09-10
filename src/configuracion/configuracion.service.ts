@@ -86,12 +86,6 @@ export class ConfiguracionService {
     if (dto.sriPuntoEmision !== undefined) data.sriPuntoEmision = dto.sriPuntoEmision;
     if (dto.sriObligadoContabilidad !== undefined) data.sriObligadoContabilidad = dto.sriObligadoContabilidad;
 
-    // Parámetros de Credit Scoring
-    if (dto.creditMontoMaximoInicial !== undefined) data.creditMontoMaximoInicial = dto.creditMontoMaximoInicial;
-    if (dto.creditPlazoMaximoDias !== undefined) data.creditPlazoMaximoDias = dto.creditPlazoMaximoDias;
-    if (dto.creditScoreMinimo !== undefined) data.creditScoreMinimo = dto.creditScoreMinimo;
-    if (dto.creditTasaMoraPct !== undefined) data.creditTasaMoraPct = dto.creditTasaMoraPct;
-
     // Landing Page & Catálogo Online Público (Fase E3)
     if (dto.heroTitulo !== undefined) data.heroTitulo = dto.heroTitulo;
     if (dto.heroSubtitulo !== undefined) data.heroSubtitulo = dto.heroSubtitulo;
