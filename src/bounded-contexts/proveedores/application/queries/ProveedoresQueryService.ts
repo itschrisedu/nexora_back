@@ -13,6 +13,7 @@ export class ProveedoresQueryService {
     const raw = await this.prisma.supplier.findUnique({
       where: { id },
       include: {
+        tenant: { select: { id: true, name: true } },
         orders: true,
         entries: true,
         payments: true,
@@ -44,6 +45,7 @@ export class ProveedoresQueryService {
     const suppliers = await this.prisma.supplier.findMany({
       where,
       include: {
+        tenant: { select: { id: true, name: true } },
         orders: { select: { id: true, estado: true, total: true } },
         entries: { select: { id: true, total: true } },
         payments: { select: { id: true, monto: true } },
@@ -190,7 +192,11 @@ export class ProveedoresQueryService {
       where: { id },
       include: {
         lines: true,
-        supplier: true,
+        supplier: {
+          include: {
+            tenant: { select: { id: true, name: true } },
+          },
+        },
         entry: {
           select: { id: true, numero: true, fechaIngreso: true, estado: true },
         },
@@ -216,6 +222,7 @@ export class ProveedoresQueryService {
     return {
       ...order,
       supplier: this.formatSupplier(order.supplier),
+      sucursalNombre: order.supplier?.tenant?.name || '',
       total: Number(order.total),
       lines: order.lines.map((l) => {
         const prod = productMap.get(l.productId);
@@ -249,7 +256,11 @@ export class ProveedoresQueryService {
     const orders = await this.prisma.supplierOrder.findMany({
       where,
       include: {
-        supplier: true,
+        supplier: {
+          include: {
+            tenant: { select: { id: true, name: true } },
+          },
+        },
         lines: true,
       },
       orderBy: { createdAt: 'desc' },
@@ -267,6 +278,7 @@ export class ProveedoresQueryService {
     return orders.map((o) => ({
       ...o,
       supplier: this.formatSupplier(o.supplier),
+      sucursalNombre: o.supplier?.tenant?.name || '',
       total: Number(o.total),
       totalLineas: o.lines.length,
       lines: o.lines.map((l) => {
@@ -292,7 +304,11 @@ export class ProveedoresQueryService {
       where: { id },
       include: {
         lines: true,
-        supplier: true,
+        supplier: {
+          include: {
+            tenant: { select: { id: true, name: true } },
+          },
+        },
         supplierOrder: {
           select: { id: true, numero: true, total: true, estado: true, observaciones: true },
         },
@@ -313,6 +329,7 @@ export class ProveedoresQueryService {
     return {
       ...entry,
       supplier: this.formatSupplier(entry.supplier),
+      sucursalNombre: entry.supplier?.tenant?.name || '',
       total: Number(entry.total),
       supplierOrder: entry.supplierOrder ? {
         ...entry.supplierOrder,
@@ -346,7 +363,11 @@ export class ProveedoresQueryService {
     const entries = await this.prisma.merchandiseEntry.findMany({
       where,
       include: {
-        supplier: true,
+        supplier: {
+          include: {
+            tenant: { select: { id: true, name: true } },
+          },
+        },
         lines: true,
         supplierOrder: {
           select: { id: true, numero: true },
@@ -357,6 +378,7 @@ export class ProveedoresQueryService {
     return entries.map((e) => ({
       ...e,
       supplier: this.formatSupplier(e.supplier),
+      sucursalNombre: e.supplier?.tenant?.name || '',
       total: Number(e.total),
       totalLineas: e.lines.length,
     }));
@@ -370,7 +392,11 @@ export class ProveedoresQueryService {
     const payments = await this.prisma.supplierPayment.findMany({
       where,
       include: {
-        supplier: true,
+        supplier: {
+          include: {
+            tenant: { select: { id: true, name: true } },
+          },
+        },
         supplierOrder: {
           select: { id: true, numero: true },
         },
@@ -382,6 +408,7 @@ export class ProveedoresQueryService {
       ...p,
       monto: Number(p.monto),
       supplier: this.formatSupplier(p.supplier),
+      sucursalNombre: p.supplier?.tenant?.name || '',
     }));
   }
 
@@ -394,6 +421,8 @@ export class ProveedoresQueryService {
     }
     return {
       id: raw.id,
+      tenantId: raw.tenantId,
+      sucursalNombre: raw.tenant?.name || '',
       ruc: rucDescifrado,
       razonSocial: raw.razonSocial,
       nombre: raw.razonSocial, // Alias for UI consistency
