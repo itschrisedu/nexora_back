@@ -15,10 +15,58 @@ export class FinancieroQueryService {
   async obtenerCobro(cobroId: string) {
     const cobro = await this.prisma.cobro.findUnique({
       where: { id: cobroId },
-      include: { abonos: { orderBy: { createdAt: 'asc' } }, saleNote: true },
+      include: {
+        abonos: { orderBy: { createdAt: 'asc' } },
+        saleNote: true,
+        tenant: { select: { id: true, name: true } },
+      },
     });
     if (!cobro) throw new NotFoundException(`Cobro ${cobroId} no encontrado`);
-    return cobro;
+
+    // Resolver vendedor original (vía Order.userId)
+    let vendedor: { nombre: string; email: string; rol: string } | null = null;
+    if (cobro.saleNote?.orderId) {
+      const order = await this.prisma.order.findUnique({
+        where: { id: cobro.saleNote.orderId },
+        select: { userId: true },
+      });
+      if (order?.userId) {
+        const user = await this.prisma.user.findUnique({
+          where: { id: order.userId },
+          select: { nombre: true, email: true, rol: true },
+        });
+        if (user) vendedor = { nombre: user.nombre, email: user.email, rol: user.rol };
+      }
+    }
+
+    // Resolver cajero de cada abono
+    const abonoUserIds = cobro.abonos.map((a) => a.userId).filter(Boolean);
+    const users = abonoUserIds.length > 0
+      ? await this.prisma.user.findMany({
+          where: { id: { in: abonoUserIds } },
+          select: { id: true, nombre: true, email: true, rol: true },
+        })
+      : [];
+    const userMap = new Map(users.map((u) => [u.id, u]));
+
+    const abonosEnriquecidos = cobro.abonos.map((a) => {
+      const cajero = userMap.get(a.userId);
+      return {
+        ...a,
+        usuarioNombre: cajero?.nombre || 'Usuario del sistema',
+        usuarioEmail: cajero?.email || '',
+        usuarioRol: cajero?.rol || '',
+      };
+    });
+
+    return {
+      ...cobro,
+      abonos: abonosEnriquecidos,
+      vendedorNombre: vendedor?.nombre || '',
+      vendedorEmail: vendedor?.email || '',
+      vendedorRol: vendedor?.rol || '',
+      sucursalNombre: (cobro as any).tenant?.name || '',
+    };
   }
 
   async listarCobrosCliente(clientId: string, tenantId?: string | null) {
@@ -121,6 +169,9 @@ export class FinancieroQueryService {
         abonos: {
           orderBy: { createdAt: 'desc' },
         },
+        tenant: {
+          select: { id: true, name: true },
+        },
       },
       orderBy: { createdAt: 'desc' },
     });
@@ -172,10 +223,56 @@ export class FinancieroQueryService {
       }),
     );
 
+    // 3. Resolver vendedor original de cada cobro (vía Order.userId) y sucursal
+    const orderIds = cobros
+      .map((c) => c.saleNote?.orderId)
+      .filter(Boolean) as string[];
+    const orders = orderIds.length > 0
+      ? await this.prisma.order.findMany({
+          where: { id: { in: orderIds } },
+          select: { id: true, userId: true },
+        })
+      : [];
+    const orderUserMap = new Map(orders.map((o) => [o.id, o.userId]));
+
+    // Resolver usuarios (vendedores de la orden + cajeros de abonos)
+    const abonoUserIds = cobros.flatMap((c) =>
+      c.abonos.map((a) => a.userId).filter(Boolean),
+    );
+    const allUserIds = [
+      ...new Set([...orders.map((o) => o.userId), ...abonoUserIds].filter(Boolean)),
+    ];
+    const users = allUserIds.length > 0
+      ? await this.prisma.user.findMany({
+          where: { id: { in: allUserIds } },
+          select: { id: true, nombre: true, email: true, rol: true },
+        })
+      : [];
+    const userMap = new Map(users.map((u) => [u.id, u]));
+
     return cobros.map((cobro) => {
       const client = clientMap.get(cobro.clientId);
+
+      // Datos del vendedor original
+      const vendedorId = cobro.saleNote?.orderId
+        ? orderUserMap.get(cobro.saleNote.orderId)
+        : null;
+      const vendedor = vendedorId ? userMap.get(vendedorId) : null;
+
+      // Enriquecer abonos con datos del cajero
+      const abonosEnriquecidos = cobro.abonos.map((a) => {
+        const cajero = userMap.get(a.userId);
+        return {
+          ...a,
+          usuarioNombre: cajero?.nombre || 'Usuario del sistema',
+          usuarioEmail: cajero?.email || '',
+          usuarioRol: cajero?.rol || '',
+        };
+      });
+
       return {
         ...cobro,
+        abonos: abonosEnriquecidos,
         clienteNombre: client ? `${client.nombre} ${client.apellido}`.trim() : 'Cliente sin registrar',
         clienteCedula: client?.cedula || client?.ruc || '—',
         clienteTelefono: client?.telefono || '—',
@@ -183,6 +280,10 @@ export class FinancieroQueryService {
         clienteDireccion: client?.direccion || '',
         clienteNivel: client?.nivelCredito || '—',
         client,
+        vendedorNombre: vendedor?.nombre || '',
+        vendedorEmail: vendedor?.email || '',
+        vendedorRol: vendedor?.rol || '',
+        sucursalNombre: (cobro as any).tenant?.name || '',
       };
     });
   }
@@ -248,6 +349,20 @@ export class FinancieroQueryService {
       tallas.forEach((t) => tallaMap.set(t.id, t.numero));
     }
 
+    // Resolver usuarios (vendedores de pedidos + cajeros de abonos)
+    const pedidoUserIds = pedidos.map((p) => p.userId).filter(Boolean);
+    const abonoUserIds = cobros.flatMap((c) =>
+      c.abonos.map((a) => a.userId).filter(Boolean),
+    );
+    const histUserIds = [...new Set([...pedidoUserIds, ...abonoUserIds])];
+    const histUsers = histUserIds.length > 0
+      ? await this.prisma.user.findMany({
+          where: { id: { in: histUserIds } },
+          select: { id: true, nombre: true, email: true, rol: true },
+        })
+      : [];
+    const histUserMap = new Map(histUsers.map((u) => [u.id, u]));
+
     // Numeración correlativa cronológica
     const sortedPedidosCron = [...pedidos].sort(
       (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
@@ -281,6 +396,7 @@ export class FinancieroQueryService {
       });
 
       const numCod = orderNumberMap.get(p.id) || `PED-${p.id.slice(0, 4).toUpperCase()}`;
+      const vendedorPedido = histUserMap.get(p.userId);
 
       movimientos.push({
         id: `pedido-${p.id}`,
@@ -292,6 +408,8 @@ export class FinancieroQueryService {
         monto: Number(p.montoTotal),
         estado: p.estado,
         fecha: p.createdAt,
+        vendedorNombre: vendedorPedido?.nombre || '',
+        vendedorEmail: vendedorPedido?.email || '',
         detalles: {
           lineasCount: p.lines.length,
           lineas: formattedLines,
@@ -305,6 +423,7 @@ export class FinancieroQueryService {
     // 2. Abonos realizados
     cobros.forEach((c) => {
       c.abonos.forEach((a) => {
+        const cajero = histUserMap.get(a.userId);
         movimientos.push({
           id: `abono-${a.id}`,
           tipo: 'ABONO',
@@ -314,6 +433,8 @@ export class FinancieroQueryService {
           metodo: a.metodo,
           notas: a.notas,
           fecha: a.createdAt,
+          cobradoPor: cajero?.nombre || 'Usuario del sistema',
+          cobradoPorEmail: cajero?.email || '',
         });
       });
     });

@@ -16,6 +16,7 @@ export class ComercialQueryService {
           },
         },
         queueEntry: true,
+        tenant: { select: { id: true, name: true } },
       },
     });
 
@@ -34,7 +35,7 @@ export class ComercialQueryService {
     }
     const orders = await this.prisma.order.findMany({
       where,
-      include: { lines: true, queueEntry: true },
+      include: { lines: true, queueEntry: true, tenant: { select: { id: true, name: true } } },
       orderBy: { createdAt: 'desc' },
     });
 
@@ -48,7 +49,7 @@ export class ComercialQueryService {
     }
     const orders = await this.prisma.order.findMany({
       where,
-      include: { lines: true, queueEntry: true },
+      include: { lines: true, queueEntry: true, tenant: { select: { id: true, name: true } } },
       orderBy: { createdAt: 'desc' },
     });
 
@@ -62,7 +63,7 @@ export class ComercialQueryService {
     }
     const orders = await this.prisma.order.findMany({
       where,
-      include: { lines: true, queueEntry: true },
+      include: { lines: true, queueEntry: true, tenant: { select: { id: true, name: true } } },
       orderBy: { createdAt: 'desc' },
     });
 
@@ -167,6 +168,7 @@ export class ComercialQueryService {
         ...formatted,
         clienteNombre: clientMap.get(o.clientId) || 'Consumidor Final',
         vendedorNombre: userMap.get(o.userId) || 'Vendedor',
+        sucursalNombre: o.tenant?.name || '',
       };
     });
   }

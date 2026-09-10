@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../../../auth/jwt-auth.guard';
 import { AuditService } from './audit.service';
+import type { AuditSegmento } from './audit.service';
 import { AccionAuditoria } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 
@@ -37,7 +38,7 @@ export class AuditController {
 
   /**
    * GET /auditoria
-   * Consulta logs de auditoría con filtros y paginación.
+   * Consulta logs de auditoría con filtros, segmentación y paginación.
    */
   @Get()
   async obtenerLogs(
@@ -45,6 +46,7 @@ export class AuditController {
     @Query('userId') userId?: string,
     @Query('accion') accion?: AccionAuditoria,
     @Query('entidad') entidad?: string,
+    @Query('segmento') segmento?: AuditSegmento,
     @Query('fechaInicio') fechaInicio?: string,
     @Query('fechaFin') fechaFin?: string,
     @Query('page') page?: string,
@@ -57,6 +59,7 @@ export class AuditController {
       userId,
       accion,
       entidad,
+      segmento,
       fechaInicio,
       fechaFin,
       page: page ? Number(page) : 1,

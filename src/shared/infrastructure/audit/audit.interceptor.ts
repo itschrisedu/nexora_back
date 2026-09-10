@@ -45,7 +45,7 @@ export class AuditInterceptor implements NestInterceptor {
     if (method === 'DELETE') accion = AccionAuditoria.ELIMINAR;
     if (auditMeta?.accion) accion = auditMeta.accion;
 
-    const entidad = auditMeta?.entidad ?? req.route?.path ?? 'DESCONOCIDO';
+    const entidad = auditMeta?.entidad ?? this.inferirEntidad(req.originalUrl || req.route?.path || '');
     const ipAddress = req.ip || req.headers['x-forwarded-for'] || '127.0.0.1';
     const userAgent = req.headers['user-agent'] || 'Desconocido';
 
@@ -79,5 +79,24 @@ export class AuditInterceptor implements NestInterceptor {
     if (copia.password) copia.password = '***';
     if (copia.passwordHash) copia.passwordHash = '***';
     return copia;
+  }
+
+  /**
+   * Inferir entidad estandarizada a partir de la URL de la petición.
+   */
+  private inferirEntidad(url: string): string {
+    const ruta = url.toLowerCase();
+    if (ruta.includes('/cobro') || ruta.includes('/abono')) return 'COBRO';
+    if (ruta.includes('/nota-venta') || ruta.includes('/sale-note') || ruta.includes('/venta')) return 'VENTA';
+    if (ruta.includes('/pedido') || ruta.includes('/order') || ruta.includes('/comercial')) return 'PEDIDO';
+    if (ruta.includes('/dispatch') || ruta.includes('/despacho')) return 'DESPACHO';
+    if (ruta.includes('/cliente') || ruta.includes('/client')) return 'CLIENTE';
+    if (ruta.includes('/producto') || ruta.includes('/product') || ruta.includes('/inventario')) return 'INVENTARIO';
+    if (ruta.includes('/proveedor') || ruta.includes('/supplier')) return 'PROVEEDOR';
+    if (ruta.includes('/cierre-caja') || ruta.includes('/caja')) return 'CIERRE_CAJA';
+    if (ruta.includes('/auth') || ruta.includes('/login')) return 'AUTH';
+    if (ruta.includes('/gasto')) return 'GASTO';
+    if (ruta.includes('/campana') || ruta.includes('/promo')) return 'PROMOCION';
+    return url.split('?')[0] || 'DESCONOCIDO';
   }
 }

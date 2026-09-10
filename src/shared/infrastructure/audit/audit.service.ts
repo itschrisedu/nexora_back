@@ -15,17 +15,27 @@ export interface CreateAuditDto {
   userAgent?: string;
 }
 
+export type AuditSegmento = 'COBROS' | 'VENTAS' | 'PEDIDOS' | 'TODOS';
+
 export interface AuditFilterDto {
   tenantId?: string;
   tenantIds?: string[];
   userId?: string;
   accion?: AccionAuditoria;
   entidad?: string;
+  segmento?: AuditSegmento;
   fechaInicio?: string;
   fechaFin?: string;
   page?: number;
   limit?: number;
 }
+
+// Patrones de entidad por segmento
+const SEGMENTO_ENTIDADES: Record<string, string[]> = {
+  COBROS: ['COBRO', 'ABONO', 'CREDITO', 'PAGO', 'cobro', 'abono'],
+  VENTAS: ['VENTA', 'NOTA_VENTA', 'SALE_NOTE', 'POS', 'venta', 'nota-venta', 'sale-note'],
+  PEDIDOS: ['PEDIDO', 'ORDER', 'DESPACHO', 'DISPATCH', 'pedido', 'order', 'despacho'],
+};
 
 @Injectable()
 export class AuditService {
@@ -59,7 +69,20 @@ export class AuditService {
   }
 
   /**
-   * Consultar bitácora de auditoría con filtros y paginación.
+   * Construir condición OR para filtrar por segmento.
+   */
+  private buildSegmentoWhere(segmento: AuditSegmento) {
+    if (segmento === 'TODOS' || !SEGMENTO_ENTIDADES[segmento]) return {};
+    const patrones = SEGMENTO_ENTIDADES[segmento];
+    return {
+      OR: patrones.map((p) => ({
+        entidad: { contains: p, mode: 'insensitive' as const },
+      })),
+    };
+  }
+
+  /**
+   * Consultar bitácora de auditoría con filtros, segmentación y paginación.
    */
   async buscarLogs(filter: AuditFilterDto) {
     const page = Number(filter.page) || 1;
@@ -83,6 +106,14 @@ export class AuditService {
       if (filter.fechaFin) where.createdAt.lte = new Date(filter.fechaFin);
     }
 
+    // Aplicar filtro por segmento
+    if (filter.segmento && filter.segmento !== 'TODOS') {
+      const segWhere = this.buildSegmentoWhere(filter.segmento);
+      if (segWhere.OR) {
+        where.OR = segWhere.OR;
+      }
+    }
+
     const [logs, total] = await Promise.all([
       this.prisma.auditLog.findMany({
         where,
@@ -103,7 +134,8 @@ export class AuditService {
   }
 
   /**
-   * Obtener resumen de actividades de seguridad del tenant o global.
+   * Obtener resumen de actividades de seguridad del tenant o global,
+   * incluyendo KPIs por segmento.
    */
   async obtenerResumenSeguridad(tenantId?: string, tenantIds?: string[]) {
     const where: any = {};
@@ -131,12 +163,27 @@ export class AuditService {
       where: { ...where, userId: { not: null } },
     });
 
+    // KPIs por segmento
+    const cobrosWhere = this.buildSegmentoWhere('COBROS');
+    const ventasWhere = this.buildSegmentoWhere('VENTAS');
+    const pedidosWhere = this.buildSegmentoWhere('PEDIDOS');
+
+    const [totalCobros, totalVentas, totalPedidos] = await Promise.all([
+      this.prisma.auditLog.count({ where: { ...where, ...cobrosWhere } }),
+      this.prisma.auditLog.count({ where: { ...where, ...ventasWhere } }),
+      this.prisma.auditLog.count({ where: { ...where, ...pedidosWhere } }),
+    ]);
+
     return {
       totalEventos,
       sensibles: operacionesCriticas,
       operacionesCriticas,
       usuariosConEventos: usuarios.length,
       loginsUltimas24h,
+      totalCobros,
+      totalVentas,
+      totalPedidos,
     };
   }
 }
+
