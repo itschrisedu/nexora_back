@@ -10,6 +10,7 @@ import { AuditService } from './audit.service';
 import type { AuditSegmento } from './audit.service';
 import { AccionAuditoria } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { EncryptionService } from '../encryption/encryption.service';
 
 @Controller('auditoria')
 @UseGuards(JwtAuthGuard)
@@ -17,6 +18,7 @@ export class AuditController {
   constructor(
     private readonly auditService: AuditService,
     private readonly prisma: PrismaService,
+    private readonly encryption: EncryptionService,
   ) {}
 
   private async resolverTenantIds(req: any): Promise<{ tenantId?: string; tenantIds?: string[] }> {
@@ -26,11 +28,17 @@ export class AuditController {
         select: { ruc: true },
       });
       if (userConfig?.ruc) {
-        const hermanas = await this.prisma.businessConfig.findMany({
-          where: { ruc: userConfig.ruc },
-          select: { tenantId: true },
-        });
-        return { tenantIds: hermanas.map((h) => h.tenantId) };
+        const plainRuc = this.encryption.decrypt(userConfig.ruc);
+        if (plainRuc) {
+          const allConfigs = await this.prisma.businessConfig.findMany({
+            select: { tenantId: true, ruc: true },
+          });
+          const hermanas = allConfigs.filter((c) => {
+            if (c.tenantId === req.user.originalTenantId) return true;
+            return c.ruc && this.encryption.decrypt(c.ruc) === plainRuc;
+          });
+          return { tenantIds: hermanas.map((h) => h.tenantId) };
+        }
       }
     }
     return { tenantId: req.user.tenantId };

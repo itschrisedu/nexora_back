@@ -471,24 +471,95 @@ export class ConfiguracionService {
   // ══════════════════════════════
 
   /**
+   * Obtiene la lista de IDs de tenants pertenecientes a la misma empresa (mismo RUC descifrado).
+   */
+  async getOrganizationTenantIds(tenantId: string): Promise<string[]> {
+    if (!tenantId) return [];
+    const mainTenant = await this.prisma.tenant.findUnique({
+      where: { id: tenantId },
+      include: { businessConfig: true },
+    });
+    if (!mainTenant) return [tenantId];
+
+    const plainRuc = mainTenant.businessConfig?.ruc
+      ? this.encryption.decrypt(mainTenant.businessConfig.ruc)
+      : null;
+
+    if (!plainRuc) return [tenantId];
+
+    const allTenants = await this.prisma.tenant.findMany({
+      where: { active: true },
+      include: { businessConfig: true },
+    });
+
+    const matching = allTenants.filter((t) => {
+      if (t.id === tenantId) return true;
+      if (t.businessConfig?.ruc) {
+        return this.encryption.decrypt(t.businessConfig.ruc) === plainRuc;
+      }
+      return false;
+    });
+
+    return matching.map((t) => t.id);
+  }
+
+  /**
    * Obtiene la lista de todas las sucursales pertenecientes a la organización.
    */
   async getSucursales(tenantId: string) {
+    if (!tenantId) {
+      const allTenants = await this.prisma.tenant.findMany({
+        where: { active: true },
+        include: {
+          businessConfig: {
+            select: {
+              nombre: true,
+              direccion: true,
+              telefono: true,
+              email: true,
+              logoUrl: true,
+            },
+          },
+          _count: {
+            select: {
+              users: true,
+              orders: true,
+              productModels: true,
+            },
+          },
+        },
+        orderBy: { createdAt: 'asc' },
+      });
+
+      return allTenants.map((s) => ({
+        id: s.id,
+        name: s.name,
+        active: s.active,
+        isMatriz: false,
+        isCurrent: false,
+        direccion: s.businessConfig?.direccion || 'Sin dirección',
+        telefono: s.businessConfig?.telefono || '',
+        email: s.businessConfig?.email || '',
+        stats: {
+          usuarios: s._count.users,
+          pedidos: s._count.orders,
+          modelos: s._count.productModels,
+        },
+        createdAt: s.createdAt,
+      }));
+    }
+
     const mainTenant = await this.prisma.tenant.findUnique({
       where: { id: tenantId },
       include: { businessConfig: true },
     });
 
-    const rucToMatch = mainTenant?.businessConfig?.ruc;
+    const plainRuc = mainTenant?.businessConfig?.ruc
+      ? this.encryption.decrypt(mainTenant.businessConfig.ruc)
+      : null;
 
-    const sucursales = await this.prisma.tenant.findMany({
-      where: {
-        active: true,
-        OR: [
-          { id: tenantId },
-          ...(rucToMatch ? [{ businessConfig: { ruc: rucToMatch } }] : []),
-        ],
-      },
+    const allTenants = await this.prisma.tenant.findMany({
+      where: { active: true },
       include: {
         businessConfig: {
           select: {
@@ -497,6 +568,7 @@ export class ConfiguracionService {
             telefono: true,
             email: true,
             logoUrl: true,
+            ruc: true,
           },
         },
         _count: {
@@ -510,7 +582,15 @@ export class ConfiguracionService {
       orderBy: { createdAt: 'asc' },
     });
 
-    return sucursales.map((s) => ({
+    const matching = allTenants.filter((s) => {
+      if (s.id === tenantId) return true;
+      if (plainRuc && s.businessConfig?.ruc) {
+        return this.encryption.decrypt(s.businessConfig.ruc) === plainRuc;
+      }
+      return false;
+    });
+
+    return matching.map((s) => ({
       id: s.id,
       name: s.name,
       active: s.active,
@@ -721,19 +801,7 @@ export class ConfiguracionService {
    * Obtiene la lista de colaboradores de todas las sucursales de la empresa.
    */
   async getPersonal(tenantId: string) {
-    const mainTenant = await this.prisma.tenant.findUnique({
-      where: { id: tenantId },
-      include: { businessConfig: true },
-    });
-    const ruc = mainTenant?.businessConfig?.ruc;
-    let targetTenants = [tenantId];
-    if (ruc) {
-      const rel = await this.prisma.tenant.findMany({
-        where: { businessConfig: { ruc }, active: true },
-        select: { id: true },
-      });
-      targetTenants = Array.from(new Set([tenantId, ...rel.map((r) => r.id)]));
-    }
+    const targetTenants = await this.getOrganizationTenantIds(tenantId);
 
     return this.prisma.user.findMany({
       where: { tenantId: { in: targetTenants } },
@@ -767,19 +835,7 @@ export class ConfiguracionService {
       tenantId?: string;
     },
   ) {
-    const mainTenant = await this.prisma.tenant.findUnique({
-      where: { id: tenantId },
-      include: { businessConfig: true },
-    });
-    const ruc = mainTenant?.businessConfig?.ruc;
-    let allowedTenants = [tenantId];
-    if (ruc) {
-      const rel = await this.prisma.tenant.findMany({
-        where: { businessConfig: { ruc }, active: true },
-        select: { id: true },
-      });
-      allowedTenants = Array.from(new Set([tenantId, ...rel.map((r) => r.id)]));
-    }
+    const allowedTenants = await this.getOrganizationTenantIds(tenantId);
 
     const user = await this.prisma.user.findFirst({
       where: { id: userId, tenantId: { in: allowedTenants } },

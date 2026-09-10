@@ -76,16 +76,12 @@ export class CatalogoService {
       include: { businessConfig: true },
     });
 
-    const rucToMatch = mainTenant?.businessConfig?.ruc;
+    const plainRuc = mainTenant?.businessConfig?.ruc
+      ? this.encryption.decrypt(mainTenant.businessConfig.ruc)
+      : null;
 
-    const sucursalesRaw = await this.prisma.tenant.findMany({
-      where: {
-        active: true,
-        OR: [
-          { id: tenant.id },
-          ...(rucToMatch ? [{ businessConfig: { ruc: rucToMatch } }] : []),
-        ],
-      },
+    const allTenants = await this.prisma.tenant.findMany({
+      where: { active: true },
       include: {
         businessConfig: true,
         _count: {
@@ -95,6 +91,14 @@ export class CatalogoService {
         },
       },
       orderBy: { createdAt: 'asc' },
+    });
+
+    const sucursalesRaw = allTenants.filter((s) => {
+      if (s.id === tenant.id) return true;
+      if (plainRuc && s.businessConfig?.ruc) {
+        return this.encryption.decrypt(s.businessConfig.ruc) === plainRuc;
+      }
+      return false;
     });
 
     const tenantIdsToQuery = sucursalesRaw.map((s) => s.id);

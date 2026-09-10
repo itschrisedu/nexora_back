@@ -11,6 +11,7 @@ import { Roles } from '../../../shared/guards/roles.decorator';
 import { Rol } from '@prisma/client';
 import { ReportesService, FiltrosReporteDto } from '../application/ReportesService';
 import { PrismaService } from '../../../shared/infrastructure/prisma/prisma.service';
+import { EncryptionService } from '../../../shared/infrastructure/encryption/encryption.service';
 
 @Controller('reportes')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -18,6 +19,7 @@ export class ReportesController {
   constructor(
     private readonly reportesService: ReportesService,
     private readonly prisma: PrismaService,
+    private readonly encryption: EncryptionService,
   ) {}
 
   /**
@@ -87,19 +89,28 @@ export class ReportesController {
    */
   private async resolverTenantIds(userTenantId: string, sucursalId?: string): Promise<string[]> {
     if (!sucursalId || sucursalId === 'TODAS') {
-      // Obtener todas las sucursales del negocio del admin
+      if (!userTenantId) return [];
       const mainTenant = await this.prisma.tenant.findUnique({
         where: { id: userTenantId },
         include: { businessConfig: true },
       });
-      const ruc = mainTenant?.businessConfig?.ruc;
+      const plainRuc = mainTenant?.businessConfig?.ruc
+        ? this.encryption.decrypt(mainTenant.businessConfig.ruc)
+        : null;
 
-      if (ruc) {
-        const relatedTenants = await this.prisma.tenant.findMany({
-          where: { businessConfig: { ruc }, active: true },
-          select: { id: true },
+      if (plainRuc) {
+        const allTenants = await this.prisma.tenant.findMany({
+          where: { active: true },
+          include: { businessConfig: true },
         });
-        return relatedTenants.map((t) => t.id);
+        const related = allTenants.filter((t) => {
+          if (t.id === userTenantId) return true;
+          if (t.businessConfig?.ruc) {
+            return this.encryption.decrypt(t.businessConfig.ruc) === plainRuc;
+          }
+          return false;
+        });
+        return related.map((t) => t.id);
       }
       return [userTenantId];
     }

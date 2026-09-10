@@ -50,6 +50,7 @@ import { DescontarStockCommand } from '../application/commands/DescontarStock.co
 import { InventarioQueryService } from '../application/queries/InventarioQueryService';
 import { PrismaService } from '../../../shared/infrastructure/prisma/prisma.service';
 import { CloudinaryService } from '../../../shared/infrastructure/cloudinary/cloudinary.service';
+import { EncryptionService } from '../../../shared/infrastructure/encryption/encryption.service';
 
 @Controller('inventario')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -64,6 +65,7 @@ export class InventarioController {
     private readonly queryService: InventarioQueryService,
     private readonly prisma: PrismaService,
     private readonly cloudinaryService: CloudinaryService,
+    private readonly encryption: EncryptionService,
     @Inject('IProductoRepository')
     private readonly productoRepository: IProductoRepository,
   ) {}
@@ -366,7 +368,10 @@ export class InventarioController {
       throw new NotFoundException('Sucursal de origen o destino no encontrada');
     }
 
-    if (origenTenant.businessConfig?.ruc !== destinoTenant.businessConfig?.ruc) {
+    const origenRuc = origenTenant.businessConfig?.ruc ? this.encryption.decrypt(origenTenant.businessConfig.ruc) : null;
+    const destinoRuc = destinoTenant.businessConfig?.ruc ? this.encryption.decrypt(destinoTenant.businessConfig.ruc) : null;
+
+    if (!origenRuc || !destinoRuc || origenRuc !== destinoRuc) {
       throw new BadRequestException('Solo se puede transferir mercadería entre sucursales de la misma empresa');
     }
 
