@@ -143,6 +143,11 @@ export class ClientesController {
     }
 
     const telNormalizado = normalizarTelefonoCelular(dto.telefono);
+    const targetTenantId = req.user.tenantId || req.user.originalTenantId;
+
+    if (!targetTenantId) {
+      throw new BadRequestException('Por favor, selecciona una sucursal en la barra superior antes de registrar al cliente.');
+    }
 
     const command = new RegistrarClienteCommand(
       dto.nombre.trim(),
@@ -153,7 +158,7 @@ export class ClientesController {
       dto.cedula?.trim() ?? null,
       dto.direccion?.trim() ?? null,
       dto.notas?.trim() ?? null,
-      req.user.tenantId,
+      targetTenantId,
     );
     const id = await this.registrarClienteHandler.execute(command);
     return { id, message: 'Cliente registrado exitosamente' };

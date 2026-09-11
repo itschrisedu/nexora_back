@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { IClienteRepository, ClienteFilters } from '../domain/IClienteRepository';
 import { Cliente } from '../domain/Cliente';
 import { PrismaService } from '../../../shared/infrastructure/prisma/prisma.service';
@@ -60,7 +60,7 @@ export class PrismaClienteRepository extends IClienteRepository {
 
   async save(cliente: Cliente, tenantId?: string): Promise<void> {
     if (!tenantId) {
-      throw new Error('tenantId es requerido para registrar un cliente');
+      throw new BadRequestException('Por favor, selecciona una sucursal en la barra superior antes de registrar un cliente.');
     }
 
     await this.prisma.client.create({
