@@ -10,6 +10,7 @@ import {
   Query,
   Req,
   UseGuards,
+  BadRequestException,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../../../auth/jwt-auth.guard';
 import { RolesGuard } from '../../../shared/guards/roles.guard';
@@ -28,6 +29,12 @@ import { ActualizarClienteCommand } from '../application/commands/ActualizarClie
 import { AjustarNivelManualmenteHandler } from '../application/commands/AjustarNivelManualmente.handler';
 import { AjustarNivelManualmenteCommand } from '../application/commands/AjustarNivelManualmente.command';
 import { ClientesQueryService } from '../application/queries/ClientesQueryService';
+import {
+  validarCedula,
+  validarRuc,
+  validarTelefonoCelular,
+  normalizarTelefonoCelular,
+} from '../../../shared/utils/ecuador-validators';
 
 @Controller('clientes')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -125,15 +132,27 @@ export class ClientesController {
   @Post()
   @Roles(Rol.ROL_ADMIN, Rol.ROL_VENDEDOR)
   async registrarCliente(@Body() dto: RegistrarClienteDto, @Req() req: any) {
+    if (dto.telefono && !validarTelefonoCelular(dto.telefono)) {
+      throw new BadRequestException('El número de celular debe tener exactamente 10 dígitos y comenzar con 09 (ej. 0991234567).');
+    }
+    if (dto.cedula && !validarCedula(dto.cedula)) {
+      throw new BadRequestException('La cédula ecuatoriana ingresada no es válida (10 dígitos con verificador correcto).');
+    }
+    if (dto.ruc && !validarRuc(dto.ruc)) {
+      throw new BadRequestException('El RUC ecuatoriano ingresado no es válido (13 dígitos, terminado en 001).');
+    }
+
+    const telNormalizado = normalizarTelefonoCelular(dto.telefono);
+
     const command = new RegistrarClienteCommand(
-      dto.nombre,
-      dto.apellido,
-      dto.telefono,
-      dto.email ?? null,
-      dto.ruc ?? null,
-      dto.cedula ?? null,
-      dto.direccion ?? null,
-      dto.notas ?? null,
+      dto.nombre.trim(),
+      dto.apellido.trim(),
+      telNormalizado,
+      dto.email?.trim() ?? null,
+      dto.ruc?.trim() ?? null,
+      dto.cedula?.trim() ?? null,
+      dto.direccion?.trim() ?? null,
+      dto.notas?.trim() ?? null,
       req.user.tenantId,
     );
     const id = await this.registrarClienteHandler.execute(command);
@@ -146,16 +165,28 @@ export class ClientesController {
     @Param('id') id: string,
     @Body() dto: ActualizarClienteDto,
   ) {
+    if (dto.telefono && !validarTelefonoCelular(dto.telefono)) {
+      throw new BadRequestException('El número de celular debe tener exactamente 10 dígitos y comenzar con 09 (ej. 0991234567).');
+    }
+    if (dto.cedula && !validarCedula(dto.cedula)) {
+      throw new BadRequestException('La cédula ecuatoriana ingresada no es válida (10 dígitos con verificador correcto).');
+    }
+    if (dto.ruc && !validarRuc(dto.ruc)) {
+      throw new BadRequestException('El RUC ecuatoriano ingresado no es válido (13 dígitos, terminado en 001).');
+    }
+
+    const telNormalizado = dto.telefono ? normalizarTelefonoCelular(dto.telefono) : dto.telefono;
+
     const command = new ActualizarClienteCommand(
       id,
-      dto.nombre,
-      dto.apellido,
-      dto.telefono,
-      dto.email ?? null,
-      dto.ruc ?? null,
-      dto.cedula ?? null,
-      dto.direccion ?? null,
-      dto.notas ?? null,
+      dto.nombre.trim(),
+      dto.apellido.trim(),
+      telNormalizado,
+      dto.email?.trim() ?? null,
+      dto.ruc?.trim() ?? null,
+      dto.cedula?.trim() ?? null,
+      dto.direccion?.trim() ?? null,
+      dto.notas?.trim() ?? null,
     );
     await this.actualizarClienteHandler.execute(command);
     return { message: 'Datos personales de cliente actualizados' };
