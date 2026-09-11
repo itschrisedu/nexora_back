@@ -3,6 +3,7 @@ import { PassportStrategy } from '@nestjs/passport';
 import { ExtractJwt, Strategy } from 'passport-jwt';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../shared/infrastructure/prisma/prisma.service';
+import { EncryptionService } from '../shared/infrastructure/encryption/encryption.service';
 import { ActiveSessionStore } from './active-session.store';
 
 export interface JwtPayload {
@@ -22,6 +23,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
   constructor(
     configService: ConfigService,
     private readonly prisma: PrismaService,
+    private readonly encryption: EncryptionService,
   ) {
     super({
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
@@ -72,9 +74,9 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       throw new UnauthorizedException('Tu sesión ha expirado o se ha iniciado sesión en otro dispositivo.');
     }
 
-    let activeTenantId = user.tenantId;
     const isAllSucursales = req?.headers?.['x-sucursal-id'] === 'TODAS';
     const targetSucursalId = req?.headers?.['x-sucursal-id'];
+    let activeTenantId = isAllSucursales ? null : user.tenantId;
 
     if (
       targetSucursalId &&
@@ -82,20 +84,32 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       (user.rol === 'ROL_ADMIN' || user.rol === 'ROL_SUPER_ADMIN')
     ) {
       if (user.tenantId) {
-        const userConfig = await this.prisma.businessConfig.findUnique({
-          where: { tenantId: user.tenantId },
-          select: { ruc: true },
-        });
-
-        if (userConfig?.ruc) {
-          const sucursalValida = await this.prisma.businessConfig.findFirst({
-            where: {
-              tenantId: targetSucursalId,
-              ruc: userConfig.ruc,
-            },
+        if (targetSucursalId === user.tenantId) {
+          activeTenantId = targetSucursalId;
+        } else {
+          const userConfig = await this.prisma.businessConfig.findUnique({
+            where: { tenantId: user.tenantId },
+            select: { ruc: true },
           });
-          if (sucursalValida) {
-            activeTenantId = targetSucursalId;
+
+          const targetConfig = await this.prisma.businessConfig.findUnique({
+            where: { tenantId: targetSucursalId },
+            select: { ruc: true },
+          });
+
+          if (userConfig?.ruc && targetConfig?.ruc) {
+            const userRuc = this.encryption.decrypt(userConfig.ruc);
+            const targetRuc = this.encryption.decrypt(targetConfig.ruc);
+            if (userRuc && userRuc === targetRuc) {
+              activeTenantId = targetSucursalId;
+            }
+          } else {
+            const targetTenant = await this.prisma.tenant.findUnique({
+              where: { id: targetSucursalId, active: true },
+            });
+            if (targetTenant) {
+              activeTenantId = targetSucursalId;
+            }
           }
         }
       } else if (user.rol === 'ROL_SUPER_ADMIN') {
