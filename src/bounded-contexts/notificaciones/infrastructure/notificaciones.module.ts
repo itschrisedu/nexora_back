@@ -3,6 +3,10 @@ import { ConfigModule } from '@nestjs/config';
 
 // Application
 import { NotificacionService } from '../application/NotificacionService';
+import { NotificacionesQueryService } from '../application/queries/NotificacionesQueryService';
+
+// Controllers
+import { NotificacionesController } from './notificaciones.controller';
 
 // Infrastructure — Senders
 import { ResendEmailSender } from './senders/ResendEmailSender';
@@ -18,6 +22,7 @@ import { CobrosVencimientoCron } from './cron/cobros-vencimiento.cron';
 
 @Module({
   imports: [ConfigModule],
+  controllers: [NotificacionesController],
   providers: [
     // Senders (inyectados por token)
     {
@@ -29,8 +34,9 @@ import { CobrosVencimientoCron } from './cron/cobros-vencimiento.cron';
       useClass: WhatsAppSenderStub,
     },
 
-    // Servicio orquestador
+    // Servicios
     NotificacionService,
+    NotificacionesQueryService,
 
     // Event Listeners
     PedidoStatusNotificacionListener,
@@ -40,6 +46,6 @@ import { CobrosVencimientoCron } from './cron/cobros-vencimiento.cron';
     // Cron Jobs
     CobrosVencimientoCron,
   ],
-  exports: [NotificacionService],
+  exports: [NotificacionService, NotificacionesQueryService],
 })
 export class NotificacionesModule {}
