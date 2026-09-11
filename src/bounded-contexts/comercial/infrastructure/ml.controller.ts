@@ -17,16 +17,17 @@ export class MlController {
 
   /**
    * GET /ml/prediccion
-   * Genera predicción de demanda para el tenant autenticado mediante query param.
+   * Genera predicción de demanda para el tenant autenticado mediante query params.
    */
   @Get('prediccion')
   async obtenerPrediccionGet(
     @Request() req: any,
     @Query('dias') dias?: string,
+    @Query('temporada') temporada?: string,
   ) {
     const tenantId = req.user.tenantId;
     const horizonte = dias ? parseInt(dias, 10) : 30;
-    return this.mlBridge.obtenerPrediccion(tenantId, horizonte);
+    return this.mlBridge.obtenerPrediccion(tenantId, horizonte, temporada || 'REGULAR');
   }
 
   /**
@@ -36,12 +37,13 @@ export class MlController {
   @Post('prediccion')
   async prediccion(
     @Request() req: any,
-    @Body() body: { horizonteDias?: number },
+    @Body() body: { horizonteDias?: number; temporada?: string },
   ) {
     const tenantId = req.user.tenantId;
     return this.mlBridge.obtenerPrediccion(
       tenantId,
       body.horizonteDias ?? 30,
+      body.temporada ?? 'REGULAR',
     );
   }
 
