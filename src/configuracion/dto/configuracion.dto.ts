@@ -109,6 +109,22 @@ export class UpdateBusinessConfigDto {
 
   @IsString()
   @IsOptional()
+  garantiaTaller?: string;
+
+  @IsString()
+  @IsOptional()
+  caracteristicasCalidad?: string;
+
+  @IsString()
+  @IsOptional()
+  materialDestacado?: string;
+
+  @IsString()
+  @IsOptional()
+  materialDescripcion?: string;
+
+  @IsString()
+  @IsOptional()
   whatsappContacto?: string;
 
   @IsString()

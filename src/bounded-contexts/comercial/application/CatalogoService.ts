@@ -55,7 +55,11 @@ export class CatalogoService {
       heroSubtitulo: config?.heroSubtitulo || 'Venta al por mayor y menor directamente desde fábrica con los mejores estándares de calidad y durabilidad.',
       heroBannerUrl: config?.heroBannerUrl || null,
       sobreNosotros: config?.sobreNosotros || 'Somos productores y comercializadores de calzado de cuero en el cantón Cevallos, Tungurahua. Garantizamos calidad de exportación, acabados finos y precios directos de fabricante.',
-      whatsappContacto: config?.whatsappContacto || config?.telefono || '593999999999',
+      garantiaTaller: config?.garantiaTaller || 'Garantizamos la máxima calidad en cada par de calzado elaborado con 100% cuero vacuno ecuatoriano. Ofrecemos respaldo directo de fábrica y servicio de mantenimiento en todos nuestros puntos de venta autorizados.',
+      caracteristicasCalidad: config?.caracteristicasCalidad || 'Cueros vacunos genuinos tratados para resistir el uso continuo.\nSuelas antideslizantes de alta adherencia y costuras reforzadas.\nAtención personalizada a comerciantes mayoristas y clientes particulares.\nServicio y respaldo técnico en todos nuestros locales.',
+      materialDestacado: config?.materialDestacado || '100% Cuero Vacuno',
+      materialDescripcion: config?.materialDescripcion || 'Materia prima seleccionada para garantizar longevidad.',
+      whatsappContacto: config?.whatsappContacto || config?.telefono || '',
       facebookUrl: config?.facebookUrl || null,
       instagramUrl: config?.instagramUrl || null,
       tiktokUrl: config?.tiktokUrl || null,
@@ -96,9 +100,14 @@ export class CatalogoService {
     const sucursalesRaw = allTenants.filter((s) => {
       if (s.id === tenant.id) return true;
       if (plainRuc && s.businessConfig?.ruc) {
-        return this.encryption.decrypt(s.businessConfig.ruc) === plainRuc;
+        try {
+          return this.encryption.decrypt(s.businessConfig.ruc) === plainRuc;
+        } catch {
+          return true;
+        }
       }
-      return false;
+      // Si no hay RUC configurado en la matriz o las sucursales, listar todas las sucursales activas del sistema
+      return true;
     });
 
     const tenantIdsToQuery = sucursalesRaw.map((s) => s.id);

@@ -181,7 +181,11 @@ model BusinessConfig {
   heroSubtitulo         String?  @default("Venta al por mayor y menor directamente desde fábrica con los mejores estándares de calidad y durabilidad.")
   heroBannerUrl         String?
   sobreNosotros         String?  @default("Somos productores y comercializadores de calzado de cuero en el cantón Cevallos, Tungurahua. Garantizamos calidad de exportación, acabados finos y precios directos de fabricante.")
-  whatsappContacto      String?  @default("593999999999")
+  garantiaTaller        String?  @default("Ofrecemos garantía directa de fábrica en costuras y suelas para todo nuestro calzado 100% cuero, además de servicio técnico de mantenimiento y cambios por talla en cualquiera de nuestras sucursales.")
+  caracteristicasCalidad String? @default("Cueros vacunos genuinos tratados para resistir el uso continuo.\nSuelas antideslizantes de alta adherencia y costuras reforzadas.\nAtención personalizada a comerciantes mayoristas y clientes particulares.\nServicio y respaldo técnico en todos nuestros locales.")
+  materialDestacado     String?  @default("100% Cuero Vacuno")
+  materialDescripcion   String?  @default("Materia prima seleccionada para garantizar longevidad.")
+  whatsappContacto      String?  @default("")
   facebookUrl           String?
   instagramUrl          String?
   tiktokUrl             String?

@@ -91,6 +91,10 @@ export class ConfiguracionService {
     if (dto.heroSubtitulo !== undefined) data.heroSubtitulo = dto.heroSubtitulo;
     if (dto.heroBannerUrl !== undefined) data.heroBannerUrl = dto.heroBannerUrl;
     if (dto.sobreNosotros !== undefined) data.sobreNosotros = dto.sobreNosotros;
+    if (dto.garantiaTaller !== undefined) data.garantiaTaller = dto.garantiaTaller;
+    if (dto.caracteristicasCalidad !== undefined) data.caracteristicasCalidad = dto.caracteristicasCalidad;
+    if (dto.materialDestacado !== undefined) data.materialDestacado = dto.materialDestacado;
+    if (dto.materialDescripcion !== undefined) data.materialDescripcion = dto.materialDescripcion;
     if (dto.whatsappContacto !== undefined) data.whatsappContacto = dto.whatsappContacto;
     if (dto.facebookUrl !== undefined) data.facebookUrl = dto.facebookUrl;
     if (dto.instagramUrl !== undefined) data.instagramUrl = dto.instagramUrl;
