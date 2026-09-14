@@ -84,6 +84,9 @@ export class AuthService {
         rol: user.rol,
         tenantId: user.tenantId,
         permiteCambiarPrecio: user.permiteCambiarPrecio,
+        termsAcceptedAt: user.termsAcceptedAt,
+        termsVersion: user.termsVersion,
+        gpsConsentAt: user.gpsConsentAt,
       },
     };
   }
@@ -271,6 +274,9 @@ export class AuthService {
         rol: true,
         activo: true,
         permiteCambiarPrecio: true,
+        termsAcceptedAt: true,
+        termsVersion: true,
+        gpsConsentAt: true,
         tenantId: true,
         createdAt: true,
       },
@@ -368,6 +374,68 @@ export class AuthService {
         permiteCambiarPrecio: true,
       },
     });
+  }
+
+  // ══════════════════════════════════════════
+  // FASE E8: TÉRMINOS LEGALES Y CONSENTIMIENTO GPS
+  // ══════════════════════════════════════════
+
+  async acceptTerms(userId: string, version: string = '1.0') {
+    const user = await this.prisma.user.update({
+      where: { id: userId },
+      data: {
+        termsAcceptedAt: new Date(),
+        termsVersion: version,
+      },
+      select: {
+        id: true,
+        email: true,
+        nombre: true,
+        rol: true,
+        termsAcceptedAt: true,
+        termsVersion: true,
+        gpsConsentAt: true,
+      },
+    });
+    this.logger.log(`Términos y condiciones aceptados por usuario: ${user.email} (v${version})`);
+    return { ok: true, user, message: 'Términos y condiciones aceptados correctamente.' };
+  }
+
+  async acceptGpsConsent(userId: string) {
+    const user = await this.prisma.user.update({
+      where: { id: userId },
+      data: {
+        gpsConsentAt: new Date(),
+      },
+      select: {
+        id: true,
+        email: true,
+        nombre: true,
+        rol: true,
+        termsAcceptedAt: true,
+        termsVersion: true,
+        gpsConsentAt: true,
+      },
+    });
+    this.logger.log(`Consentimiento GPS registrado para usuario: ${user.email}`);
+    return { ok: true, user, message: 'Consentimiento GPS registrado correctamente.' };
+  }
+
+  async getTermsStatus(userId: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        id: true,
+        email: true,
+        nombre: true,
+        rol: true,
+        termsAcceptedAt: true,
+        termsVersion: true,
+        gpsConsentAt: true,
+      },
+    });
+    if (!user) throw new NotFoundException('Usuario no encontrado.');
+    return user;
   }
 
   // ── Utilidades ──────────────────────────────

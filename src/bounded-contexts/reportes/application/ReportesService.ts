@@ -81,11 +81,15 @@ export class ReportesService {
 
     // 3. Consultar Productos, Modelos y Series para cruce de datos
     const products = await this.prisma.product.findMany({
-      where: { model: { tenantId: tenantFilter } },
+      where: { model: { tenantId: tenantFilter }, active: true },
       include: {
         model: true,
         serie: true,
-        stockByTalla: true,
+        stockByTalla: {
+          include: {
+            talla: true,
+          },
+        },
       },
     });
 
@@ -344,6 +348,44 @@ export class ReportesService {
       };
     });
 
+    // Análisis Riguroso de Salud del Inventario y Quiebres de Stock
+    let stockBajoCount = 0;
+    let tallasAgotadasCount = 0;
+    const alertasInventario: any[] = [];
+
+    products.forEach((p) => {
+      const stockTotal = p.stockByTalla.reduce(
+        (acc: number, s: any) => acc + Math.max(0, (s.quantity || 0) - (s.reservedQuantity || 0)),
+        0,
+      );
+      
+      const tallasEnCero = p.stockByTalla.filter(
+        (s: any) => ((s.quantity || 0) - (s.reservedQuantity || 0)) <= 0,
+      );
+
+      tallasAgotadasCount += tallasEnCero.length;
+
+      // Criterio de alerta: Stock total menor a 12 pares (1 docena) o alguna talla agotada (stock <= 0)
+      const tieneStockBajo = stockTotal < 12 || tallasEnCero.length > 0 || p.stockByTalla.length === 0;
+
+      if (tieneStockBajo) {
+        stockBajoCount += 1;
+        alertasInventario.push({
+          productId: p.id,
+          modelName: p.model?.name || 'Calzado de Cuero',
+          color: p.color,
+          serieNombre: p.serie?.nombre || 'Estándar',
+          stockTotal,
+          tallasAgotadas: tallasEnCero.map((t: any) => t.talla?.numero).filter(Boolean),
+        });
+      }
+    });
+
+    const totalModelos = products.length;
+    const saludInventarioPct = totalModelos > 0
+      ? Math.max(0, Math.round(((totalModelos - stockBajoCount) / totalModelos) * 100))
+      : 100;
+
     return {
       filtrosAplicados: {
         periodo: filtros.periodo || 'MENSUAL',
@@ -362,7 +404,12 @@ export class ReportesService {
         margenPorcentaje,
         totalRecaudadoCobros,
         saldoCarteraTotal,
+        stockBajoCount,
+        tallasAgotadasCount,
+        totalModelos,
+        saludInventarioPct,
       },
+      alertasInventario,
       serieTemporal,
       topModelos,
       bajaRotacion,

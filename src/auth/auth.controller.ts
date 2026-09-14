@@ -122,4 +122,28 @@ export class AuthController {
     const user = await this.authService.toggleUserPermisoPrecio(id);
     return { ok: true, user, message: 'Permiso de modificación de precios actualizado.' };
   }
+
+  // ══════════════════════════════════════════
+  // FASE E8: TÉRMINOS LEGALES Y CONSENTIMIENTO GPS
+  // ══════════════════════════════════════════
+
+  @Post('accept-terms')
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(HttpStatus.OK)
+  async acceptTerms(@Body('version') version: string, @Req() req: any) {
+    return this.authService.acceptTerms(req.user.id, version || '1.0');
+  }
+
+  @Post('accept-gps')
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(HttpStatus.OK)
+  async acceptGps(@Req() req: any) {
+    return this.authService.acceptGpsConsent(req.user.id);
+  }
+
+  @Get('terms-status')
+  @UseGuards(JwtAuthGuard)
+  async getTermsStatus(@Req() req: any) {
+    return this.authService.getTermsStatus(req.user.id);
+  }
 }
