@@ -29,11 +29,10 @@ export class NotificacionesController {
   @Get('resumen')
   @Roles(Rol.ROL_ADMIN, Rol.ROL_VENDEDOR, Rol.ROL_SUPER_ADMIN)
   obtenerResumen(@Req() req: any, @Query('sucursalId') sucursalId?: string) {
-    const tenantId = sucursalId && sucursalId !== 'TODAS'
-      ? sucursalId
-      : req.user.rol === Rol.ROL_ADMIN || req.user.rol === Rol.ROL_SUPER_ADMIN
-        ? (sucursalId === 'TODAS' ? null : req.user.tenantId)
-        : req.user.tenantId;
+    const isSuperAdmin = req.user.rol === Rol.ROL_SUPER_ADMIN;
+    const tenantId = isSuperAdmin
+      ? (sucursalId && sucursalId !== 'TODAS' ? sucursalId : null)
+      : (sucursalId && sucursalId !== 'TODAS' ? sucursalId : req.user.tenantId);
 
     return this.queryService.obtenerResumen(tenantId);
   }

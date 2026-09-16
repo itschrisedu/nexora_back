@@ -134,10 +134,11 @@ export class NotificacionesQueryService {
     const cobrosVencidos = cobrosDetallados.filter((c) => c.categoria === 'VENCIDO');
     const cobrosPorVencer = cobrosDetallados.filter((c) => c.categoria === 'POR_VENCER' || c.categoria === 'HOY');
 
-    // ── 2. Alertas de Stock Crítico ─────────────────────────
+    // ── 2. Alertas de Stock Crítico (< 12 pares o tallas en 0 en la serie) ──
     const products = await this.prisma.product.findMany({
       where: {
         active: true,
+        ...(tenantId ? { model: { tenantId } } : {}),
       },
       include: {
         model: {
@@ -156,15 +157,31 @@ export class NotificacionesQueryService {
       },
     });
 
-    const filteredProducts = tenantId
-      ? products.filter((p) => p.model?.tenantId === tenantId)
-      : products;
-
-    const stockCritico = filteredProducts
+    const stockCritico = products
       .map((p) => {
         const totalPares = p.stockByTalla.reduce((acc: number, s) => acc + (s.quantity || 0), 0);
-        const minRequerido = 15;
-        const tallasAgotadas = p.stockByTalla.filter((s) => (s.quantity || 0) === 0).map((s) => s.talla?.numero);
+        const minRequerido = 12; // Menos de 1 docena completa (12 pares)
+        const tallasAgotadas = p.stockByTalla
+          .filter((s) => (s.quantity || 0) === 0)
+          .map((s) => (s.talla?.numero !== undefined ? String(s.talla.numero) : s.tallaId))
+          .filter(Boolean);
+
+        let estadoStock: 'AGOTADO' | 'MENOS_DE_DOCENA' | 'SERIE_INCOMPLETA' | 'OPTIMO' = 'OPTIMO';
+        let motivoAlerta = '';
+
+        if (totalPares === 0) {
+          estadoStock = 'AGOTADO';
+          motivoAlerta = 'Sin existencias (0 pares en stock)';
+        } else if (totalPares <= 11 && tallasAgotadas.length > 0) {
+          estadoStock = 'MENOS_DE_DOCENA';
+          motivoAlerta = `Menos de 1 docena (${totalPares} pares, 11 o menos) y faltan tallas: ${tallasAgotadas.join(', ')}`;
+        } else if (totalPares <= 11) {
+          estadoStock = 'MENOS_DE_DOCENA';
+          motivoAlerta = `Menos de 1 docena en stock (${totalPares} pares disponibles, 11 o menos)`;
+        } else if (tallasAgotadas.length > 0) {
+          estadoStock = 'SERIE_INCOMPLETA';
+          motivoAlerta = `Serie incompleta: sin stock en talla(s) ${tallasAgotadas.join(', ')}`;
+        }
 
         return {
           id: p.id,
@@ -174,7 +191,8 @@ export class NotificacionesQueryService {
           sku: p.code,
           stockTotal: totalPares,
           stockMinimo: minRequerido,
-          estadoStock: totalPares === 0 ? 'AGOTADO' : totalPares <= minRequerido ? 'BAJO' : 'OPTIMO',
+          estadoStock,
+          motivoAlerta,
           tallasAgotadas,
           sucursalNombre: p.model?.tenant?.name || 'Bodega Principal',
         };
@@ -185,6 +203,7 @@ export class NotificacionesQueryService {
     const ordenesProveedor = await this.prisma.supplierOrder.findMany({
       where: {
         estado: { in: [SupplierOrderStatus.PENDIENTE, SupplierOrderStatus.BORRADOR] },
+        ...(tenantId ? { supplier: { tenantId } } : {}),
       },
       include: {
         supplier: {
@@ -202,11 +221,7 @@ export class NotificacionesQueryService {
       take: 20,
     });
 
-    const filteredOrdenes = tenantId
-      ? ordenesProveedor.filter((o) => o.supplier?.tenantId === tenantId)
-      : ordenesProveedor;
-
-    const ordenesDemoradas = filteredOrdenes.map((o) => {
+    const ordenesDemoradas = ordenesProveedor.map((o) => {
       const fechaCreacion = new Date(o.createdAt);
       const diasDesdeCreacion = Math.floor((ahora.getTime() - fechaCreacion.getTime()) / (1000 * 60 * 60 * 24));
       const esDemorada = diasDesdeCreacion > 5;
@@ -256,18 +271,59 @@ export class NotificacionesQueryService {
       : [];
     const dispatchClientMap = new Map(dispatchClients.map((c) => [c.id, c]));
 
-    // ── 5. Métricas Agregadas ────────────────────────────────
+    // ── 5. Alertas de Seguridad & GPS (Últimas 48 horas) ─────
+    const hace48h = new Date(ahora.getTime() - 48 * 60 * 60 * 1000);
+    const securityLogs = await this.prisma.auditLog.findMany({
+      where: {
+        createdAt: { gte: hace48h },
+        ...(tenantId ? { tenantId } : {}),
+        OR: [
+          { entidad: { contains: 'GEOLOCALIZACION', mode: 'insensitive' } },
+          { entidad: { contains: 'GPS', mode: 'insensitive' } },
+          { accion: 'OPERACION_CRITICA' },
+        ],
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 10,
+    });
+
+    const alertasSeguridad = securityLogs
+      .map((log) => {
+        const d: any = log.detalles || {};
+        const body: any = d.body || {};
+        const esDesactivacion = body.tipoEvento === 'GPS_DESACTIVADO_DURANTE_SESION' || log.accion === 'OPERACION_CRITICA';
+
+        return {
+          id: log.id,
+          userEmail: log.userEmail || 'Usuario',
+          userRol: log.userRol || 'Personal',
+          tipoEvento: body.tipoEvento || 'ALERTA_SEGURIDAD',
+          esCritica: esDesactivacion,
+          titulo: esDesactivacion
+            ? `⚠️ Desactivación de GPS: ${log.userEmail || 'Personal'}`
+            : `📍 Evento de Ubicación: ${log.userEmail || 'Personal'}`,
+          descripcion: body.observaciones || (esDesactivacion
+            ? 'El usuario desactivó o bloqueó el permiso de ubicación en el navegador durante su sesión.'
+            : 'Registro o reactivación de señal satelital GPS.'),
+          fecha: log.createdAt,
+        };
+      })
+      .filter((a) => a.esCritica);
+
+    // ── 6. Métricas Agregadas ────────────────────────────────
     const saldoTotalVencido = cobrosVencidos.reduce((sum, c) => sum + c.saldoPendiente, 0);
     const saldoTotalPorVencer = cobrosPorVencer.reduce((sum, c) => sum + c.saldoPendiente, 0);
+    const totalDemoradas = ordenesDemoradas.filter((o) => o.esDemorada).length;
 
     return {
       metricas: {
-        totalAlertas: cobrosVencidos.length + cobrosPorVencer.length + stockCritico.length + ordenesDemoradas.filter(o => o.esDemorada).length,
+        totalAlertas: cobrosVencidos.length + cobrosPorVencer.length + stockCritico.length + totalDemoradas + alertasSeguridad.length,
         totalCobrosVencidos: cobrosVencidos.length,
         totalCobrosPorVencer: cobrosPorVencer.length,
         totalStockCritico: stockCritico.length,
-        totalOrdenesDemoradas: ordenesDemoradas.filter(o => o.esDemorada).length,
+        totalOrdenesDemoradas: totalDemoradas,
         totalEnviosEnTransito: despachosEnTransito.length,
+        totalAlertasSeguridad: alertasSeguridad.length,
         saldoTotalVencido: Number(saldoTotalVencido.toFixed(2)),
         saldoTotalPorVencer: Number(saldoTotalPorVencer.toFixed(2)),
       },
@@ -275,6 +331,7 @@ export class NotificacionesQueryService {
       cobrosPorVencer,
       stockCritico,
       ordenesProveedor: ordenesDemoradas,
+      alertasSeguridad,
       enviosEnTransito: despachosEnTransito.map((d) => {
         const cl = dispatchClientMap.get(d.clientId);
         return {
