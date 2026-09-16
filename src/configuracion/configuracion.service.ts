@@ -90,6 +90,11 @@ export class ConfiguracionService {
     if (dto.heroTitulo !== undefined) data.heroTitulo = dto.heroTitulo;
     if (dto.heroSubtitulo !== undefined) data.heroSubtitulo = dto.heroSubtitulo;
     if (dto.heroBannerUrl !== undefined) data.heroBannerUrl = dto.heroBannerUrl;
+    if (dto.heroBackgroundUrl !== undefined) data.heroBackgroundUrl = dto.heroBackgroundUrl;
+    if (dto.cardTitulo !== undefined) data.cardTitulo = dto.cardTitulo;
+    if (dto.cardSubtitulo !== undefined) data.cardSubtitulo = dto.cardSubtitulo;
+    if (dto.cardEtiqueta !== undefined) data.cardEtiqueta = dto.cardEtiqueta;
+    if (dto.cardGarantia !== undefined) data.cardGarantia = dto.cardGarantia;
     if (dto.sobreNosotros !== undefined) data.sobreNosotros = dto.sobreNosotros;
     if (dto.garantiaTaller !== undefined) data.garantiaTaller = dto.garantiaTaller;
     if (dto.caracteristicasCalidad !== undefined) data.caracteristicasCalidad = dto.caracteristicasCalidad;
@@ -111,6 +116,10 @@ export class ConfiguracionService {
         data,
       });
       this.logger.log('Configuración del negocio actualizada');
+
+      // Propagar campos visuales de landing a todos los demás tenants
+      await this.propagateLandingVisuals(tenantId, data);
+
       return { ...updated, ruc: dto.ruc, firmaPasswordEnc: undefined };
     }
 
@@ -118,7 +127,48 @@ export class ConfiguracionService {
       data: { ...data, tenantId },
     });
     this.logger.log('Configuración del negocio creada');
+
+    // Propagar campos visuales de landing a todos los demás tenants
+    await this.propagateLandingVisuals(tenantId, data);
+
     return { ...created, ruc: dto.ruc, firmaPasswordEnc: undefined };
+  }
+
+  /**
+   * Propaga los campos visuales de la Landing Page (hero, card, fondo, etc.)
+   * a TODOS los demás tenants activos para que la página pública se vea uniforme.
+   */
+  private async propagateLandingVisuals(sourceTenantId: string, data: any) {
+    const visualFields: Record<string, any> = {};
+    const keys = [
+      'heroTitulo', 'heroSubtitulo', 'heroBannerUrl', 'heroBackgroundUrl',
+      'cardTitulo', 'cardSubtitulo', 'cardEtiqueta', 'cardGarantia',
+      'sobreNosotros', 'garantiaTaller', 'caracteristicasCalidad',
+      'materialDestacado', 'materialDescripcion', 'logoUrl', 'primaryColor',
+    ];
+    for (const key of keys) {
+      if (data[key] !== undefined) {
+        visualFields[key] = data[key];
+      }
+    }
+
+    if (Object.keys(visualFields).length === 0) return;
+
+    try {
+      const otherConfigs = await this.prisma.businessConfig.findMany({
+        where: { tenantId: { not: sourceTenantId } },
+        select: { id: true },
+      });
+      if (otherConfigs.length > 0) {
+        await this.prisma.businessConfig.updateMany({
+          where: { tenantId: { not: sourceTenantId } },
+          data: visualFields,
+        });
+        this.logger.log(`Campos visuales propagados a ${otherConfigs.length} tenant(s) adicionales`);
+      }
+    } catch (err) {
+      this.logger.warn('No se pudieron propagar campos visuales a otros tenants: ' + (err as any).message);
+    }
   }
 
   // ══════════════════════════════

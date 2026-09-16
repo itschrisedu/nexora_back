@@ -180,6 +180,11 @@ model BusinessConfig {
   heroTitulo            String?  @default("Calzado Ecuatoriano 100% Cuero de Cevallos")
   heroSubtitulo         String?  @default("Venta al por mayor y menor directamente desde fábrica con los mejores estándares de calidad y durabilidad.")
   heroBannerUrl         String?
+  heroBackgroundUrl     String?
+  cardTitulo            String?  @default("Hecho a Mano en Tungurahua")
+  cardSubtitulo         String?  @default("Cada par refleja la tradición zapatera de Cevallos con tecnología de confort y cuero vacuno genuino.")
+  cardEtiqueta          String?  @default("Artesanía & Confort")
+  cardGarantia          String?  @default("Cuero Vacuno Seleccionado")
   sobreNosotros         String?  @default("Somos productores y comercializadores de calzado de cuero en el cantón Cevallos, Tungurahua. Garantizamos calidad de exportación, acabados finos y precios directos de fabricante.")
   garantiaTaller        String?  @default("Ofrecemos garantía directa de fábrica en costuras y suelas para todo nuestro calzado 100% cuero, además de servicio técnico de mantenimiento y cambios por talla en cualquiera de nuestras sucursales.")
   caracteristicasCalidad String? @default("Cueros vacunos genuinos tratados para resistir el uso continuo.\nSuelas antideslizantes de alta adherencia y costuras reforzadas.\nAtención personalizada a comerciantes mayoristas y clientes particulares.\nServicio y respaldo técnico en todos nuestros locales.")

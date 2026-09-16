@@ -105,6 +105,26 @@ export class UpdateBusinessConfigDto {
 
   @IsString()
   @IsOptional()
+  heroBackgroundUrl?: string;
+
+  @IsString()
+  @IsOptional()
+  cardTitulo?: string;
+
+  @IsString()
+  @IsOptional()
+  cardSubtitulo?: string;
+
+  @IsString()
+  @IsOptional()
+  cardEtiqueta?: string;
+
+  @IsString()
+  @IsOptional()
+  cardGarantia?: string;
+
+  @IsString()
+  @IsOptional()
   sobreNosotros?: string;
 
   @IsString()
