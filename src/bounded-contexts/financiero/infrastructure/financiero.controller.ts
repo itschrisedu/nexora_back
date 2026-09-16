@@ -92,6 +92,23 @@ export class FinancieroController {
     return { ok: true, message: 'Abono registrado correctamente' };
   }
 
+  @Post('cobros/deuda-manual')
+  @Roles(Rol.ROL_ADMIN, Rol.ROL_VENDEDOR)
+  async registrarDeudaManual(
+    @Body()
+    body: {
+      clientId: string;
+      monto: number;
+      concepto: string;
+      notas?: string;
+      fechaVencimiento?: string;
+      fechaEmision?: string;
+    },
+    @Req() req: any,
+  ) {
+    return this.queryService.registrarDeudaManual(body, req.user.tenantId, req.user.sub);
+  }
+
   // ══════════════════════════════════════════
   // NOTAS DE VENTA
   // ══════════════════════════════════════════

@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../../../shared/infrastructure/prisma/prisma.service';
 import { EncryptionService } from '../../../../shared/infrastructure/encryption/encryption.service';
 import { CobroEstado, DeudaEstado } from '@prisma/client';
@@ -699,5 +699,109 @@ export class FinancieroQueryService {
       where,
       orderBy: { fechaVencimiento: 'asc' },
     });
+  }
+
+  // ── Registro Manual de Deuda Anterior / Saldo Inicial ───────
+  async registrarDeudaManual(
+    data: {
+      clientId: string;
+      monto: number;
+      concepto: string;
+      notas?: string;
+      fechaVencimiento?: string | Date;
+      fechaEmision?: string | Date;
+    },
+    tenantId: string,
+    userId: string,
+  ) {
+    const { clientId, monto, concepto, notas, fechaVencimiento, fechaEmision } = data;
+    if (!clientId) throw new BadRequestException('Se requiere seleccionar el cliente.');
+    const montoNum = Number(Number(monto || 0).toFixed(2));
+    if (isNaN(montoNum) || montoNum <= 0) {
+      throw new BadRequestException('El monto de la deuda debe ser un valor positivo mayor a 0.');
+    }
+    if (!concepto || !concepto.trim()) {
+      throw new BadRequestException('Se requiere especificar el concepto o motivo de la deuda anterior.');
+    }
+
+    const client = await this.prisma.client.findUnique({
+      where: { id: clientId },
+    });
+    if (!client) throw new NotFoundException('El cliente especificado no existe.');
+
+    const lastNote = await this.prisma.saleNote.findFirst({
+      orderBy: { numero: 'desc' },
+      select: { numero: true },
+    });
+    const numero = (lastNote?.numero || 0) + 1;
+    const saleNoteId = crypto.randomUUID();
+    const cobroId = crypto.randomUUID();
+    const fechaCreacion = fechaEmision ? new Date(fechaEmision) : new Date();
+
+    const saleNote = await this.prisma.saleNote.create({
+      data: {
+        id: saleNoteId,
+        tenantId,
+        numero,
+        orderId: `MANUAL-${Date.now()}`,
+        clientId,
+        subtotal: montoNum,
+        descuento: 0,
+        total: montoNum,
+        pdfUrl: `/storage/notas-venta/nota-manual-${String(numero).padStart(6, '0')}.pdf`,
+        createdAt: fechaCreacion,
+        lines: {
+          create: [
+            {
+              id: crypto.randomUUID(),
+              productId: 'SALDO-ANTERIOR',
+              nombre: concepto.trim(),
+              serie: 'SALDO ANTERIOR',
+              talla: '—',
+              cantidad: 1,
+              precioUnitario: montoNum,
+              subtotal: montoNum,
+            },
+          ],
+        },
+      },
+    });
+
+    const vencimiento = fechaVencimiento
+      ? new Date(fechaVencimiento)
+      : new Date(Date.now() + 30 * 86400000);
+
+    const cobro = await this.prisma.cobro.create({
+      data: {
+        id: cobroId,
+        tenantId,
+        saleNoteId: saleNote.id,
+        clientId,
+        tipo: 'CREDITO',
+        montoTotal: montoNum,
+        saldoPendiente: montoNum,
+        fechaVencimiento: vencimiento,
+        estado: CobroEstado.PENDIENTE,
+        createdAt: fechaCreacion,
+      },
+    });
+
+    await this.prisma.client.update({
+      where: { id: clientId },
+      data: {
+        creditoUtilizado: {
+          increment: montoNum,
+        },
+      },
+    });
+
+    return {
+      ok: true,
+      message: 'Deuda anterior registrada exitosamente.',
+      cobroId,
+      saleNoteId,
+      numeroNota: numero,
+      monto: montoNum,
+    };
   }
 }
