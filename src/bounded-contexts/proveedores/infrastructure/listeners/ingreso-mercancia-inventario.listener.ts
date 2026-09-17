@@ -19,12 +19,12 @@ export class IngresoMercanciaInventarioListener {
     lines: MerchandiseEntryLinePrimitive[];
   }) {
     this.logger.log(`📦 Reaccionando a entrada de mercancía N°${payload.numero} para aumentar stock físico.`);
-    try {
-      for (const line of payload.lines) {
-        if (!line.cantidadIngresada || line.cantidadIngresada <= 0) {
-          continue;
-        }
+    for (const line of payload.lines) {
+      if (!line.cantidadIngresada || line.cantidadIngresada <= 0) {
+        continue;
+      }
 
+      try {
         await this.aumentarStockHandler.execute(
           new AumentarStockCommand(
             line.productId,
@@ -36,9 +36,9 @@ export class IngresoMercanciaInventarioListener {
           ),
         );
         this.logger.log(`✅ Stock aumentado para producto ${line.productId}, talla ${line.tallaId} — Cantidad: ${line.cantidadIngresada}`);
+      } catch (lineError: any) {
+        this.logger.error(`❌ Error en línea producto ${line.productId}, talla ${line.tallaId}: ${lineError.message}`);
       }
-    } catch (error: any) {
-      this.logger.error(`❌ Error actualizando stock por ingreso de mercancía ${payload.entradaId}: ${error.message}`);
     }
   }
 }

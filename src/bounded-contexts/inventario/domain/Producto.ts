@@ -272,12 +272,16 @@ export class Producto extends AggregateRoot {
   }
 
   aumentarStock(tallaId: string, cantidad: number): void {
-    const stock = this.obtenerStockOError(tallaId);
+    let stock = this._stockPorTalla.get(tallaId);
+    if (!stock) {
+      stock = StockPorTalla.create(tallaId, 0, 0, 0);
+      (this._stockPorTalla as Map<string, StockPorTalla>).set(tallaId, stock);
+    }
     const anteriorCantidad = stock.cantidad;
     const anteriorDisponible = stock.cantidadDisponible;
 
     const nuevoStock = stock.aumentarFisico(cantidad);
-    this._stockPorTalla.set(tallaId, nuevoStock);
+    (this._stockPorTalla as Map<string, StockPorTalla>).set(tallaId, nuevoStock);
 
     this.addDomainEvent(
       new StockActualizado(this.id, tallaId, anteriorCantidad, nuevoStock.cantidad),

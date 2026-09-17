@@ -17,7 +17,11 @@ export class InventarioQueryService {
         model: {
           include: { tenant: { select: { id: true, name: true } } },
         },
-        serie: true,
+        serie: {
+          include: {
+            tallas: { orderBy: { numero: 'asc' } },
+          },
+        },
         stockByTalla: {
           include: { talla: true },
           orderBy: { talla: { numero: 'asc' } },
@@ -72,7 +76,11 @@ export class InventarioQueryService {
             tenant: { select: { id: true, name: true } },
           },
         },
-        serie: true,
+        serie: {
+          include: {
+            tallas: { orderBy: { numero: 'asc' } },
+          },
+        },
         stockByTalla: {
           include: { talla: true },
           orderBy: { talla: { numero: 'asc' } },
@@ -96,7 +104,11 @@ export class InventarioQueryService {
         model: {
           include: { tenant: { select: { id: true, name: true } } },
         },
-        serie: true,
+        serie: {
+          include: {
+            tallas: { orderBy: { numero: 'asc' } },
+          },
+        },
         stockByTalla: {
           include: { talla: true },
           orderBy: { talla: { numero: 'asc' } },
@@ -127,7 +139,11 @@ export class InventarioQueryService {
         model: {
           include: { tenant: { select: { id: true, name: true } } },
         },
-        serie: true,
+        serie: {
+          include: {
+            tallas: { orderBy: { numero: 'asc' } },
+          },
+        },
         stockByTalla: {
           include: { talla: true },
           orderBy: { talla: { numero: 'asc' } },
@@ -168,7 +184,11 @@ export class InventarioQueryService {
           tenant: { select: { id: true, name: true } },
           products: {
             include: {
-              serie: true,
+              serie: {
+                include: {
+                  tallas: { orderBy: { numero: 'asc' } },
+                },
+              },
               stockByTalla: {
                 include: { talla: true },
                 orderBy: { talla: { numero: 'asc' } },
@@ -286,6 +306,71 @@ export class InventarioQueryService {
 
   private formatProducto(record: any, modelo?: any) {
     const mdl = modelo || record.model;
+    const existingStockMap = new Map<string, any>();
+    (record.stockByTalla || []).forEach((s: any) => {
+      const numKey = s.talla?.numero ? String(s.talla.numero) : s.tallaId;
+      existingStockMap.set(numKey, s);
+      existingStockMap.set(s.tallaId, s);
+    });
+
+    const allTallas: any[] = [];
+    const seenTallaIds = new Set<string>();
+
+    if (record.serie?.tallas && Array.isArray(record.serie.tallas)) {
+      record.serie.tallas.forEach((t: any) => {
+        seenTallaIds.add(t.id);
+        seenTallaIds.add(String(t.numero));
+        const stockEntry = existingStockMap.get(t.id) || existingStockMap.get(String(t.numero));
+        const qty = stockEntry?.quantity ?? 0;
+        const resQty = stockEntry?.reservedQuantity ?? 0;
+        const minStk = stockEntry?.minStock ?? 0;
+        allTallas.push({
+          id: t.id,
+          tallaId: t.id,
+          numero: t.numero,
+          cantidad: qty,
+          stock: qty,
+          ratio: 1,
+          cantidadSerie: 1,
+          cantidadReservada: resQty,
+          disponible: qty - resQty,
+          stockMinimo: minStk,
+          bajoPorMinimo: minStk > 0 && qty - resQty < minStk,
+        });
+      });
+    }
+
+    (record.stockByTalla || []).forEach((s: any) => {
+      if (!seenTallaIds.has(s.tallaId) && (!s.talla?.numero || !seenTallaIds.has(String(s.talla.numero)))) {
+        const qty = s.quantity ?? 0;
+        const resQty = s.reservedQuantity ?? 0;
+        const minStk = s.minStock ?? 0;
+        allTallas.push({
+          id: s.tallaId,
+          tallaId: s.tallaId,
+          numero: s.talla?.numero ?? s.tallaId,
+          cantidad: qty,
+          stock: qty,
+          ratio: 1,
+          cantidadSerie: 1,
+          cantidadReservada: resQty,
+          disponible: qty - resQty,
+          stockMinimo: minStk,
+          bajoPorMinimo: minStk > 0 && qty - resQty < minStk,
+        });
+      }
+    });
+
+    allTallas.sort((a, b) => (Number(a.numero) || 0) - (Number(b.numero) || 0));
+
+    const positiveQuantities = allTallas.map((s: any) => s.cantidad).filter((q: number) => q > 0);
+    const minPositive = positiveQuantities.length > 0 ? Math.min(...positiveQuantities) : 1;
+    allTallas.forEach((t) => {
+      const r = minPositive > 0 && t.cantidad > 0 ? Math.max(1, Math.round(t.cantidad / minPositive)) : 1;
+      t.ratio = r;
+      t.cantidadSerie = r;
+    });
+
     return {
       id: record.id,
       tenantId: mdl?.tenantId,
@@ -305,46 +390,18 @@ export class InventarioQueryService {
       activo: record.active,
       createdAt: record.createdAt,
       updatedAt: record.updatedAt,
-      tallas: (() => {
-        const sorted = (record.stockByTalla || [])
-          .slice()
-          .sort((a: any, b: any) => (Number(a.talla?.numero) || 0) - (Number(b.talla?.numero) || 0));
-        const positiveQuantities = sorted.map((s: any) => s.quantity).filter((q: number) => q > 0);
-        const minPositive = positiveQuantities.length > 0 ? Math.min(...positiveQuantities) : 1;
-
-        return sorted.map((s: any) => {
-          const baseRatio = minPositive > 0 ? Math.max(1, Math.round(s.quantity / minPositive)) : 1;
-          return {
-            id: s.tallaId,
-            tallaId: s.tallaId,
-            numero: s.talla?.numero,
-            cantidad: s.quantity,
-            stock: s.quantity,
-            ratio: baseRatio,
-            cantidadSerie: baseRatio,
-            cantidadReservada: s.reservedQuantity,
-            disponible: s.quantity - s.reservedQuantity,
-            stockMinimo: s.minStock,
-            bajoPorMinimo:
-              s.minStock > 0 && s.quantity - s.reservedQuantity < s.minStock,
-          };
-        });
-      })(),
-      stockPorTalla: (record.stockByTalla || [])
-        .slice()
-        .sort((a: any, b: any) => (Number(a.talla?.numero) || 0) - (Number(b.talla?.numero) || 0))
-        .map((s: any) => ({
-          id: s.tallaId,
-          tallaId: s.tallaId,
-          numero: s.talla?.numero,
-          cantidad: s.quantity,
-          stock: s.quantity,
-          cantidadReservada: s.reservedQuantity,
-          disponible: s.quantity - s.reservedQuantity,
-          stockMinimo: s.minStock,
-          bajoPorMinimo:
-            s.minStock > 0 && s.quantity - s.reservedQuantity < s.minStock,
-        })),
+      tallas: allTallas,
+      stockPorTalla: allTallas.map((s: any) => ({
+        id: s.tallaId,
+        tallaId: s.tallaId,
+        numero: s.numero,
+        cantidad: s.cantidad,
+        stock: s.cantidad,
+        cantidadReservada: s.cantidadReservada,
+        disponible: s.disponible,
+        stockMinimo: s.stockMinimo,
+        bajoPorMinimo: s.bajoPorMinimo,
+      })),
       priceHistory: record.priceHistory?.map((h: any) => ({
         precioCostoAnterior: Number(h.previousCostPrice),
         precioVentaAnterior: Number(h.previousSalePrice),
