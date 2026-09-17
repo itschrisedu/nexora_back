@@ -69,8 +69,13 @@ export class MerchandiseEntry extends AggregateRoot {
       throw new MerchandiseEntrySinLineasException();
     }
 
+    const totalPares = lines.reduce((acc, curr) => acc + (curr.cantidadIngresada || 0), 0);
+    if (totalPares <= 0) {
+      throw new CantidadIngresadaInvalidaException();
+    }
+
     const entryLines: MerchandiseEntryLineProps[] = lines.map((l) => {
-      if (l.cantidadIngresada <= 0) {
+      if (l.cantidadIngresada < 0) {
         throw new CantidadIngresadaInvalidaException();
       }
       if (l.precioCosto <= 0) {

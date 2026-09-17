@@ -41,9 +41,9 @@ describe('MerchandiseEntry Aggregate Root', () => {
       }).toThrow(MerchandiseEntrySinLineasException);
     });
 
-    it('debe lanzar exception si alguna cantidad ingresada es menor o igual a 0', () => {
+    it('debe lanzar exception si alguna cantidad ingresada es menor a 0 o total es 0', () => {
       const invalidLines = [
-        { id: 'line-1', productId: 'prod-1', tallaId: 't-38', cantidadIngresada: 0, precioCosto: 10.0 },
+        { id: 'line-1', productId: 'prod-1', tallaId: 't-38', cantidadIngresada: -1, precioCosto: 10.0 },
       ];
       expect(() => {
         MerchandiseEntry.crear(entryId, numero, supplierId, invalidLines);

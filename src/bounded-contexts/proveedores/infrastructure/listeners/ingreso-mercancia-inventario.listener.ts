@@ -21,6 +21,10 @@ export class IngresoMercanciaInventarioListener {
     this.logger.log(`📦 Reaccionando a entrada de mercancía N°${payload.numero} para aumentar stock físico.`);
     try {
       for (const line of payload.lines) {
+        if (!line.cantidadIngresada || line.cantidadIngresada <= 0) {
+          continue;
+        }
+
         await this.aumentarStockHandler.execute(
           new AumentarStockCommand(
             line.productId,
