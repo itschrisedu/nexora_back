@@ -36,6 +36,7 @@ import {
   RegistrarMerchandiseEntryDto,
   RegistrarSupplierPaymentDto,
 } from './dto/proveedores.dto';
+import { AutoDespachoOrdenesService } from './services/AutoDespachoOrdenes.service';
 
 @Controller('proveedores')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -47,8 +48,22 @@ export class ProveedoresController {
     private readonly registrarEntryHandler: RegistrarMerchandiseEntryHandler,
     private readonly registrarPaymentHandler: RegistrarSupplierPaymentHandler,
     private readonly queryService: ProveedoresQueryService,
+    private readonly autoDespachoService: AutoDespachoOrdenesService,
     private readonly prisma: PrismaService,
   ) {}
+
+  @Post('auto-despacho/ejecutar-manual')
+  @Roles(Rol.ROL_ADMIN)
+  async ejecutarDespachoManual(@Req() req: any) {
+    const res = await this.autoDespachoService.ejecutarDespachoPorTenant(req.user.tenantId, req.user.tenantName);
+    return {
+      ok: true,
+      despachadas: res.despachadas,
+      message: res.despachadas > 0
+        ? `Se despacharon automáticamente ${res.despachadas} órdenes de compra a proveedores.`
+        : 'No hay órdenes en estado borrador pendientes de despacho.',
+    };
+  }
 
   // ══════════════════════════════════════════
   // PROVEEDORES
