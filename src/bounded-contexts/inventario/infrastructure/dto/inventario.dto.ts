@@ -269,3 +269,32 @@ export class TransferirStockDto {
   motivo!: string;
 }
 
+export class TransferirStockLoteItemDto {
+  @IsString()
+  @IsNotEmpty()
+  tallaId!: string;
+
+  @IsInt()
+  @Min(1)
+  cantidad!: number;
+}
+
+export class TransferirStockLoteDto {
+  @IsString()
+  @IsNotEmpty()
+  destinoTenantId!: string;
+
+  @IsString()
+  @IsNotEmpty()
+  productId!: string;
+
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => TransferirStockLoteItemDto)
+  items!: TransferirStockLoteItemDto[];
+
+  @IsString()
+  @IsNotEmpty()
+  motivo!: string;
+}
+
