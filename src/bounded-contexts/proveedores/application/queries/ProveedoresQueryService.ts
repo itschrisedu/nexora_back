@@ -212,7 +212,18 @@ export class ProveedoresQueryService {
       where: { id: { in: productIds } },
       include: {
         model: true,
-        serie: true,
+        serie: {
+          include: {
+            tallas: {
+              orderBy: { numero: 'asc' },
+            },
+          },
+        },
+        stockByTalla: {
+          include: {
+            talla: true,
+          },
+        },
       },
     });
 
@@ -226,6 +237,16 @@ export class ProveedoresQueryService {
       total: Number(order.total),
       lines: order.lines.map((l) => {
         const prod = productMap.get(l.productId);
+        const tallas = prod?.serie?.tallas?.map((t: any) => ({
+          id: t.id,
+          numero: t.numero,
+          talla: t.numero,
+        })) || prod?.stockByTalla?.map((st: any) => ({
+          id: st.talla?.id || st.tallaId,
+          numero: st.talla?.numero,
+          talla: st.talla?.numero,
+        })) || [];
+
         return {
           ...l,
           precioCosto: Number(l.precioCosto),
@@ -237,7 +258,9 @@ export class ProveedoresQueryService {
             imageUrl: prod.imageUrl,
             nombre: prod.model ? `${prod.model.brand} ${prod.model.name}` : prod.code,
             marca: prod.model?.brand,
-            serie: prod.serie?.name,
+            serie: prod.serie?.nombre || '',
+            serieNombre: prod.serie?.nombre || '',
+            tallas,
             reordenAutomatica: prod.reordenAutomatica ?? true,
           } : undefined,
         };
@@ -270,7 +293,21 @@ export class ProveedoresQueryService {
     const allProductIds = Array.from(new Set(orders.flatMap((o) => o.lines.map((l) => l.productId))));
     const products = await this.prisma.product.findMany({
       where: { id: { in: allProductIds } },
-      include: { model: true },
+      include: {
+        model: true,
+        serie: {
+          include: {
+            tallas: {
+              orderBy: { numero: 'asc' },
+            },
+          },
+        },
+        stockByTalla: {
+          include: {
+            talla: true,
+          },
+        },
+      },
     });
     const productMap = new Map<string, any>();
     products.forEach((p) => productMap.set(p.id, p));
@@ -283,6 +320,16 @@ export class ProveedoresQueryService {
       totalLineas: o.lines.length,
       lines: o.lines.map((l) => {
         const prod = productMap.get(l.productId);
+        const tallas = prod?.serie?.tallas?.map((t: any) => ({
+          id: t.id,
+          numero: t.numero,
+          talla: t.numero,
+        })) || prod?.stockByTalla?.map((st: any) => ({
+          id: st.talla?.id || st.tallaId,
+          numero: st.talla?.numero,
+          talla: st.talla?.numero,
+        })) || [];
+
         return {
           ...l,
           precioCosto: Number(l.precioCosto),
@@ -290,8 +337,13 @@ export class ProveedoresQueryService {
           producto: prod ? {
             id: prod.id,
             codigo: prod.code,
+            color: prod.color,
             imageUrl: prod.imageUrl,
             nombre: prod.model ? `${prod.model.brand} ${prod.model.name}` : prod.code,
+            marca: prod.model?.brand,
+            serie: prod.serie?.nombre || '',
+            serieNombre: prod.serie?.nombre || '',
+            tallas,
             reordenAutomatica: prod.reordenAutomatica ?? true,
           } : undefined,
         };
