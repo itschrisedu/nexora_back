@@ -235,7 +235,12 @@ export class FinancieroQueryService {
             userId: true,
             tipoEntrega: true,
             courier: true,
+            guiaEnvio: true,
+            direccionEnvio: true,
             ciudadEnvio: true,
+            asumeFlete: true,
+            costoEnvio: true,
+            notas: true,
             lines: true,
           },
         })
@@ -354,7 +359,12 @@ export class FinancieroQueryService {
         sucursalNombre: (cobro as any).tenant?.name || '',
         tipoEntrega: order?.tipoEntrega || 'PRESENCIAL',
         courier: order?.courier || null,
+        guiaEnvio: order?.guiaEnvio || null,
+        direccionEnvio: order?.direccionEnvio || null,
         ciudadEnvio: order?.ciudadEnvio || null,
+        asumeFlete: order?.asumeFlete || 'NO_APLICA',
+        costoEnvio: order?.costoEnvio ? Number(order.costoEnvio) : 0,
+        notasPedido: order?.notas || null,
         lines: finalLines,
       };
     });
