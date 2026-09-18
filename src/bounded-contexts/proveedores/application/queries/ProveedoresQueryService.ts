@@ -211,7 +211,15 @@ export class ProveedoresQueryService {
     const products = await this.prisma.product.findMany({
       where: { id: { in: productIds } },
       include: {
-        model: true,
+        model: {
+          include: {
+            products: {
+              where: { imageUrl: { not: null } },
+              select: { imageUrl: true },
+              take: 1,
+            },
+          },
+        },
         serie: {
           include: {
             tallas: {
@@ -247,6 +255,9 @@ export class ProveedoresQueryService {
           talla: st.talla?.numero,
         })) || [];
 
+        const fallbackImg = prod?.model?.products?.find((p: any) => p.imageUrl)?.imageUrl || '';
+        const resolvedImageUrl = prod?.imageUrl || fallbackImg || '';
+
         return {
           ...l,
           precioCosto: Number(l.precioCosto),
@@ -255,7 +266,7 @@ export class ProveedoresQueryService {
             id: prod.id,
             codigo: prod.code,
             color: prod.color,
-            imageUrl: prod.imageUrl || prod.model?.imageUrl || '',
+            imageUrl: resolvedImageUrl,
             nombre: prod.model ? `${prod.model.brand} ${prod.model.name}` : prod.code,
             marca: prod.model?.brand,
             serie: prod.serie?.nombre || '',
@@ -297,7 +308,15 @@ export class ProveedoresQueryService {
     const products = await this.prisma.product.findMany({
       where: { id: { in: allProductIds } },
       include: {
-        model: true,
+        model: {
+          include: {
+            products: {
+              where: { imageUrl: { not: null } },
+              select: { imageUrl: true },
+              take: 1,
+            },
+          },
+        },
         serie: {
           include: {
             tallas: {
@@ -333,6 +352,9 @@ export class ProveedoresQueryService {
           talla: st.talla?.numero,
         })) || [];
 
+        const fallbackImg = prod?.model?.products?.find((p: any) => p.imageUrl)?.imageUrl || '';
+        const resolvedImageUrl = prod?.imageUrl || fallbackImg || '';
+
         return {
           ...l,
           precioCosto: Number(l.precioCosto),
@@ -341,7 +363,7 @@ export class ProveedoresQueryService {
             id: prod.id,
             codigo: prod.code,
             color: prod.color,
-            imageUrl: prod.imageUrl || prod.model?.imageUrl || '',
+            imageUrl: resolvedImageUrl,
             nombre: prod.model ? `${prod.model.brand} ${prod.model.name}` : prod.code,
             marca: prod.model?.brand,
             serie: prod.serie?.nombre || '',

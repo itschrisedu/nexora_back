@@ -1021,6 +1021,7 @@ export class ConfiguracionService {
             precioVenta: Number(p.salePrice),
             stockTotal: totalPares,
             tallasDisponibles: p.stockByTalla.map((st) => ({
+              tallaId: st.tallaId,
               talla: st.talla.numero,
               cantidad: st.quantity,
             })),

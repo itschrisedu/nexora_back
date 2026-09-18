@@ -49,14 +49,67 @@ export class CrearPedidoHandler {
     for (const lineaInput of command.lineas) {
       const prod = await this.prisma.product.findUnique({
         where: { id: lineaInput.productId },
-        include: { stockByTalla: true },
+        include: {
+          stockByTalla: { include: { talla: true } },
+          serie: { include: { tallas: true } },
+        },
       });
 
       if (!prod) {
         throw new NotFoundException(`El producto con ID "${lineaInput.productId}" no existe`);
       }
 
-      const stockTalla = prod.stockByTalla.find((s) => s.tallaId === lineaInput.tallaId);
+      // Resolver la talla de forma inteligente y robusta (por ID directo, por número, o por serie/global)
+      let stockTalla = prod.stockByTalla.find((s) => s.tallaId === lineaInput.tallaId);
+      let resolvedTallaId = lineaInput.tallaId;
+
+      if (!stockTalla) {
+        // Intentar buscar por coincidencia de número (ej: "t-38", "38", "t-esp-38")
+        const numExtracted = parseInt(String(lineaInput.tallaId).replace(/\D/g, ''), 10);
+
+        if (!isNaN(numExtracted)) {
+          stockTalla = prod.stockByTalla.find((s) => s.talla?.numero === numExtracted);
+        }
+
+        if (stockTalla) {
+          resolvedTallaId = stockTalla.tallaId;
+        } else {
+          // Si no está en stockByTalla, buscar la TallaConfig en la serie del producto o globalmente
+          let tallaConfigMatch: { id: string; numero: number; serieId: string } | null | undefined =
+            prod.serie?.tallas?.find(
+              (t) => t.id === lineaInput.tallaId || (!isNaN(numExtracted) && t.numero === numExtracted),
+            );
+
+          if (!tallaConfigMatch && !isNaN(numExtracted)) {
+            tallaConfigMatch = await this.prisma.tallaConfig.findFirst({
+              where: { numero: numExtracted },
+            });
+          }
+
+          if (tallaConfigMatch) {
+            resolvedTallaId = tallaConfigMatch.id;
+            // Crear la relación en stockByTalla con stock 0 para este producto si aún no existe
+            stockTalla = await this.prisma.stockByTalla.upsert({
+              where: {
+                productId_tallaId: {
+                  productId: prod.id,
+                  tallaId: tallaConfigMatch.id,
+                },
+              },
+              create: {
+                productId: prod.id,
+                tallaId: tallaConfigMatch.id,
+                quantity: 0,
+                reservedQuantity: 0,
+                minStock: 0,
+              },
+              update: {},
+              include: { talla: true },
+            });
+          }
+        }
+      }
+
       if (!stockTalla) {
         throw new BadRequestException(
           `La talla con ID "${lineaInput.tallaId}" no está configurada para el producto "${prod.code}"`,
@@ -73,7 +126,7 @@ export class CrearPedidoHandler {
 
       lineasProducto.push({
         productId: lineaInput.productId,
-        tallaId: lineaInput.tallaId,
+        tallaId: resolvedTallaId,
         serieId: prod.serieId,
         cantidad: lineaInput.cantidad,
         precioUnitario: precioUnit,

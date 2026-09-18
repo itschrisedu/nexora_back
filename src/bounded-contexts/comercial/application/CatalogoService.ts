@@ -393,6 +393,79 @@ export class CatalogoService {
   }
 
   /**
+   * Obtiene la información pública de una Orden de Compra para el comprobante digital
+   */
+  async obtenerOrdenPublica(numeroOrId: string) {
+    if (!numeroOrId) {
+      throw new NotFoundException('Identificador de orden requerido');
+    }
+
+    const numParsed = parseInt(numeroOrId.replace(/\D/g, ''), 10);
+
+    const order = await this.prisma.supplierOrder.findFirst({
+      where: {
+        OR: [
+          { id: numeroOrId },
+          ...(!isNaN(numParsed) ? [{ numero: numParsed }] : []),
+        ],
+      },
+      include: {
+        supplier: true,
+        lines: true,
+      },
+    });
+
+    if (!order) {
+      throw new NotFoundException('Orden de compra no encontrada');
+    }
+
+    const productIds = order.lines.map((l) => l.productId);
+    const products = await this.prisma.product.findMany({
+      where: { id: { in: productIds } },
+      include: {
+        model: {
+          include: {
+            products: {
+              where: { imageUrl: { not: null } },
+              select: { imageUrl: true },
+              take: 1,
+            },
+          },
+        },
+        serie: true,
+      },
+    });
+
+    const productMap = new Map<string, any>();
+    products.forEach((p) => productMap.set(p.id, p));
+
+    return {
+      id: order.id,
+      numero: order.numero,
+      numeroFormateado: `OC-${String(order.numero).padStart(4, '0')}`,
+      observaciones: order.observaciones,
+      lineas: order.lines.map((l) => {
+        const prod = productMap.get(l.productId);
+        const fallbackImg = prod?.model?.products?.find((p: any) => p.imageUrl)?.imageUrl || '';
+        const resolvedImageUrl = prod?.imageUrl || fallbackImg || '';
+
+        return {
+          productId: l.productId,
+          codigo: prod?.code || '',
+          modelo: prod?.model ? `${prod.model.brand} ${prod.model.name}` : prod?.code || 'Calzado',
+          color: prod?.color || '',
+          serie: prod?.serie?.nombre || '',
+          imageUrl: resolvedImageUrl,
+          cantidadPedida: l.cantidadPedida,
+          precioCosto: Number(l.precioCosto),
+          subtotal: Number(l.subtotal),
+          observacionLinea: l.observacionLinea,
+        };
+      }),
+    };
+  }
+
+  /**
    * Resuelve el tenant activo (por id o primer tenant existente)
    */
   private async resolveTenant(tenantIdParam?: string) {
