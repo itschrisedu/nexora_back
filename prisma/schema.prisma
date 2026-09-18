@@ -403,6 +403,7 @@ model Client {
   atrasoConsecutivo  Int                  @default(0)  // Atrasos consecutivos sin saldar
   limiteCredito      Decimal              @db.Decimal(10, 2) @default(0)
   creditoUtilizado   Decimal              @db.Decimal(10, 2) @default(0)
+  saldoAFavor        Decimal              @db.Decimal(10, 2) @default(0) // Crédito acumulado por devoluciones que excedieron la deuda
   activo             Boolean              @default(true)
   createdAt          DateTime             @default(now())
   updatedAt          DateTime             @updatedAt
@@ -706,6 +707,7 @@ model Supplier {
   direccion   String?
   email       String?
   activo      Boolean            @default(true)
+  saldoAFavorNegocio Decimal    @db.Decimal(10, 2) @default(0) // Crédito a favor del negocio por devoluciones al proveedor
   orders      SupplierOrder[]
   entries     MerchandiseEntry[]
   payments    SupplierPayment[]
@@ -818,17 +820,21 @@ model NotificationLog {
 // ──────────────────────────────────────────
 
 model ClienteDevolucion {
-  id             String                   @id @default(uuid())
-  tenantId       String
-  saleNoteId     String?
-  orderId        String?
-  clientId       String
-  motivo         String
-  totalDevuelto  Decimal                  @db.Decimal(10, 2)
-  estado         String                   @default("COMPLETADO") // COMPLETADO | RECHAZADO
-  lines          ClienteDevolucionLinea[]
-  tenant         Tenant                   @relation(fields: [tenantId], references: [id])
-  createdAt      DateTime                 @default(now())
+  id              String                   @id @default(uuid())
+  tenantId        String
+  saleNoteId      String?
+  orderId         String?
+  clientId        String
+  motivo          String
+  totalDevuelto   Decimal                  @db.Decimal(10, 2)
+  estado          String                   @default("COMPLETADO") // COMPLETADO | PENDIENTE_DEVOLUCION_PROVEEDOR
+  destinoStock    String                   @default("REINGRESO_INVENTARIO") // REINGRESO_INVENTARIO | BAJA_POR_FALLA
+  deudaDescontada Decimal                  @db.Decimal(10, 2) @default(0) // Monto efectivamente descontado de la deuda del cliente
+  saldoAFavor     Decimal                  @db.Decimal(10, 2) @default(0) // Excedente a favor del cliente (totalDevuelto - deudaDescontada)
+  saldoAFavorPagado Boolean               @default(false) // true si se le pagó en efectivo o se hizo paso
+  lines           ClienteDevolucionLinea[]
+  tenant          Tenant                   @relation(fields: [tenantId], references: [id])
+  createdAt       DateTime                 @default(now())
 
   @@map("cliente_devoluciones")
 }
@@ -847,16 +853,20 @@ model ClienteDevolucionLinea {
 }
 
 model ProveedorDevolucion {
-  id             String                    @id @default(uuid())
-  tenantId       String
-  entradaId      String?
-  supplierId     String
-  motivo         String
-  totalDevuelto  Decimal                   @db.Decimal(10, 2)
-  estado         String                    @default("COMPLETADO") // COMPLETADO | RECHAZADO
-  lines          ProveedorDevolucionLinea[]
-  tenant         Tenant                    @relation(fields: [tenantId], references: [id])
-  createdAt      DateTime                  @default(now())
+  id                  String                    @id @default(uuid())
+  tenantId            String
+  entradaId           String?
+  supplierId          String
+  motivo              String
+  totalDevuelto       Decimal                   @db.Decimal(10, 2)
+  estado              String                    @default("COMPLETADO") // COMPLETADO | RECHAZADO
+  clienteDevolucionId String?                   // Vincula con la devolución del cliente que originó esta
+  deudaDescontada     Decimal                   @db.Decimal(10, 2) @default(0)
+  saldoAFavor         Decimal                   @db.Decimal(10, 2) @default(0) // Excedente a favor del negocio
+  saldoAFavorPagado   Boolean                   @default(false) // true si el proveedor pagó o se hizo paso
+  lines               ProveedorDevolucionLinea[]
+  tenant              Tenant                    @relation(fields: [tenantId], references: [id])
+  createdAt           DateTime                  @default(now())
 
   @@map("proveedor_devoluciones")
 }
@@ -1043,9 +1053,22 @@ model CampanaPromocion {
   @@map("campanas_promociones")
 }
 
+// ──────────────────────────────────────────
+// MOVIMIENTOS FINANCIEROS — Bitácora de ajustes por devoluciones
+// ──────────────────────────────────────────
 
+model MovimientoFinanciero {
+  id              String   @id @default(uuid())
+  tenantId        String
+  tipo            String   // DESCUENTO_DEVOLUCION_CLIENTE | SALDO_FAVOR_CLIENTE | PAGO_EXCEDENTE_CLIENTE | PASO_MERCADERIA_CLIENTE | DESCUENTO_DEVOLUCION_PROVEEDOR | SALDO_FAVOR_NEGOCIO | PAGO_EXCEDENTE_PROVEEDOR | PASO_MERCADERIA_PROVEEDOR
+  referenciaId    String   // ID de la entidad relacionada
+  referenciaTabla String   // ClienteDevolucion | ProveedorDevolucion | Cobro | DeudaProveedor
+  clientId        String?
+  supplierId      String?
+  monto           Decimal  @db.Decimal(10, 2)
+  descripcion     String
+  userId          String?
+  createdAt       DateTime @default(now())
 
-
-
-
-
+  @@map("movimientos_financieros")
+}

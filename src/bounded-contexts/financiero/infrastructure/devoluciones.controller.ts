@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Req, UseGuards } from '@nestjs/common';
 import { DevolucionesService } from '../application/DevolucionesService';
 import { JwtAuthGuard } from '../../../auth/jwt-auth.guard';
 import { RolesGuard } from '../../../shared/guards/roles.guard';
@@ -12,7 +12,7 @@ export class DevolucionesController {
 
   /**
    * POST /devoluciones/cliente
-   * Registrar devolución de cliente (reingresa stock y ajusta cobro)
+   * Registrar devolucion de cliente (reingresa stock, ajusta cobro FIFO, calcula saldo a favor)
    */
   @Post('cliente')
   @Roles(Rol.ROL_ADMIN, Rol.ROL_VENDEDOR, Rol.ROL_SUPER_ADMIN)
@@ -23,6 +23,8 @@ export class DevolucionesController {
       orderId?: string;
       clientId: string;
       motivo: string;
+      tipoDevolucion?: 'SERIE_COMPLETA' | 'TALLA_ESPECIFICA';
+      destinoStock?: 'REINGRESO_INVENTARIO' | 'BAJA_POR_FALLA';
       lines: {
         productId: string;
         tallaId: string;
@@ -32,7 +34,11 @@ export class DevolucionesController {
     },
     @Req() req: any,
   ) {
-    return this.devolucionesService.registrarDevolucionCliente(dto, req.user.tenantId);
+    return this.devolucionesService.registrarDevolucionCliente(
+      dto,
+      req.user.tenantId,
+      req.user.sub || req.user.id,
+    );
   }
 
   /**
@@ -46,8 +52,54 @@ export class DevolucionesController {
   }
 
   /**
+   * GET /devoluciones/cliente/pendientes-proveedor
+   * Listar devoluciones de clientes pendientes de devolver al proveedor (BAJA_POR_FALLA)
+   */
+  @Get('cliente/pendientes-proveedor')
+  @Roles(Rol.ROL_ADMIN, Rol.ROL_SUPER_ADMIN)
+  async listarPendientesProveedor(@Req() req: any) {
+    return this.devolucionesService.listarPendientesProveedor(req.user.tenantId);
+  }
+
+  /**
+   * POST /devoluciones/cliente/:id/pagar-excedente
+   * Pagar el saldo a favor al cliente en efectivo
+   */
+  @Post('cliente/:id/pagar-excedente')
+  @Roles(Rol.ROL_ADMIN, Rol.ROL_SUPER_ADMIN)
+  async pagarExcedenteCliente(
+    @Param('id') devolucionId: string,
+    @Body() dto: { metodo?: string },
+    @Req() req: any,
+  ) {
+    return this.devolucionesService.pagarExcedenteCliente(
+      devolucionId,
+      req.user.tenantId,
+      req.user.sub || req.user.id,
+      dto.metodo,
+    );
+  }
+
+  /**
+   * POST /devoluciones/aplicar-saldo-cliente
+   * Aplicar saldo a favor del cliente en un cobro existente ("hacer paso")
+   */
+  @Post('aplicar-saldo-cliente')
+  @Roles(Rol.ROL_ADMIN, Rol.ROL_VENDEDOR, Rol.ROL_SUPER_ADMIN)
+  async aplicarSaldoFavorCliente(
+    @Body() dto: { clientId: string; cobroId: string; montoAplicar?: number },
+    @Req() req: any,
+  ) {
+    return this.devolucionesService.aplicarSaldoFavorCliente(
+      dto,
+      req.user.tenantId,
+      req.user.sub || req.user.id,
+    );
+  }
+
+  /**
    * POST /devoluciones/proveedor
-   * Registrar devolución a proveedor (descuenta stock por garantía/defecto y ajusta deuda)
+   * Registrar devolucion a proveedor (descuenta stock, ajusta deuda FIFO, calcula saldo a favor)
    */
   @Post('proveedor')
   @Roles(Rol.ROL_ADMIN, Rol.ROL_BODEGUERO, Rol.ROL_SUPER_ADMIN)
@@ -57,6 +109,7 @@ export class DevolucionesController {
       entradaId?: string;
       supplierId: string;
       motivo: string;
+      clienteDevolucionId?: string;
       lines: {
         productId: string;
         tallaId: string;
@@ -66,7 +119,11 @@ export class DevolucionesController {
     },
     @Req() req: any,
   ) {
-    return this.devolucionesService.registrarDevolucionProveedor(dto, req.user.tenantId);
+    return this.devolucionesService.registrarDevolucionProveedor(
+      dto,
+      req.user.tenantId,
+      req.user.sub || req.user.id,
+    );
   }
 
   /**
@@ -77,5 +134,41 @@ export class DevolucionesController {
   @Roles(Rol.ROL_ADMIN, Rol.ROL_BODEGUERO, Rol.ROL_SUPER_ADMIN)
   async listarDevolucionesProveedor(@Req() req: any) {
     return this.devolucionesService.listarDevolucionesProveedor(req.user.tenantId);
+  }
+
+  /**
+   * POST /devoluciones/proveedor/:id/pagar-excedente
+   * Registrar pago del proveedor por excedente
+   */
+  @Post('proveedor/:id/pagar-excedente')
+  @Roles(Rol.ROL_ADMIN, Rol.ROL_SUPER_ADMIN)
+  async recibirPagoExcedenteProveedor(
+    @Param('id') devolucionId: string,
+    @Body() dto: { metodo?: string },
+    @Req() req: any,
+  ) {
+    return this.devolucionesService.recibirPagoExcedenteProveedor(
+      devolucionId,
+      req.user.tenantId,
+      req.user.sub || req.user.id,
+      dto.metodo,
+    );
+  }
+
+  /**
+   * POST /devoluciones/aplicar-saldo-proveedor
+   * Aplicar saldo a favor del negocio en una deuda con proveedor ("hacer paso")
+   */
+  @Post('aplicar-saldo-proveedor')
+  @Roles(Rol.ROL_ADMIN, Rol.ROL_SUPER_ADMIN)
+  async aplicarSaldoFavorProveedor(
+    @Body() dto: { supplierId: string; deudaId: string; montoAplicar?: number },
+    @Req() req: any,
+  ) {
+    return this.devolucionesService.aplicarSaldoFavorProveedor(
+      dto,
+      req.user.tenantId,
+      req.user.sub || req.user.id,
+    );
   }
 }
