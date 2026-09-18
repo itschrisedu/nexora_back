@@ -248,9 +248,15 @@ export class FinancieroQueryService {
     const orderMap = new Map(orders.map((o) => [o.id, o]));
     const orderUserMap = new Map(orders.map((o) => [o.id, o.userId]));
 
-    // Obtener información de productos y tallas para las líneas de pedidos
+    // Obtener información de productos y tallas para las líneas de pedidos y notas de venta
+    const allSaleNoteLines = cobros.flatMap((c) => (c.saleNote?.lines as any[]) || []);
     const allOrderLines = orders.flatMap((o) => o.lines || []);
-    const productIds = [...new Set(allOrderLines.map((l) => l.productId).filter(Boolean))];
+    const productIds = [
+      ...new Set([
+        ...allOrderLines.map((l) => l.productId),
+        ...allSaleNoteLines.map((l) => l.productId),
+      ].filter(Boolean)),
+    ];
     const products = productIds.length > 0
       ? await this.prisma.product.findMany({
           where: { id: { in: productIds } },
@@ -322,10 +328,10 @@ export class FinancieroQueryService {
               cantidad: l.cantidad,
               precioUnitario: Number(l.precioUnitario),
               subtotal: Number(l.subtotal ?? (l.cantidad * Number(l.precioUnitario))),
-              modelName: l.nombre || prod?.model?.name || 'Calzado',
+              modelName: prod?.model?.name || l.nombre || 'Calzado',
               color: prod?.color || '',
               imageUrl: prod?.imageUrl || null,
-              serieNombre: l.serie || prod?.serie?.nombre || 'Estándar',
+              serieNombre: prod?.serie?.nombre || l.serie || 'Estándar',
               numeroTalla: l.talla || '38',
               tipoVenta: 'POR_TALLA',
             };
