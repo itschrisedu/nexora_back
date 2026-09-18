@@ -5,6 +5,7 @@ export interface LineaPedidoInput {
   tallaId: string;
   cantidad: number;
   tipoVenta: TipoVenta;
+  observacion?: string;
 }
 
 export class CrearPedidoCommand {

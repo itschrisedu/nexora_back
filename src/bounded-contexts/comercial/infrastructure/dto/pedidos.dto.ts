@@ -27,6 +27,10 @@ class LineaPedidoDto {
   @IsEnum(TipoVenta)
   @IsNotEmpty()
   tipoVenta!: TipoVenta;
+
+  @IsString()
+  @IsOptional()
+  observacion?: string;
 }
 
 export class CrearPedidoDto {

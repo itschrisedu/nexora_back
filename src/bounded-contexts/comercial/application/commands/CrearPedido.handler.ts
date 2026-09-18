@@ -306,12 +306,14 @@ export class CrearPedidoHandler {
             else if (totalFaltante === 6) faltanteDesc = '½ docena (6 pares)';
             else if (totalFaltante === 12) faltanteDesc = '1 docena (12 pares)';
 
+            const obsLineaUsuario = command.lineas.find(l => l.productId === prodId && l.observacion?.trim())?.observacion?.trim();
+
             if (!supplierGroups.has(supplierId)) supplierGroups.set(supplierId, []);
             supplierGroups.get(supplierId)!.push({
               productId: prodId,
               cantidad: cantidadAComprar,
               precioCosto: Number(prodWithModel?.costPrice || 10),
-              observacion: `Cliente: ${nombreCliente} | Ref Pedido: #${refPedido} (Déficit pedido: ${faltanteDesc} + 12 pares p/ stock)`,
+              observacion: obsLineaUsuario || undefined as any,
             });
           }
         }
@@ -336,7 +338,7 @@ export class CrearPedidoHandler {
                 supplierId: supId,
                 total: 0,
                 estado: 'BORRADOR',
-                observaciones: 'Orden acumulativa del día (Generada automáticamente por déficit de stock)',
+                observaciones: command.notas?.trim() || undefined,
               },
               include: { lines: true },
             });
