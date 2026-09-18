@@ -20,7 +20,7 @@ import { DescontarStockHandler } from '../application/commands/DescontarStock.ha
 import { InventarioQueryService } from '../application/queries/InventarioQueryService';
 
 @Module({
-  imports: [ScheduleModule.forRoot(), AuthModule],
+  imports: [AuthModule],
   controllers: [InventarioController],
   providers: [
     // Repository

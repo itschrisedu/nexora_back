@@ -285,6 +285,9 @@ export class ProveedoresQueryService {
           },
         },
         lines: true,
+        entry: {
+          select: { id: true, numero: true, fechaIngreso: true, estado: true, createdAt: true },
+        },
       },
       orderBy: { createdAt: 'desc' },
     });
