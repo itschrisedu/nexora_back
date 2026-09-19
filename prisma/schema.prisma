@@ -713,6 +713,7 @@ model Supplier {
   orders      SupplierOrder[]
   entries     MerchandiseEntry[]
   payments    SupplierPayment[]
+  devoluciones ProveedorDevolucion[]
   productModels ProductModel[]
   createdAt   DateTime           @default(now())
   updatedAt   DateTime           @updatedAt
@@ -856,6 +857,7 @@ model ClienteDevolucionLinea {
 
 model ProveedorDevolucion {
   id                  String                    @id @default(uuid())
+  numero              Int?                      // Correlativo DEV-XXXX
   tenantId            String
   entradaId           String?
   supplierId          String
@@ -868,6 +870,7 @@ model ProveedorDevolucion {
   saldoAFavorPagado   Boolean                   @default(false) // true si el proveedor pagó o se hizo paso
   lines               ProveedorDevolucionLinea[]
   tenant              Tenant                    @relation(fields: [tenantId], references: [id])
+  supplier            Supplier                  @relation(fields: [supplierId], references: [id])
   createdAt           DateTime                  @default(now())
 
   @@map("proveedor_devoluciones")

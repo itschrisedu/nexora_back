@@ -17,6 +17,7 @@ export class ProveedoresQueryService {
         orders: true,
         entries: true,
         payments: true,
+        devoluciones: true,
       },
     });
     if (!raw) {
@@ -25,15 +26,18 @@ export class ProveedoresQueryService {
 
     const totalFacturado = raw.entries.reduce((acc, e) => acc + Number(e.total), 0);
     const totalPagado = raw.payments.reduce((acc, p) => acc + Number(p.monto), 0);
-    const saldoPendiente = Math.max(0, totalFacturado - totalPagado);
+    const totalDevoluciones = raw.devoluciones ? raw.devoluciones.reduce((acc, d) => acc + Number(d.totalDevuelto), 0) : 0;
+    const saldoPendiente = Math.max(0, totalFacturado - totalPagado - totalDevoluciones);
 
     return {
       ...this.formatSupplier(raw),
       totalFacturado,
       totalPagado,
+      totalDevoluciones,
       saldoPendiente,
       totalOrdenes: raw.orders.length,
       totalEntregas: raw.entries.length,
+      totalDevolucionesCount: raw.devoluciones ? raw.devoluciones.length : 0,
     };
   }
 
@@ -49,6 +53,7 @@ export class ProveedoresQueryService {
         orders: { select: { id: true, estado: true, total: true } },
         entries: { select: { id: true, total: true } },
         payments: { select: { id: true, monto: true } },
+        devoluciones: { select: { id: true, totalDevuelto: true } },
       },
       orderBy: { razonSocial: 'asc' },
     });
@@ -57,17 +62,20 @@ export class ProveedoresQueryService {
       const base = this.formatSupplier(s);
       const totalCompras = s.entries.reduce((acc, e) => acc + Number(e.total), 0);
       const totalPagado = s.payments.reduce((acc, p) => acc + Number(p.monto), 0);
-      const saldoPendiente = Math.max(0, totalCompras - totalPagado);
+      const totalDevoluciones = s.devoluciones ? s.devoluciones.reduce((acc, d) => acc + Number(d.totalDevuelto), 0) : 0;
+      const saldoPendiente = Math.max(0, totalCompras - totalPagado - totalDevoluciones);
       const ordenesPendientes = s.orders.filter((o) => o.estado === 'PENDIENTE' || o.estado === 'BORRADOR').length;
 
       return {
         ...base,
         totalCompras,
         totalPagado,
+        totalDevoluciones,
         saldoPendiente,
         ordenesPendientes,
         totalOrdenes: s.orders.length,
         totalEntregas: s.entries.length,
+        totalDevolucionesCount: s.devoluciones ? s.devoluciones.length : 0,
       };
     });
 
@@ -99,6 +107,10 @@ export class ProveedoresQueryService {
         payments: {
           orderBy: { createdAt: 'desc' },
         },
+        devoluciones: {
+          include: { lines: true },
+          orderBy: { createdAt: 'desc' },
+        },
       },
     });
 
@@ -108,7 +120,8 @@ export class ProveedoresQueryService {
 
     const totalFacturado = supplier.entries.reduce((acc, e) => acc + Number(e.total), 0);
     const totalPagado = supplier.payments.reduce((acc, p) => acc + Number(p.monto), 0);
-    const saldoPendiente = Math.max(0, totalFacturado - totalPagado);
+    const totalDevoluciones = supplier.devoluciones ? supplier.devoluciones.reduce((acc, d) => acc + Number(d.totalDevuelto), 0) : 0;
+    const saldoPendiente = Math.max(0, totalFacturado - totalPagado - totalDevoluciones);
 
     // Build timeline movements
     const movimientos: any[] = [];
@@ -145,6 +158,25 @@ export class ProveedoresQueryService {
       });
     });
 
+    supplier.devoluciones.forEach((d) => {
+      movimientos.push({
+        id: d.id,
+        tipo: 'DEVOLUCION_PROVEEDOR',
+        titulo: `Devolución de Mercadería #${d.numero ? `DEV-${String(d.numero).padStart(4, '0')}` : d.id.slice(0, 4).toUpperCase()}`,
+        numeroCodigo: d.numero ? `DEV-${String(d.numero).padStart(4, '0')}` : `DEV-${d.id.slice(0, 4).toUpperCase()}`,
+        descripcion: d.motivo || `Devolución de ${d.lines.length} ítem(s) por falla / garantía`,
+        monto: Number(d.totalDevuelto),
+        estado: d.estado,
+        fecha: d.createdAt.toISOString(),
+        detalles: {
+          deudaDescontada: Number(d.deudaDescontada),
+          saldoAFavor: Number(d.saldoAFavor),
+          lineasCount: d.lines.length,
+          lines: d.lines,
+        },
+      });
+    });
+
     // Ordenar cronológicamente descendente
     movimientos.sort((a, b) => new Date(b.fecha).getTime() - new Date(a.fecha).getTime());
 
@@ -153,10 +185,12 @@ export class ProveedoresQueryService {
       resumen: {
         totalFacturado,
         totalPagado,
+        totalDevoluciones,
         saldoPendiente,
         totalOrdenes: supplier.orders.length,
         totalEntregas: supplier.entries.length,
         totalPagos: supplier.payments.length,
+        totalDevolucionesCount: supplier.devoluciones.length,
       },
       movimientos,
       ordenes: supplier.orders.map((o) => ({
@@ -170,6 +204,12 @@ export class ProveedoresQueryService {
       pagos: supplier.payments.map((p) => ({
         ...p,
         monto: Number(p.monto),
+      })),
+      devoluciones: supplier.devoluciones.map((d) => ({
+        ...d,
+        totalDevuelto: Number(d.totalDevuelto),
+        deudaDescontada: Number(d.deudaDescontada),
+        saldoAFavor: Number(d.saldoAFavor),
       })),
     };
   }

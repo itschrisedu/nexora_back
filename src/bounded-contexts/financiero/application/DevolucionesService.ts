@@ -229,16 +229,149 @@ export class DevolucionesService {
 
   /**
    * Listar devoluciones pendientes de enviar al proveedor (BAJA_POR_FALLA).
+   * Enriquecido con nombres de modelo, tallas, fotos y proveedores asociados.
    */
   async listarPendientesProveedor(tenantId: string) {
-    return this.prisma.clienteDevolucion.findMany({
+    const devoluciones = await this.prisma.clienteDevolucion.findMany({
       where: {
         tenantId,
         estado: 'PENDIENTE_DEVOLUCION_PROVEEDOR',
       },
-      include: { lines: true },
+      include: {
+        lines: true,
+        tenant: { select: { id: true, name: true } },
+      },
       orderBy: { createdAt: 'asc' },
     });
+
+    const allProductIds = Array.from(
+      new Set(devoluciones.flatMap((d) => d.lines.map((l) => l.productId)).filter(Boolean)),
+    );
+    const allTallaIds = Array.from(
+      new Set(devoluciones.flatMap((d) => d.lines.map((l) => l.tallaId)).filter(Boolean)),
+    );
+
+    const [products, tallas, clients] = await Promise.all([
+      allProductIds.length > 0
+        ? this.prisma.product.findMany({
+            where: { id: { in: allProductIds } },
+            include: {
+              model: {
+                include: {
+                  supplier: { select: { id: true, razonSocial: true, contacto: true } },
+                },
+              },
+              serie: true,
+            },
+          })
+        : [],
+      allTallaIds.length > 0
+        ? this.prisma.tallaConfig.findMany({
+            where: { id: { in: allTallaIds } },
+          })
+        : [],
+      this.prisma.client.findMany({
+        where: { id: { in: Array.from(new Set(devoluciones.map((d) => d.clientId))) } },
+        select: { id: true, nombre: true, apellido: true, telefono: true },
+      }),
+    ]);
+
+    const productMap = new Map(products.map((p) => [p.id, p]));
+    const tallaMap = new Map(tallas.map((t) => [t.id, t.numero]));
+    const clientMap = new Map(clients.map((c) => [c.id, c]));
+
+    return devoluciones.map((d) => {
+      const client = clientMap.get(d.clientId);
+      return {
+        ...d,
+        totalDevuelto: Number(d.totalDevuelto),
+        deudaDescontada: Number(d.deudaDescontada),
+        saldoAFavor: Number(d.saldoAFavor),
+        clienteNombre: client ? `${client.nombre} ${client.apellido}`.trim() : 'Cliente sin registrar',
+        clienteTelefono: client?.telefono || '',
+        lines: d.lines.map((l) => {
+          const prod = productMap.get(l.productId);
+          const numTalla = tallaMap.get(l.tallaId);
+          return {
+            ...l,
+            cantidad: l.cantidad,
+            precioUnitario: Number(l.precioUnitario),
+            subtotal: Number(l.subtotal),
+            numeroTalla: numTalla ?? 38,
+            modelName: prod?.model?.name || 'Calzado Defectuoso',
+            brand: prod?.model?.brand || '',
+            color: prod?.color || '',
+            imageUrl: prod?.imageUrl || null,
+            costPrice: prod ? Number(prod.costPrice) : Number(l.precioUnitario),
+            supplierId: prod?.model?.supplierId || null,
+            supplierNombre: prod?.model?.supplier?.razonSocial || null,
+          };
+        }),
+      };
+    });
+  }
+
+  /**
+   * Registrar manualmente mercadería por devolver / producto defectuoso
+   */
+  async registrarMercaderiaPorDevolverManual(
+    dto: {
+      motivo: string;
+      clientId?: string;
+      lines: {
+        productId: string;
+        tallaId: string;
+        cantidad: number;
+        precioUnitario?: number;
+      }[];
+    },
+    tenantId: string,
+    userId?: string,
+  ) {
+    if (!dto.lines || dto.lines.length === 0) {
+      throw new BadRequestException('Debes incluir al menos un modelo a devolver.');
+    }
+
+    // Si no hay clientId, buscar o usar cliente genérico de tienda
+    let finalClientId = dto.clientId;
+    if (!finalClientId) {
+      const genericClient = await this.prisma.client.findFirst({
+        where: { tenantId },
+        orderBy: { createdAt: 'asc' },
+      });
+      finalClientId = genericClient?.id || 'manual-store';
+    }
+
+    const totalDevuelto = dto.lines.reduce(
+      (acc, l) => acc + l.cantidad * (l.precioUnitario || 0),
+      0,
+    );
+
+    const devolucion = await this.prisma.clienteDevolucion.create({
+      data: {
+        tenantId,
+        clientId: finalClientId,
+        motivo: `[MANUAL/BODEGA] ${dto.motivo || 'Calzado defectuoso separado para devolución a proveedor'}`,
+        totalDevuelto,
+        estado: 'PENDIENTE_DEVOLUCION_PROVEEDOR',
+        destinoStock: 'BAJA_POR_FALLA',
+        deudaDescontada: 0,
+        saldoAFavor: 0,
+        saldoAFavorPagado: true,
+        lines: {
+          create: dto.lines.map((l) => ({
+            productId: l.productId,
+            tallaId: l.tallaId,
+            cantidad: l.cantidad,
+            precioUnitario: l.precioUnitario || 0,
+            subtotal: l.cantidad * (l.precioUnitario || 0),
+          })),
+        },
+      },
+      include: { lines: true },
+    });
+
+    return devolucion;
   }
 
   /**
@@ -530,10 +663,18 @@ export class DevolucionesService {
         });
       }
 
-      // 5. Crear registro de devolucion a proveedor
+      // 5. Asignar correlativo DEV-XXXX
+      const lastDev = await tx.proveedorDevolucion.findFirst({
+        where: { tenantId },
+        orderBy: { numero: 'desc' },
+      });
+      const nextNumero = (lastDev?.numero ?? 0) + 1;
+
+      // 6. Crear registro de devolucion a proveedor
       const devolucion = await tx.proveedorDevolucion.create({
         data: {
           tenantId,
+          numero: nextNumero,
           entradaId: dto.entradaId,
           supplierId: dto.supplierId,
           motivo: dto.motivo,
@@ -558,26 +699,80 @@ export class DevolucionesService {
       return {
         ...devolucion,
         resumenFinanciero: {
+          numeroCodigo: `DEV-${String(nextNumero).padStart(4, '0')}`,
           totalDevuelto,
           deudaDescontada: deudaDescontadaTotal,
           saldoAFavor,
           mensaje: saldoAFavor > 0
-            ? `Se desconto $${deudaDescontadaTotal.toFixed(2)} de la deuda. Saldo a favor del negocio: $${saldoAFavor.toFixed(2)}.`
-            : `Se desconto $${deudaDescontadaTotal.toFixed(2)} de la deuda con el proveedor.`,
+            ? `Se descontó $${deudaDescontadaTotal.toFixed(2)} de la deuda. Saldo a favor del negocio: $${saldoAFavor.toFixed(2)}.`
+            : `Se descontó $${deudaDescontadaTotal.toFixed(2)} de la deuda con el proveedor.`,
         },
       };
     });
   }
 
   /**
-   * Listar devoluciones a proveedores por tenant.
+   * Listar devoluciones a proveedores por tenant con enriquecimiento de productos y tallas.
    */
   async listarDevolucionesProveedor(tenantId: string) {
-    return this.prisma.proveedorDevolucion.findMany({
+    const devoluciones = await this.prisma.proveedorDevolucion.findMany({
       where: { tenantId },
-      include: { lines: true },
+      include: {
+        lines: true,
+        supplier: {
+          select: { id: true, razonSocial: true, ruc: true, contacto: true },
+        },
+      },
       orderBy: { createdAt: 'desc' },
     });
+
+    const allProductIds = Array.from(
+      new Set(devoluciones.flatMap((d) => d.lines.map((l) => l.productId)).filter(Boolean)),
+    );
+    const allTallaIds = Array.from(
+      new Set(devoluciones.flatMap((d) => d.lines.map((l) => l.tallaId)).filter(Boolean)),
+    );
+
+    const [products, tallas] = await Promise.all([
+      allProductIds.length > 0
+        ? this.prisma.product.findMany({
+            where: { id: { in: allProductIds } },
+            include: { model: true, serie: true },
+          })
+        : [],
+      allTallaIds.length > 0
+        ? this.prisma.tallaConfig.findMany({
+            where: { id: { in: allTallaIds } },
+          })
+        : [],
+    ]);
+
+    const productMap = new Map(products.map((p) => [p.id, p]));
+    const tallaMap = new Map(tallas.map((t) => [t.id, t.numero]));
+
+    return devoluciones.map((d) => ({
+      ...d,
+      numeroCodigo: d.numero ? `DEV-${String(d.numero).padStart(4, '0')}` : `DEV-${d.id.slice(0, 4).toUpperCase()}`,
+      totalDevuelto: Number(d.totalDevuelto),
+      deudaDescontada: Number(d.deudaDescontada),
+      saldoAFavor: Number(d.saldoAFavor),
+      totalPares: d.lines.reduce((sum, l) => sum + l.cantidad, 0),
+      lines: d.lines.map((l) => {
+        const prod = productMap.get(l.productId);
+        const numTalla = tallaMap.get(l.tallaId);
+        return {
+          ...l,
+          cantidad: l.cantidad,
+          precioCosto: Number(l.precioCosto),
+          subtotal: Number(l.subtotal),
+          numeroTalla: numTalla ?? 38,
+          modelName: prod?.model?.name || 'Calzado Devuelto',
+          brand: prod?.model?.brand || '',
+          color: prod?.color || '',
+          imageUrl: prod?.imageUrl || null,
+        };
+      }),
+    }));
   }
 
   /**

@@ -56,9 +56,36 @@ export class DevolucionesController {
    * Listar devoluciones de clientes pendientes de devolver al proveedor (BAJA_POR_FALLA)
    */
   @Get('cliente/pendientes-proveedor')
-  @Roles(Rol.ROL_ADMIN, Rol.ROL_SUPER_ADMIN)
+  @Roles(Rol.ROL_ADMIN, Rol.ROL_SUPER_ADMIN, Rol.ROL_BODEGUERO)
   async listarPendientesProveedor(@Req() req: any) {
     return this.devolucionesService.listarPendientesProveedor(req.user.tenantId);
+  }
+
+  /**
+   * POST /devoluciones/mercaderia-por-devolver/manual
+   * Registrar calzado defectuoso directamente en la bandeja de pendientes por devolver
+   */
+  @Post('mercaderia-por-devolver/manual')
+  @Roles(Rol.ROL_ADMIN, Rol.ROL_SUPER_ADMIN, Rol.ROL_BODEGUERO)
+  async registrarMercaderiaPorDevolverManual(
+    @Body()
+    dto: {
+      motivo: string;
+      clientId?: string;
+      lines: {
+        productId: string;
+        tallaId: string;
+        cantidad: number;
+        precioUnitario?: number;
+      }[];
+    },
+    @Req() req: any,
+  ) {
+    return this.devolucionesService.registrarMercaderiaPorDevolverManual(
+      dto,
+      req.user.tenantId,
+      req.user.sub || req.user.id,
+    );
   }
 
   /**
