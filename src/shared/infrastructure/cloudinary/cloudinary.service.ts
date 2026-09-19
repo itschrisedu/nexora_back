@@ -27,7 +27,8 @@ export class CloudinaryService {
   }
 
   /**
-   * Sube una imagen (Base64) de forma firmada y segura a Cloudinary desde el backend.
+   * Sube una imagen (Base64) de forma firmada y segura a Cloudinary desde el backend,
+   * eliminando estrictamente metadatos EXIF, coordenadas GPS, fecha de captura y datos del dispositivo.
    */
   async uploadImage(base64Data: string, folder = 'nexora_calzado'): Promise<{ url: string; publicId: string }> {
     if (!base64Data) {
@@ -36,13 +37,24 @@ export class CloudinaryService {
 
     try {
       const timestamp = Math.floor(Date.now() / 1000).toString();
-      const paramsToSign = { folder, timestamp };
+      const transformation = 'fl_strip_profile';
+      const paramsToSign: Record<string, string> = {
+        folder,
+        timestamp,
+        transformation,
+      };
       const signature = this.generateSignature(paramsToSign);
 
       const formData = new URLSearchParams();
       formData.append('file', base64Data);
       formData.append('folder', folder);
       formData.append('timestamp', timestamp);
+      formData.append('transformation', transformation);
+      formData.append('image_metadata', 'false');
+      formData.append('media_metadata', 'false');
+      formData.append('exif', 'false');
+      formData.append('colors', 'false');
+      formData.append('faces', 'false');
       formData.append('api_key', this.apiKey);
       formData.append('signature', signature);
 
@@ -51,6 +63,8 @@ export class CloudinaryService {
         formData.toString(),
         { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } },
       );
+
+      this.logger.log(`Imagen sanitizada y subida a Cloudinary exitosamente (EXIF y GPS eliminados): ${res.data.public_id}`);
 
       return {
         url: res.data.secure_url || res.data.url,
