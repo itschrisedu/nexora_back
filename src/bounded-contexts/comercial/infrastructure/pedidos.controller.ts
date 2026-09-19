@@ -39,6 +39,7 @@ import { DescontarStockHandler } from '../../inventario/application/commands/Des
 import { DescontarStockCommand } from '../../inventario/application/commands/DescontarStock.command';
 import { ComercialQueryService } from '../application/queries/ComercialQueryService';
 import { PrismaService } from '../../../shared/infrastructure/prisma/prisma.service';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 
 // Controlador REST para gestionar operaciones comerciales y pedidos.
 @Controller('pedidos')
@@ -55,6 +56,7 @@ export class PedidosController {
     private readonly descontarStockHandler: DescontarStockHandler,
     private readonly queryService: ComercialQueryService,
     private readonly prisma: PrismaService,
+    private readonly eventEmitter: EventEmitter2,
   ) {}
 
   // ══════════════════════════════
@@ -401,6 +403,13 @@ export class PedidosController {
 
     // 2. Ejecutar descuento físico y actualización por ítem
     let totalEntregadoEnEstaTransaccion = 0;
+    const lineasEntregadasEnEstaTransaccion: Array<{
+      productId: string;
+      serieId: string;
+      tallaId: string;
+      cantidad: number;
+      precioUnitario: number;
+    }> = [];
 
     for (const item of dto.items) {
       if (item.cantidadAEntregar <= 0) continue;
@@ -477,12 +486,25 @@ export class PedidosController {
         },
       });
 
+      lineasEntregadasEnEstaTransaccion.push({
+        productId: line.productId,
+        serieId: line.serieId,
+        tallaId: line.tallaId,
+        cantidad: item.cantidadAEntregar,
+        precioUnitario: Number(line.precioUnitario),
+      });
+
       totalEntregadoEnEstaTransaccion += item.cantidadAEntregar;
     }
 
     if (totalEntregadoEnEstaTransaccion === 0) {
       throw new BadRequestException('No se especificaron cantidades válidas mayores a 0 para entregar');
     }
+
+    const montoEntregadoEnEstaTransaccion = lineasEntregadasEnEstaTransaccion.reduce(
+      (acc, l) => acc + l.cantidad * l.precioUnitario,
+      0,
+    );
 
     // 3. Evaluar estado global del pedido
     const lineasActualizadas = await this.prisma.orderLine.findMany({
@@ -495,23 +517,31 @@ export class PedidosController {
     let nuevoEstado: EstadoPedido = pedido.estado;
     if (todoCompletado) {
       nuevoEstado = EstadoPedido.ENTREGADO;
-      try {
-        await this.confirmarEntregaHandler.execute({
-          pedidoId: pedido.id,
-          userId,
-        });
-      } catch (e: any) {
-        await this.prisma.order.update({
-          where: { id: pedido.id },
-          data: { estado: EstadoPedido.ENTREGADO },
-        });
-      }
+      await this.prisma.order.update({
+        where: { id: pedido.id },
+        data: { estado: EstadoPedido.ENTREGADO },
+      });
     } else if (algunEntregado) {
       nuevoEstado = EstadoPedido.ENTREGADO_PARCIAL;
       await this.prisma.order.update({
         where: { id: pedido.id },
         data: { estado: EstadoPedido.ENTREGADO_PARCIAL },
       });
+    }
+
+    // 4. Emitir PedidoEntregado para generar Nota de Entrega y Cobro/Deuda en Cartera por el lote entregado
+    try {
+      this.eventEmitter.emit('PedidoEntregado', {
+        pedidoId: pedido.id,
+        clientId: pedido.clientId,
+        montoFinal: montoEntregadoEnEstaTransaccion,
+        lineasEntregadas: lineasEntregadasEnEstaTransaccion,
+        tipoPago: pedido.tipoPago,
+        canal: pedido.canal,
+        yaDescontado: true,
+      });
+    } catch (e: any) {
+      // Registrar log si ocurre excepción en emisión
     }
 
     const pedidoActualizado = await this.queryService.obtenerPedido(pedido.id);

@@ -69,7 +69,12 @@ export class InventarioPedidoListener {
   async handlePedidoEntregado(payload: {
     pedidoId: string;
     lineasEntregadas: Array<{ productId: string; tallaId: string; cantidad: number }>;
+    yaDescontado?: boolean;
   }) {
+    if (payload.yaDescontado) {
+      this.logger.log(`ℹ️ Stock ya descontado en entrega previa para pedido: ${payload.pedidoId}`);
+      return;
+    }
     this.logger.log(`🔄 Reaccionando a PedidoEntregado para consolidar stock final de pedido: ${payload.pedidoId}`);
     try {
       // 1. Liberar todas las reservas pendientes asociadas a este pedido para devolver el stock al estado normal
