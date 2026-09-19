@@ -172,20 +172,27 @@ export class ComercialQueryService {
       });
     }
 
-    // Collect productIds and tallaIds from all lines
+    // Collect productIds, tallaIds and serieIds from all lines
     const allLines = orders.flatMap((o) => o.lines || []);
     const productIds = Array.from(new Set(allLines.map((l: any) => l.productId).filter(Boolean)));
     const tallaIds = Array.from(new Set(allLines.map((l: any) => l.tallaId).filter(Boolean)));
+    const serieIds = Array.from(new Set(allLines.map((l: any) => l.serieId).filter(Boolean)));
 
     const productMap = new Map<string, any>();
     const tallaMap = new Map<string, number>();
+    const serieMap = new Map<string, string>();
 
     if (productIds.length > 0) {
       const products = await this.prisma.product.findMany({
         where: { id: { in: productIds as string[] } },
         include: { model: true, serie: true, stockByTalla: true },
       });
-      products.forEach((p) => productMap.set(p.id, p));
+      products.forEach((p) => {
+        productMap.set(p.id, p);
+        if (p.serieId && p.serie?.nombre) {
+          serieMap.set(p.serieId, p.serie.nombre);
+        }
+      });
     }
 
     if (tallaIds.length > 0) {
@@ -193,6 +200,14 @@ export class ComercialQueryService {
         where: { id: { in: tallaIds as string[] } },
       });
       tallas.forEach((t) => tallaMap.set(t.id, t.numero));
+    }
+
+    const missingSerieIds = serieIds.filter((id) => !serieMap.has(id));
+    if (missingSerieIds.length > 0) {
+      const series = await this.prisma.seriesConfig.findMany({
+        where: { id: { in: missingSerieIds as string[] } },
+      });
+      series.forEach((s) => serieMap.set(s.id, s.nombre));
     }
 
     // Calcular numeración correlativa cronológica (PED-0001, PED-0002, ...)
@@ -205,7 +220,7 @@ export class ComercialQueryService {
     });
 
     return orders.map((o) => {
-      const formatted = this.formatPedido(o, productMap, tallaMap, orderNumberMap.get(o.id));
+      const formatted = this.formatPedido(o, productMap, tallaMap, serieMap, orderNumberMap.get(o.id));
       return {
         ...formatted,
         clienteNombre: clientMap.get(o.clientId) || 'Consumidor Final',
@@ -219,6 +234,7 @@ export class ComercialQueryService {
     record: any,
     productMap?: Map<string, any>,
     tallaMap?: Map<string, number>,
+    serieMap?: Map<string, string>,
     numeroCodigo?: string,
   ) {
     return {
@@ -248,6 +264,7 @@ export class ComercialQueryService {
         const stockDisponible = stockFisico;
         const cantidadEntregada = l.cantidadEntregada || 0;
         const cantidadPendiente = Math.max(0, l.cantidad - cantidadEntregada);
+        const serieResuelta = (l.serieId ? serieMap?.get(l.serieId) : null) || prod?.serie?.nombre || (prod?.serieId ? serieMap?.get(prod.serieId) : null) || l.serieNombre || 'Estándar';
 
         return {
           id: l.id,
@@ -265,7 +282,7 @@ export class ComercialQueryService {
           modelName: prod?.model?.name || l.modelName || 'Calzado',
           color: prod?.color || l.color || '',
           imageUrl: prod?.imageUrl || l.imageUrl || null,
-          serieNombre: prod?.serie?.nombre || l.serieNombre || 'Estándar',
+          serieNombre: serieResuelta,
           numeroTalla: numeroTalla ?? 0,
         };
       }),
