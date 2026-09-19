@@ -554,6 +554,76 @@ export class CatalogoService {
   }
 
   /**
+   * Obtener detalle público de pedido de cliente (fotos de modelo y numeración)
+   */
+  async obtenerPedidoPublico(numeroOrId: string) {
+    if (!numeroOrId) {
+      throw new NotFoundException('Identificador de pedido requerido');
+    }
+
+    const cleanId = numeroOrId.replace(/^#|^PED-?/i, '').trim();
+
+    const order = await this.prisma.order.findFirst({
+      where: {
+        OR: [
+          { id: cleanId },
+          { id: { startsWith: cleanId } },
+          { id: numeroOrId },
+        ],
+      },
+      include: {
+        lines: true,
+      },
+    });
+
+    if (!order) {
+      throw new NotFoundException('Pedido no encontrado');
+    }
+
+    const productIds = order.lines.map((l) => l.productId);
+    const products = await this.prisma.product.findMany({
+      where: { id: { in: productIds } },
+      include: {
+        model: {
+          include: {
+            products: {
+              where: { imageUrl: { not: null } },
+              select: { imageUrl: true },
+              take: 1,
+            },
+          },
+        },
+        serie: true,
+      },
+    });
+
+    const productMap = new Map<string, any>();
+    products.forEach((p) => productMap.set(p.id, p));
+
+    return {
+      id: order.id,
+      observaciones: order.notas,
+      lineas: order.lines.map((l) => {
+        const prod = productMap.get(l.productId);
+        const fallbackImg = prod?.model?.products?.find((p: any) => p.imageUrl)?.imageUrl || '';
+        const resolvedImageUrl = prod?.imageUrl || fallbackImg || '';
+
+        return {
+          productId: l.productId,
+          codigo: prod?.code || '',
+          modelo: prod?.model ? `${prod.model.brand} ${prod.model.name}` : prod?.code || 'Calzado',
+          color: prod?.color || '',
+          serie: prod?.serie?.nombre || '',
+          imageUrl: resolvedImageUrl,
+          cantidad: l.cantidad,
+          cantidadEntregada: l.cantidadEntregada,
+          precioUnitario: Number(l.precioUnitario),
+        };
+      }),
+    };
+  }
+
+  /**
    * Resuelve el tenant activo (por id o primer tenant existente)
    */
   private async resolveTenant(tenantIdParam?: string) {

@@ -244,8 +244,8 @@ export class ComercialQueryService {
         const prod = productMap?.get(l.productId);
         const numeroTalla = tallaMap?.get(l.tallaId) ?? l.numeroTalla;
         const stockTalla = prod?.stockByTalla?.find((s: any) => s.tallaId === l.tallaId);
-        const stockDisponible = stockTalla ? Math.max(0, stockTalla.quantity - (stockTalla.reservedQuantity || 0)) : 0;
         const stockFisico = stockTalla ? stockTalla.quantity : 0;
+        const stockDisponible = stockFisico;
         const cantidadEntregada = l.cantidadEntregada || 0;
         const cantidadPendiente = Math.max(0, l.cantidad - cantidadEntregada);
 

@@ -66,6 +66,14 @@ export class CatalogoController {
   }
 
   /**
+   * Obtener detalle público de pedido de cliente (fotos de modelo y numeración para cliente)
+   */
+  @Get('pedido-publico/:numeroOrId')
+  async obtenerPedidoPublico(@Param('numeroOrId') numeroOrId: string) {
+    return this.catalogoService.obtenerPedidoPublico(numeroOrId);
+  }
+
+  /**
    * Registrar un pedido generado desde el catálogo público de WhatsApp
    */
   @Post('pedido-whatsapp')
