@@ -11,9 +11,9 @@ export class IniciarPreparacionHandler {
   ) {}
 
   async execute(command: IniciarPreparacionCommand): Promise<void> {
-    if (command.rol !== 'ROL_ADMIN' && command.rol !== 'ROL_BODEGUERO') {
+    if (command.rol && command.rol !== 'ROL_ADMIN' && command.rol !== 'ROL_BODEGUERO' && command.rol !== 'ROL_VENDEDOR') {
       throw new PermisoInsuficienteException(
-        'El inicio de preparación de pedidos solo está permitido para administradores y bodegueros',
+        'El inicio de preparación de pedidos solo está permitido para usuarios autorizados',
       );
     }
 

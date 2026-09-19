@@ -150,3 +150,21 @@ export class ActualizarEstadoPedidoDto {
   motivo?: string;
 }
 
+export class ItemAEntregarDto {
+  @IsString()
+  @IsNotEmpty()
+  lineId!: string;
+
+  @IsInt()
+  @Min(1)
+  cantidadAEntregar!: number;
+}
+
+export class EntregarItemsPedidoDto {
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => ItemAEntregarDto)
+  items!: ItemAEntregarDto[];
+}
+
+

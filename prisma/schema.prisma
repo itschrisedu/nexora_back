@@ -449,6 +449,7 @@ enum EstadoPedido {
   MODIFICADO
   CANCELADO
   ENTREGADO
+  ENTREGADO_PARCIAL
 }
 
 enum CanalEntrada {
@@ -496,15 +497,16 @@ model Order {
 }
 
 model OrderLine {
-  id             String    @id @default(uuid())
-  orderId        String
-  productId      String
-  serieId        String
-  tallaId        String
-  cantidad       Int
-  precioUnitario Decimal   @db.Decimal(10, 2)
-  tipoVenta      TipoVenta
-  order          Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  id                String    @id @default(uuid())
+  orderId           String
+  productId         String
+  serieId           String
+  tallaId           String
+  cantidad          Int
+  cantidadEntregada Int       @default(0)
+  precioUnitario    Decimal   @db.Decimal(10, 2)
+  tipoVenta         TipoVenta
+  order             Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
 
   @@map("order_lines")
 }

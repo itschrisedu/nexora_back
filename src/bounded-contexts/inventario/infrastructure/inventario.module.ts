@@ -52,6 +52,7 @@ import { InventarioQueryService } from '../application/queries/InventarioQuerySe
     ReservarStockHandler,
     LiberarReservaHandler,
     AumentarStockHandler,
+    DescontarStockHandler,
   ],
 })
 export class InventarioModule {}

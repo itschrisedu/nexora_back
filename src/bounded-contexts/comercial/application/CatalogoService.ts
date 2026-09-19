@@ -140,7 +140,13 @@ export class CatalogoService {
         products: {
           where: { active: true },
           include: {
-            serie: true,
+            serie: {
+              include: {
+                tallas: {
+                  orderBy: { numero: 'asc' },
+                },
+              },
+            },
             stockByTalla: {
               include: { talla: true },
               orderBy: { talla: { numero: 'asc' } },
@@ -171,11 +177,50 @@ export class CatalogoService {
         precioMin,
         precioMax,
         variantes: m.products.map((p) => {
-          const sortedStock = (p.stockByTalla || [])
-            .slice()
-            .sort((a, b) => (Number(a.talla?.numero) || 0) - (Number(b.talla?.numero) || 0));
+          const stockMap = new Map<string, { quantity: number; reserved: number; numero: number; tallaId: string }>();
+          (p.stockByTalla || []).forEach((st) => {
+            if (st.tallaId) {
+              stockMap.set(st.tallaId, {
+                quantity: st.quantity || 0,
+                reserved: st.reservedQuantity || 0,
+                numero: st.talla?.numero || 0,
+                tallaId: st.tallaId,
+              });
+            }
+          });
 
-          const totalStock = sortedStock.reduce((acc, curr) => acc + (curr.quantity || 0), 0);
+          const tallasSerieOficiales = (p.serie?.tallas || []).slice().sort((a, b) => a.numero - b.numero);
+
+          let listaTallasFinal: Array<{
+            tallaId: string;
+            numero: number;
+            stock: number;
+            disponible: number;
+          }> = [];
+
+          if (tallasSerieOficiales.length > 0) {
+            listaTallasFinal = tallasSerieOficiales.map((tOficial) => {
+              const stockItem = stockMap.get(tOficial.id);
+              const stockQty = stockItem ? stockItem.quantity : 0;
+              const reservedQty = stockItem ? stockItem.reserved : 0;
+              return {
+                tallaId: tOficial.id,
+                numero: tOficial.numero,
+                stock: stockQty,
+                disponible: Math.max(0, stockQty - reservedQty),
+              };
+            });
+          } else {
+            const sortedStock = (p.stockByTalla || []).slice().sort((a, b) => (Number(a.talla?.numero) || 0) - (Number(b.talla?.numero) || 0));
+            listaTallasFinal = sortedStock.map((st) => ({
+              tallaId: st.tallaId,
+              numero: st.talla?.numero || 0,
+              stock: st.quantity || 0,
+              disponible: Math.max(0, (st.quantity || 0) - (st.reservedQuantity || 0)),
+            }));
+          }
+
+          const totalStock = listaTallasFinal.reduce((acc, curr) => acc + curr.stock, 0);
 
           return {
             id: p.id,
@@ -185,12 +230,7 @@ export class CatalogoService {
             salePrice: Number(p.salePrice),
             serieNombre: p.serie?.nombre || '',
             totalStock,
-            tallas: sortedStock.map((st) => ({
-              tallaId: st.tallaId,
-              numero: st.talla?.numero,
-              stock: st.quantity,
-              disponible: (st.quantity || 0) - (st.reservedQuantity || 0),
-            })),
+            tallas: listaTallasFinal,
           };
         }),
       };
@@ -248,7 +288,13 @@ export class CatalogoService {
         products: {
           where: { active: true },
           include: {
-            serie: true,
+            serie: {
+              include: {
+                tallas: {
+                  orderBy: { numero: 'asc' },
+                },
+              },
+            },
             stockByTalla: {
               include: {
                 talla: true,
@@ -270,12 +316,63 @@ export class CatalogoService {
       brand: m.brand,
       material: m.material,
       variantes: m.products.map((p) => {
-        const sortedStockByTalla = (p.stockByTalla || [])
-          .slice()
-          .sort((a, b) => (Number(a.talla?.numero) || 0) - (Number(b.talla?.numero) || 0));
+        // Stock por talla existente en bodega
+        const stockMap = new Map<string, { quantity: number; reserved: number; numero: number; tallaId: string }>();
+        (p.stockByTalla || []).forEach((st) => {
+          if (st.tallaId) {
+            stockMap.set(st.tallaId, {
+              quantity: st.quantity || 0,
+              reserved: st.reservedQuantity || 0,
+              numero: st.talla?.numero || 0,
+              tallaId: st.tallaId,
+            });
+          }
+        });
 
-        const positiveQuantities = sortedStockByTalla.map((st) => st.quantity).filter((q) => q > 0);
-        const minPositive = positiveQuantities.length > 0 ? Math.min(...positiveQuantities) : 1;
+        // Tallas oficiales de la serie asignada
+        const tallasSerieOficiales = (p.serie?.tallas || []).slice().sort((a, b) => a.numero - b.numero);
+
+        // Si la serie tiene tallas definidas, usamos las de la serie; si no, fallback a stockByTalla
+        let listaTallasFinal: Array<{
+          tallaId: string;
+          numero: number;
+          cantidad: number;
+          stock: number;
+          disponible: number;
+          ratio: number;
+          cantidadSerie: number;
+        }> = [];
+
+        if (tallasSerieOficiales.length > 0) {
+          listaTallasFinal = tallasSerieOficiales.map((tOficial) => {
+            const stockItem = stockMap.get(tOficial.id);
+            const stockQty = stockItem ? stockItem.quantity : 0;
+            const reservedQty = stockItem ? stockItem.reserved : 0;
+            return {
+              tallaId: tOficial.id,
+              numero: tOficial.numero,
+              cantidad: stockQty,
+              stock: stockQty,
+              disponible: Math.max(0, stockQty - reservedQty),
+              ratio: 1, // 1 par por talla para Media Docena estándar
+              cantidadSerie: 1,
+            };
+          });
+        } else {
+          // Fallback en caso de que la serie no tenga tallas en BD
+          const sortedStock = (p.stockByTalla || []).slice().sort((a, b) => (Number(a.talla?.numero) || 0) - (Number(b.talla?.numero) || 0));
+          listaTallasFinal = sortedStock.map((st) => ({
+            tallaId: st.tallaId,
+            numero: st.talla?.numero || 0,
+            cantidad: st.quantity || 0,
+            stock: st.quantity || 0,
+            disponible: Math.max(0, (st.quantity || 0) - (st.reservedQuantity || 0)),
+            ratio: 1,
+            cantidadSerie: 1,
+          }));
+        }
+
+        const totalStock = listaTallasFinal.reduce((acc, t) => acc + t.stock, 0);
 
         return {
           id: p.id,
@@ -284,19 +381,10 @@ export class CatalogoService {
           imageUrl: p.imageUrl,
           costPrice: Number(p.costPrice),
           salePrice: Number(p.salePrice),
-          serieNombre: p.serie.nombre,
-          serieId: p.serie.id,
-          tallas: sortedStockByTalla.map((st) => {
-            const baseRatio = minPositive > 0 ? Math.max(1, Math.round(st.quantity / minPositive)) : 1;
-            return {
-              tallaId: st.tallaId,
-              numero: st.talla?.numero,
-              cantidad: st.quantity,
-              stock: st.quantity,
-              ratio: baseRatio,
-              cantidadSerie: baseRatio,
-            };
-          }),
+          serieNombre: p.serie?.nombre || '',
+          serieId: p.serie?.id || p.serieId,
+          totalStock,
+          tallas: listaTallasFinal,
         };
       }),
     }));

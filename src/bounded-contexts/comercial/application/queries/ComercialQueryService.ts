@@ -47,6 +47,48 @@ export class ComercialQueryService {
     if (tenantId) {
       where.tenantId = tenantId;
     }
+
+    // Auto-evaluar pedidos en EN_ESPERA_STOCK
+    try {
+      const enEspera = await this.prisma.order.findMany({
+        where: {
+          ...where,
+          estado: PrismaEstadoPedido.EN_ESPERA_STOCK,
+        },
+        include: { lines: true },
+      });
+
+      for (const ped of enEspera) {
+        let tieneStock = true;
+        for (const line of ped.lines) {
+          const stock = await this.prisma.stockByTalla.findUnique({
+            where: {
+              productId_tallaId: {
+                productId: line.productId,
+                tallaId: line.tallaId,
+              },
+            },
+          });
+          if (!stock || stock.quantity <= 0) {
+            tieneStock = false;
+            break;
+          }
+        }
+        if (tieneStock && ped.lines.length > 0) {
+          await this.prisma.order.update({
+            where: { id: ped.id },
+            data: { estado: PrismaEstadoPedido.EN_PREPARACION },
+          });
+          await this.prisma.orderQueue.updateMany({
+            where: { orderId: ped.id, activa: true },
+            data: { activa: false, activadaAt: new Date() },
+          });
+        }
+      }
+    } catch (e) {
+      // Ignorar si falla auto-sync
+    }
+
     const orders = await this.prisma.order.findMany({
       where,
       include: { lines: true, queueEntry: true, tenant: { select: { id: true, name: true } } },
@@ -141,7 +183,7 @@ export class ComercialQueryService {
     if (productIds.length > 0) {
       const products = await this.prisma.product.findMany({
         where: { id: { in: productIds as string[] } },
-        include: { model: true, serie: true },
+        include: { model: true, serie: true, stockByTalla: true },
       });
       products.forEach((p) => productMap.set(p.id, p));
     }
@@ -201,12 +243,22 @@ export class ComercialQueryService {
       lines: record.lines?.map((l: any) => {
         const prod = productMap?.get(l.productId);
         const numeroTalla = tallaMap?.get(l.tallaId) ?? l.numeroTalla;
+        const stockTalla = prod?.stockByTalla?.find((s: any) => s.tallaId === l.tallaId);
+        const stockDisponible = stockTalla ? Math.max(0, stockTalla.quantity - (stockTalla.reservedQuantity || 0)) : 0;
+        const stockFisico = stockTalla ? stockTalla.quantity : 0;
+        const cantidadEntregada = l.cantidadEntregada || 0;
+        const cantidadPendiente = Math.max(0, l.cantidad - cantidadEntregada);
+
         return {
           id: l.id,
           productId: l.productId,
           serieId: l.serieId,
           tallaId: l.tallaId,
           cantidad: l.cantidad,
+          cantidadEntregada,
+          cantidadPendiente,
+          stockDisponible,
+          stockFisico,
           precioUnitario: Number(l.precioUnitario),
           subtotal: l.cantidad * Number(l.precioUnitario),
           tipoVenta: l.tipoVenta,

@@ -22,6 +22,7 @@ import {
   ModificarEnTransitoDto,
   ActualizarEstadoPedidoDto,
   ActualizarEnvioPedidoDto,
+  EntregarItemsPedidoDto,
 } from './dto/pedidos.dto';
 import { CrearPedidoHandler } from '../application/commands/CrearPedido.handler';
 import { CrearPedidoCommand } from '../application/commands/CrearPedido.command';
@@ -34,6 +35,8 @@ import { CancelarPedidoCommand } from '../application/commands/CancelarPedido.co
 import { ConfirmarSeparacionBodegaHandler } from '../application/commands/ConfirmarSeparacionBodega.handler';
 import { RegistrarModificacionEnTransitoHandler } from '../application/commands/RegistrarModificacionEnTransito.handler';
 import { ConfirmarEntregaHandler } from '../application/commands/ConfirmarEntrega.handler';
+import { DescontarStockHandler } from '../../inventario/application/commands/DescontarStock.handler';
+import { DescontarStockCommand } from '../../inventario/application/commands/DescontarStock.command';
 import { ComercialQueryService } from '../application/queries/ComercialQueryService';
 import { PrismaService } from '../../../shared/infrastructure/prisma/prisma.service';
 
@@ -49,6 +52,7 @@ export class PedidosController {
     private readonly confirmarSeparacionHandler: ConfirmarSeparacionBodegaHandler,
     private readonly modificarEnTransitoHandler: RegistrarModificacionEnTransitoHandler,
     private readonly confirmarEntregaHandler: ConfirmarEntregaHandler,
+    private readonly descontarStockHandler: DescontarStockHandler,
     private readonly queryService: ComercialQueryService,
     private readonly prisma: PrismaService,
   ) {}
@@ -328,6 +332,198 @@ export class PedidosController {
       userId: req.user.sub,
     });
     return { message: 'Pedido entregado exitosamente' };
+  }
+
+  /**
+   * Entregar ítems específicos o parciales de un pedido.
+   * Valida stock en bodega, descuenta el inventario real, actualiza cantidadEntregada
+   * y ajusta el estado a ENTREGADO o ENTREGADO_PARCIAL según corresponda.
+   */
+  @Post(':id/entregar-items')
+  @Roles(Rol.ROL_ADMIN, Rol.ROL_VENDEDOR, Rol.ROL_BODEGUERO)
+  async entregarItems(
+    @Param('id') id: string,
+    @Body() dto: EntregarItemsPedidoDto,
+    @Req() req: any,
+  ) {
+    const pedido = await this.prisma.order.findUnique({
+      where: { id },
+      include: { lines: true },
+    });
+
+    if (!pedido) {
+      throw new NotFoundException(`El pedido con ID "${id}" no existe`);
+    }
+
+    if (pedido.estado === EstadoPedido.CANCELADO || pedido.estado === EstadoPedido.ENTREGADO) {
+      throw new BadRequestException(`No se pueden entregar ítems de un pedido en estado ${pedido.estado}`);
+    }
+
+    if (!dto.items || dto.items.length === 0) {
+      throw new BadRequestException('Debe especificar al menos un ítem para entregar');
+    }
+
+    const userId = req.user.sub || req.user.id;
+
+    // 1. Validaciones previas de cada línea y existencias
+    for (const item of dto.items) {
+      const line = pedido.lines.find((l) => l.id === item.lineId);
+      if (!line) {
+        throw new NotFoundException(`La línea de pedido "${item.lineId}" no pertenece a este pedido`);
+      }
+
+      if (item.cantidadAEntregar <= 0) {
+        continue;
+      }
+
+      const restante = line.cantidad - (line.cantidadEntregada || 0);
+      if (item.cantidadAEntregar > restante) {
+        throw new BadRequestException(
+          `La cantidad a entregar (${item.cantidadAEntregar}) supera los ${restante} pares pendientes de esta línea`,
+        );
+      }
+
+      const stock = await this.prisma.stockByTalla.findUnique({
+        where: {
+          productId_tallaId: {
+            productId: line.productId,
+            tallaId: line.tallaId,
+          },
+        },
+      });
+
+      if (!stock || stock.quantity < item.cantidadAEntregar) {
+        throw new BadRequestException(
+          `Stock físico insuficiente en bodega. Hay ${stock ? stock.quantity : 0} pares disponibles y se intentan entregar ${item.cantidadAEntregar}`,
+        );
+      }
+    }
+
+    // 2. Ejecutar descuento físico y actualización por ítem
+    let totalEntregadoEnEstaTransaccion = 0;
+
+    for (const item of dto.items) {
+      if (item.cantidadAEntregar <= 0) continue;
+
+      const line = pedido.lines.find((l) => l.id === item.lineId)!;
+
+      // Descontar del inventario físico real
+      await this.descontarStockHandler.execute(
+        new DescontarStockCommand(
+          line.productId,
+          line.tallaId,
+          item.cantidadAEntregar,
+          'ENTREGA_PEDIDO_PARCIAL_O_TOTAL',
+          pedido.id,
+          userId,
+        ),
+      );
+
+      // Ajustar reservas asociadas para evitar desbalance en reservedQuantity
+      const reservas = await this.prisma.stockReservation.findMany({
+        where: {
+          referenceId: pedido.id,
+          productId: line.productId,
+          tallaId: line.tallaId,
+          canceled: false,
+        },
+      });
+
+      let porLiberar = item.cantidadAEntregar;
+      for (const res of reservas) {
+        if (porLiberar <= 0) break;
+        if (res.quantity <= porLiberar) {
+          await this.prisma.stockReservation.update({
+            where: { id: res.id },
+            data: { canceled: true },
+          });
+          await this.prisma.stockByTalla.update({
+            where: {
+              productId_tallaId: {
+                productId: line.productId,
+                tallaId: line.tallaId,
+              },
+            },
+            data: {
+              reservedQuantity: { decrement: res.quantity },
+            },
+          });
+          porLiberar -= res.quantity;
+        } else {
+          await this.prisma.stockReservation.update({
+            where: { id: res.id },
+            data: { quantity: { decrement: porLiberar } },
+          });
+          await this.prisma.stockByTalla.update({
+            where: {
+              productId_tallaId: {
+                productId: line.productId,
+                tallaId: line.tallaId,
+              },
+            },
+            data: {
+              reservedQuantity: { decrement: porLiberar },
+            },
+          });
+          porLiberar = 0;
+        }
+      }
+
+      // Actualizar cantidad entregada acumulada en la línea
+      await this.prisma.orderLine.update({
+        where: { id: line.id },
+        data: {
+          cantidadEntregada: { increment: item.cantidadAEntregar },
+        },
+      });
+
+      totalEntregadoEnEstaTransaccion += item.cantidadAEntregar;
+    }
+
+    if (totalEntregadoEnEstaTransaccion === 0) {
+      throw new BadRequestException('No se especificaron cantidades válidas mayores a 0 para entregar');
+    }
+
+    // 3. Evaluar estado global del pedido
+    const lineasActualizadas = await this.prisma.orderLine.findMany({
+      where: { orderId: pedido.id },
+    });
+
+    const todoCompletado = lineasActualizadas.every((l) => (l.cantidadEntregada || 0) >= l.cantidad);
+    const algunEntregado = lineasActualizadas.some((l) => (l.cantidadEntregada || 0) > 0);
+
+    let nuevoEstado: EstadoPedido = pedido.estado;
+    if (todoCompletado) {
+      nuevoEstado = EstadoPedido.ENTREGADO;
+      try {
+        await this.confirmarEntregaHandler.execute({
+          pedidoId: pedido.id,
+          userId,
+        });
+      } catch (e: any) {
+        await this.prisma.order.update({
+          where: { id: pedido.id },
+          data: { estado: EstadoPedido.ENTREGADO },
+        });
+      }
+    } else if (algunEntregado) {
+      nuevoEstado = EstadoPedido.ENTREGADO_PARCIAL;
+      await this.prisma.order.update({
+        where: { id: pedido.id },
+        data: { estado: EstadoPedido.ENTREGADO_PARCIAL },
+      });
+    }
+
+    const pedidoActualizado = await this.queryService.obtenerPedido(pedido.id);
+
+    return {
+      success: true,
+      estado: nuevoEstado,
+      message: todoCompletado
+        ? 'Pedido completado y entregado al 100% con éxito.'
+        : `Entrega parcial registrada (${totalEntregadoEnEstaTransaccion} pares entregados). El pedido queda con saldo pendiente.`,
+      pedido: pedidoActualizado,
+    };
   }
 
   // ══════════════════════════════
