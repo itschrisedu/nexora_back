@@ -31,7 +31,9 @@ async function bootstrap() {
 
   // CORS — permite conexiones desde el frontend
   app.enableCors({
-    origin: process.env.FRONTEND_URL || 'http://localhost:3000',
+    origin: process.env.FRONTEND_URL
+      ? process.env.FRONTEND_URL.split(',').map((url) => url.trim())
+      : true,
     credentials: true,
   });
 
