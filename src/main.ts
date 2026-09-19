@@ -38,8 +38,8 @@ async function bootstrap() {
   });
 
   const port = process.env.PORT || 3001;
-  await app.listen(port);
-  logger.log(`🚀 NEXORA Backend corriendo en http://localhost:${port}/api`);
+  await app.listen(port, '0.0.0.0');
+  logger.log(`🚀 NEXORA Backend corriendo en puerto ${port}`);
 }
 
 bootstrap();
