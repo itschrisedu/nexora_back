@@ -20,7 +20,7 @@ export class PrismaProductoRepository extends IProductoRepository {
       include: {
         model: true,
         serie: true,
-        stockByTalla: true,
+        stockByTalla: { include: { talla: true } },
         priceHistory: { orderBy: { createdAt: 'desc' } },
       },
     });
@@ -35,7 +35,7 @@ export class PrismaProductoRepository extends IProductoRepository {
       include: {
         model: true,
         serie: true,
-        stockByTalla: true,
+        stockByTalla: { include: { talla: true } },
         priceHistory: { orderBy: { createdAt: 'desc' } },
       },
     });
@@ -50,7 +50,7 @@ export class PrismaProductoRepository extends IProductoRepository {
       include: {
         model: true,
         serie: true,
-        stockByTalla: true,
+        stockByTalla: { include: { talla: true } },
         priceHistory: { orderBy: { createdAt: 'desc' } },
       },
       orderBy: { code: 'asc' },
@@ -72,7 +72,7 @@ export class PrismaProductoRepository extends IProductoRepository {
       include: {
         model: true,
         serie: true,
-        stockByTalla: true,
+        stockByTalla: { include: { talla: true } },
         priceHistory: { orderBy: { createdAt: 'desc' } },
       },
     });
@@ -200,14 +200,17 @@ export class PrismaProductoRepository extends IProductoRepository {
 
   private toDomain(record: any): Producto {
     const serie = Serie.create(record.serie.nombre);
+    const modelName = record.model?.name || record.code || 'Calzado';
 
     const stockPorTallaList: StockPorTalla[] = record.stockByTalla.map(
       (s: any) =>
         StockPorTalla.create(
           s.tallaId,
           s.quantity,
-          s.reservedQuantity,
+          Math.min(s.reservedQuantity, s.quantity),
           s.minStock,
+          s.talla?.numero,
+          modelName,
         ),
     );
 

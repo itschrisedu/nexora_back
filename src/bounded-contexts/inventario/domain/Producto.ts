@@ -1,3 +1,4 @@
+import { BadRequestException } from '@nestjs/common';
 import { AggregateRoot } from '../../../shared/domain/AggregateRoot';
 import { Money } from '../../../shared/domain/Money';
 import { Serie } from './value-objects/Serie';
@@ -225,6 +226,8 @@ export class Producto extends AggregateRoot {
         tallaId,
         stock.cantidadDisponible,
         cantidad,
+        this._modelName || this.code,
+        stock.numeroTalla,
       );
     }
 
@@ -357,7 +360,10 @@ export class Producto extends AggregateRoot {
   private obtenerStockOError(tallaId: string): StockPorTalla {
     const stock = this._stockPorTalla.get(tallaId);
     if (!stock) {
-      throw new Error(`Talla con ID ${tallaId} no está configurada para este producto`);
+      const nombre = this._modelName ? `el modelo "${this._modelName}"` : `el producto "${this.code}"`;
+      throw new BadRequestException(
+        `La talla seleccionada no está configurada para ${nombre}`,
+      );
     }
     return stock;
   }

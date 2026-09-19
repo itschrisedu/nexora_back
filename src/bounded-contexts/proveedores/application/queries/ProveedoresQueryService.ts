@@ -145,19 +145,6 @@ export class ProveedoresQueryService {
       });
     });
 
-    supplier.orders.forEach((o) => {
-      movimientos.push({
-        id: o.id,
-        tipo: 'ORDEN_COMPRA',
-        titulo: `Orden de Compra #OC-${String(o.numero).padStart(4, '0')}`,
-        numeroCodigo: `OC-${String(o.numero).padStart(4, '0')}`,
-        descripcion: o.observaciones || `${o.lines.length} producto(s) pedidos`,
-        monto: Number(o.total),
-        estado: o.estado,
-        fecha: o.createdAt.toISOString(),
-      });
-    });
-
     // Ordenar cronológicamente descendente
     movimientos.sort((a, b) => new Date(b.fecha).getTime() - new Date(a.fecha).getTime());
 

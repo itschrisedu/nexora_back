@@ -416,19 +416,7 @@ export class PedidosController {
 
       const line = pedido.lines.find((l) => l.id === item.lineId)!;
 
-      // Descontar del inventario físico real
-      await this.descontarStockHandler.execute(
-        new DescontarStockCommand(
-          line.productId,
-          line.tallaId,
-          item.cantidadAEntregar,
-          'ENTREGA_PEDIDO_PARCIAL_O_TOTAL',
-          pedido.id,
-          userId,
-        ),
-      );
-
-      // Ajustar reservas asociadas para evitar desbalance en reservedQuantity
+      // 1. Ajustar y liberar reservas asociadas primero para evitar desbalance en reservedQuantity
       const reservas = await this.prisma.stockReservation.findMany({
         where: {
           referenceId: pedido.id,
@@ -477,6 +465,18 @@ export class PedidosController {
           porLiberar = 0;
         }
       }
+
+      // 2. Descontar del inventario físico real
+      await this.descontarStockHandler.execute(
+        new DescontarStockCommand(
+          line.productId,
+          line.tallaId,
+          item.cantidadAEntregar,
+          'ENTREGA_PEDIDO_PARCIAL_O_TOTAL',
+          pedido.id,
+          userId,
+        ),
+      );
 
       // Actualizar cantidad entregada acumulada en la línea
       await this.prisma.orderLine.update({
