@@ -259,22 +259,36 @@ export class NotificacionesQueryService {
       const provNombre = o.supplier?.razonSocial || 'Taller / Fabricante';
       const provTelefono = o.supplier?.contacto || '';
 
-      const itemsDetalle = o.lines.map((l) => {
+      // Agrupar líneas por producto/modelo
+      const modelMap = new Map<string, any>();
+      for (const l of o.lines) {
         const prod = orderProductMap.get(l.productId);
         const nombre = prod?.model?.name ? prod.model.name : `Modelo ${prod?.code || l.productId}`;
-        return {
-          productId: l.productId,
-          nombre,
-          marca: prod?.model?.brand || 'NEXORA',
-          color: prod?.color || '',
-          serieNombre: prod?.serie?.nombre || 'ADULTO',
-          imageUrl: prod?.imageUrl || null,
-          cantidadPedida: l.cantidadPedida,
-          precioCosto: Number(l.precioCosto),
-          subtotal: Number(l.subtotal),
-          observacion: l.observacionLinea || '',
-        };
-      });
+        if (!modelMap.has(l.productId)) {
+          modelMap.set(l.productId, {
+            productId: l.productId,
+            nombre,
+            marca: prod?.model?.brand || 'NEXORA',
+            color: prod?.color || '',
+            serieNombre: prod?.serie?.nombre || 'ADULTO',
+            imageUrl: prod?.imageUrl || null,
+            cantidadPedida: 0,
+            precioCosto: Number(l.precioCosto),
+            subtotal: 0,
+            observacion: l.observacionLinea || '',
+            tallas: [],
+          });
+        }
+        const m = modelMap.get(l.productId);
+        m.cantidadPedida += l.cantidadPedida;
+        m.subtotal += Number(l.subtotal);
+        m.tallas.push({
+          numeroTalla: 38, // default si no está desglosado
+          cantidad: l.cantidadPedida,
+        });
+      }
+
+      const itemsDetalle = Array.from(modelMap.values());
 
       const lineasTexto = itemsDetalle
         .map((it) => `• ${it.nombre} (${it.color}) — ${it.cantidadPedida} pares ($${it.precioCosto.toFixed(2)} c/u)`)
@@ -365,35 +379,58 @@ export class NotificacionesQueryService {
       const diasPendiente = Math.floor((ahora.getTime() - fechaReg.getTime()) / (1000 * 60 * 60 * 24));
       let mainSupplier: any = null;
 
-      const items = d.lines.map((l) => {
+      // Agrupar las líneas de devolución por modelo para que todas las tallas queden en una sola tarjeta de modelo
+      const modelMap = new Map<string, any>();
+      for (const l of d.lines) {
         const prod = devProductMap.get(l.productId);
-        const numTalla = devTallaMap.get(l.tallaId);
+        const numTalla = devTallaMap.get(l.tallaId) ?? 38;
         if (prod?.model?.supplier && !mainSupplier) {
           mainSupplier = prod.model.supplier;
         }
-        return {
-          productId: l.productId,
-          nombre: prod?.model?.name ? prod.model.name : 'Calzado con Falla',
-          marca: prod?.model?.brand || 'NEXORA',
-          color: prod?.color || '',
-          serieNombre: prod?.serie?.nombre || 'ADULTO',
-          imageUrl: prod?.imageUrl || null,
-          talla: numTalla ?? 38,
-          cantidad: l.cantidad,
-          precioUnitario: Number(l.precioUnitario),
-          subtotal: Number(l.subtotal),
-          supplierId: prod?.model?.supplierId || null,
-          supplierNombre: prod?.model?.supplier?.razonSocial || 'Taller Fabricante',
-          supplierTelefono: prod?.model?.supplier?.contacto || '',
-        };
-      });
 
-      const totalPares = items.reduce((acc, it) => acc + it.cantidad, 0);
+        if (!modelMap.has(l.productId)) {
+          modelMap.set(l.productId, {
+            productId: l.productId,
+            nombre: prod?.model?.name ? prod.model.name : 'Calzado con Falla',
+            marca: prod?.model?.brand || 'NEXORA',
+            color: prod?.color || '',
+            serieNombre: prod?.serie?.nombre || 'ADULTO',
+            imageUrl: prod?.imageUrl || null,
+            precioUnitario: Number(l.precioUnitario),
+            totalPares: 0,
+            subtotal: 0,
+            supplierId: prod?.model?.supplierId || null,
+            supplierNombre: prod?.model?.supplier?.razonSocial || 'Taller Fabricante',
+            supplierTelefono: prod?.model?.supplier?.contacto || '',
+            tallas: [],
+          });
+        }
+
+        const m = modelMap.get(l.productId);
+        m.totalPares += l.cantidad;
+        m.subtotal += Number(l.subtotal);
+        m.tallas.push({
+          tallaId: l.tallaId,
+          numeroTalla: numTalla,
+          cantidad: l.cantidad,
+        });
+      }
+
+      // Ordenar tallas ascendentemente
+      for (const m of modelMap.values()) {
+        m.tallas.sort((a: any, b: any) => a.numeroTalla - b.numeroTalla);
+      }
+
+      const items = Array.from(modelMap.values());
+      const totalPares = items.reduce((acc, it) => acc + it.totalPares, 0);
       const provNombre = mainSupplier?.razonSocial || items[0]?.supplierNombre || 'Taller Fabricante';
       const provTelefono = mainSupplier?.contacto || items[0]?.supplierTelefono || '';
 
       const lineasTexto = items
-        .map((it) => `• ${it.nombre} (Talla ${it.talla}) — ${it.cantidad} par(es)`)
+        .map((it) => {
+          const tallasStr = it.tallas.map((t: any) => `T${t.numeroTalla}: ${t.cantidad}`).join(', ');
+          return `• ${it.nombre} (${it.color}) [${tallasStr}] — ${it.totalPares} par(es)`;
+        })
         .join('\n');
 
       const mensajeWhatsApp = `⚠️ *NOTIFICACIÓN DE MERCADERÍA POR DEVOLVER / GARANTÍA — NEXORA*\n\nEstimado/a *${provNombre}*,\nLe saludamos de *NEXORA Calzado*.\n\nLe informamos que disponemos de mercadería en custodia para devolución/cambio por garantía de fabricación:\n\n${lineasTexto}\n\n📦 *Total pares a devolver:* ${totalPares}\n📋 *Motivo / Falla:* ${d.motivo}\n💰 *Valor a liquidar / descontar:* $${Number(d.totalDevuelto).toFixed(2)}\n\nFavor coordinar la recepción o visita para el retiro correspondiente. ¡Muchas gracias!`;
