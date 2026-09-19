@@ -199,7 +199,7 @@ export class NotificacionesQueryService {
       })
       .filter((p) => p.estadoStock !== 'OPTIMO');
 
-    // ── 3. Órdenes a Proveedores / Talleres Demoradas ─────────
+    // ── 3. Órdenes de Pedido a Fabricantes / Talleres Pendientes de Pedir ─────────
     const ordenesProveedor = await this.prisma.supplierOrder.findMany({
       where: {
         estado: { in: [SupplierOrderStatus.PENDIENTE, SupplierOrderStatus.BORRADOR] },
@@ -216,31 +216,211 @@ export class NotificacionesQueryService {
             tenant: { select: { id: true, name: true } },
           },
         },
+        lines: true,
       },
       orderBy: { createdAt: 'desc' },
-      take: 20,
+      take: 40,
     });
 
-    const ordenesDemoradas = ordenesProveedor.map((o) => {
+    const allOrderProductIds = Array.from(
+      new Set(ordenesProveedor.flatMap((o) => o.lines.map((l) => l.productId)).filter(Boolean)),
+    );
+    const orderProducts = allOrderProductIds.length > 0
+      ? await this.prisma.product.findMany({
+          where: { id: { in: allOrderProductIds } },
+          select: {
+            id: true,
+            code: true,
+            color: true,
+            imageUrl: true,
+            serie: { select: { nombre: true } },
+            model: { select: { name: true, brand: true } },
+          },
+        })
+      : [];
+    const orderProductMap = new Map(orderProducts.map((p) => [p.id, p]));
+
+    const formatWhatsAppUrl = (phone: string, text: string) => {
+      if (!phone) return '';
+      let cleanPhone = phone.replace(/[\s\-\(\)\+]/g, '');
+      if (cleanPhone.startsWith('09')) {
+        cleanPhone = '593' + cleanPhone.substring(1);
+      } else if (cleanPhone.startsWith('9')) {
+        cleanPhone = '593' + cleanPhone;
+      }
+      return `https://api.whatsapp.com/send?phone=${cleanPhone}&text=${encodeURIComponent(text)}`;
+    };
+
+    const ordenesPorPedir = ordenesProveedor.map((o) => {
       const fechaCreacion = new Date(o.createdAt);
       const diasDesdeCreacion = Math.floor((ahora.getTime() - fechaCreacion.getTime()) / (1000 * 60 * 60 * 24));
       const esDemorada = diasDesdeCreacion > 5;
+      const totalPares = o.lines.reduce((sum, l) => sum + (l.cantidadPedida || 0), 0);
+      const provNombre = o.supplier?.razonSocial || 'Taller / Fabricante';
+      const provTelefono = o.supplier?.contacto || '';
+
+      const itemsDetalle = o.lines.map((l) => {
+        const prod = orderProductMap.get(l.productId);
+        const nombre = prod?.model?.name ? prod.model.name : `Modelo ${prod?.code || l.productId}`;
+        return {
+          productId: l.productId,
+          nombre,
+          marca: prod?.model?.brand || 'NEXORA',
+          color: prod?.color || '',
+          serieNombre: prod?.serie?.nombre || 'ADULTO',
+          imageUrl: prod?.imageUrl || null,
+          cantidadPedida: l.cantidadPedida,
+          precioCosto: Number(l.precioCosto),
+          subtotal: Number(l.subtotal),
+          observacion: l.observacionLinea || '',
+        };
+      });
+
+      const lineasTexto = itemsDetalle
+        .map((it) => `• ${it.nombre} (${it.color}) — ${it.cantidadPedida} pares ($${it.precioCosto.toFixed(2)} c/u)`)
+        .join('\n');
+
+      const mensajeWhatsApp = `👟 *ORDEN DE PEDIDO NEXORA — OC-${String(o.numero).padStart(5, '0')}*\n\nEstimado/a *${provNombre}*,\nLe saludamos de *NEXORA (Calzado 100% Cuero de Cevallos)*.\n\nLe compartimos el requerimiento de producción para el siguiente pedido:\n\n${lineasTexto}\n\n📦 *Total de Pares:* ${totalPares}\n💰 *Monto Estimado:* $${Number(o.total).toFixed(2)}\n${o.observaciones ? `📝 *Observaciones:* ${o.observaciones}\n` : ''}\nPor favor confirmar inicio de confección y fecha tentativa de entrega. ¡Muchas gracias!`;
+
+      const whatsappUrl = formatWhatsAppUrl(provTelefono, mensajeWhatsApp);
 
       return {
         id: o.id,
         numero: `OC-${String(o.numero).padStart(5, '0')}`,
-        proveedorNombre: o.supplier?.razonSocial || 'Taller / Fabricante',
+        numeroInt: o.numero,
+        proveedorId: o.supplierId,
+        proveedorNombre: provNombre,
         proveedorContacto: o.supplier?.contacto || '',
+        proveedorTelefono: provTelefono,
+        proveedorEmail: o.supplier?.email || '',
         total: Number(o.total),
+        totalPares,
         status: o.estado,
+        esBorrador: o.estado === SupplierOrderStatus.BORRADOR,
+        observaciones: o.observaciones || '',
         fechaCreacion,
         diasTranscurridos: diasDesdeCreacion,
         esDemorada,
+        items: itemsDetalle,
+        whatsappUrl,
         sucursalNombre: o.supplier?.tenant?.name || 'Matriz',
       };
     });
 
-    // ── 4. Envíos y Despachos en Tránsito ────────────────────
+    // ── 4. Mercadería por Devolver a Proveedores (Garantías & Falla de Fábrica) ──
+    const devolucionesPendientes = await this.prisma.clienteDevolucion.findMany({
+      where: {
+        estado: 'PENDIENTE_DEVOLUCION_PROVEEDOR',
+        ...(tenantId ? { tenantId } : {}),
+      },
+      include: {
+        lines: true,
+        tenant: { select: { id: true, name: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 40,
+    });
+
+    const devProductIds = Array.from(
+      new Set(devolucionesPendientes.flatMap((d) => d.lines.map((l) => l.productId)).filter(Boolean)),
+    );
+    const devTallaIds = Array.from(
+      new Set(devolucionesPendientes.flatMap((d) => d.lines.map((l) => l.tallaId)).filter(Boolean)),
+    );
+
+    const [devProducts, devTallas, devClients] = await Promise.all([
+      devProductIds.length > 0
+        ? this.prisma.product.findMany({
+            where: { id: { in: devProductIds } },
+            include: {
+              serie: { select: { nombre: true } },
+              model: {
+                include: {
+                  supplier: {
+                    select: { id: true, razonSocial: true, contacto: true, email: true },
+                  },
+                },
+              },
+            },
+          })
+        : [],
+      devTallaIds.length > 0
+        ? this.prisma.tallaConfig.findMany({
+            where: { id: { in: devTallaIds } },
+          })
+        : [],
+      this.prisma.client.findMany({
+        where: { id: { in: Array.from(new Set(devolucionesPendientes.map((d) => d.clientId))) } },
+        select: { id: true, nombre: true, apellido: true, telefono: true },
+      }),
+    ]);
+
+    const devProductMap = new Map(devProducts.map((p) => [p.id, p]));
+    const devTallaMap = new Map(devTallas.map((t) => [t.id, t.numero]));
+    const devClientMap = new Map(devClients.map((c) => [c.id, c]));
+
+    const mercaderiaPorDevolver = devolucionesPendientes.map((d) => {
+      const client = devClientMap.get(d.clientId);
+      const fechaReg = new Date(d.createdAt);
+      const diasPendiente = Math.floor((ahora.getTime() - fechaReg.getTime()) / (1000 * 60 * 60 * 24));
+      let mainSupplier: any = null;
+
+      const items = d.lines.map((l) => {
+        const prod = devProductMap.get(l.productId);
+        const numTalla = devTallaMap.get(l.tallaId);
+        if (prod?.model?.supplier && !mainSupplier) {
+          mainSupplier = prod.model.supplier;
+        }
+        return {
+          productId: l.productId,
+          nombre: prod?.model?.name ? prod.model.name : 'Calzado con Falla',
+          marca: prod?.model?.brand || 'NEXORA',
+          color: prod?.color || '',
+          serieNombre: prod?.serie?.nombre || 'ADULTO',
+          imageUrl: prod?.imageUrl || null,
+          talla: numTalla ?? 38,
+          cantidad: l.cantidad,
+          precioUnitario: Number(l.precioUnitario),
+          subtotal: Number(l.subtotal),
+          supplierId: prod?.model?.supplierId || null,
+          supplierNombre: prod?.model?.supplier?.razonSocial || 'Taller Fabricante',
+          supplierTelefono: prod?.model?.supplier?.contacto || '',
+        };
+      });
+
+      const totalPares = items.reduce((acc, it) => acc + it.cantidad, 0);
+      const provNombre = mainSupplier?.razonSocial || items[0]?.supplierNombre || 'Taller Fabricante';
+      const provTelefono = mainSupplier?.contacto || items[0]?.supplierTelefono || '';
+
+      const lineasTexto = items
+        .map((it) => `• ${it.nombre} (Talla ${it.talla}) — ${it.cantidad} par(es)`)
+        .join('\n');
+
+      const mensajeWhatsApp = `⚠️ *NOTIFICACIÓN DE MERCADERÍA POR DEVOLVER / GARANTÍA — NEXORA*\n\nEstimado/a *${provNombre}*,\nLe saludamos de *NEXORA Calzado*.\n\nLe informamos que disponemos de mercadería en custodia para devolución/cambio por garantía de fabricación:\n\n${lineasTexto}\n\n📦 *Total pares a devolver:* ${totalPares}\n📋 *Motivo / Falla:* ${d.motivo}\n💰 *Valor a liquidar / descontar:* $${Number(d.totalDevuelto).toFixed(2)}\n\nFavor coordinar la recepción o visita para el retiro correspondiente. ¡Muchas gracias!`;
+
+      const whatsappUrl = formatWhatsAppUrl(provTelefono, mensajeWhatsApp);
+
+      return {
+        id: d.id,
+        clienteDevolucionId: d.id,
+        clienteNombre: client ? `${client.nombre} ${client.apellido || ''}`.trim() : 'Cliente NEXORA',
+        clienteTelefono: client?.telefono || '',
+        motivo: d.motivo,
+        totalDevuelto: Number(d.totalDevuelto),
+        deudaDescontada: Number(d.deudaDescontada),
+        saldoAFavor: Number(d.saldoAFavor),
+        totalPares,
+        fecha: d.createdAt,
+        diasPendiente,
+        proveedorNombre: provNombre,
+        proveedorTelefono: provTelefono,
+        whatsappUrl,
+        items,
+        sucursalNombre: d.tenant?.name || 'Matriz',
+      };
+    });
+
+    // ── 5. Envíos y Despachos en Tránsito ────────────────────
     const despachosEnTransito = await this.prisma.order.findMany({
       where: {
         estado: EstadoPedido.EN_TRANSITO,
@@ -271,7 +451,7 @@ export class NotificacionesQueryService {
       : [];
     const dispatchClientMap = new Map(dispatchClients.map((c) => [c.id, c]));
 
-    // ── 5. Alertas de Seguridad & GPS (Últimas 48 horas) ─────
+    // ── 6. Alertas de Seguridad & GPS (Últimas 48 horas) ─────
     const hace48h = new Date(ahora.getTime() - 48 * 60 * 60 * 1000);
     const securityLogs = await this.prisma.auditLog.findMany({
       where: {
@@ -310,17 +490,25 @@ export class NotificacionesQueryService {
       })
       .filter((a) => a.esCritica);
 
-    // ── 6. Métricas Agregadas ────────────────────────────────
+    // ── 7. Métricas Agregadas ────────────────────────────────
     const saldoTotalVencido = cobrosVencidos.reduce((sum, c) => sum + c.saldoPendiente, 0);
     const saldoTotalPorVencer = cobrosPorVencer.reduce((sum, c) => sum + c.saldoPendiente, 0);
-    const totalDemoradas = ordenesDemoradas.filter((o) => o.esDemorada).length;
+    const totalDemoradas = ordenesPorPedir.filter((o) => o.esDemorada).length;
 
     return {
       metricas: {
-        totalAlertas: cobrosVencidos.length + cobrosPorVencer.length + stockCritico.length + totalDemoradas + alertasSeguridad.length,
+        totalAlertas:
+          cobrosVencidos.length +
+          cobrosPorVencer.length +
+          stockCritico.length +
+          ordenesPorPedir.length +
+          mercaderiaPorDevolver.length +
+          alertasSeguridad.length,
         totalCobrosVencidos: cobrosVencidos.length,
         totalCobrosPorVencer: cobrosPorVencer.length,
         totalStockCritico: stockCritico.length,
+        totalOrdenesPorPedir: ordenesPorPedir.length,
+        totalMercaderiaPorDevolver: mercaderiaPorDevolver.length,
         totalOrdenesDemoradas: totalDemoradas,
         totalEnviosEnTransito: despachosEnTransito.length,
         totalAlertasSeguridad: alertasSeguridad.length,
@@ -330,7 +518,9 @@ export class NotificacionesQueryService {
       cobrosVencidos,
       cobrosPorVencer,
       stockCritico,
-      ordenesProveedor: ordenesDemoradas,
+      ordenesPorPedir,
+      ordenesProveedor: ordenesPorPedir, // Retrocompatibilidad
+      mercaderiaPorDevolver,
       alertasSeguridad,
       enviosEnTransito: despachosEnTransito.map((d) => {
         const cl = dispatchClientMap.get(d.clientId);
