@@ -65,15 +65,8 @@ export class ClientesPedidoListener {
     montoFinal: number;
     tipoPago: string;
   }) {
-    this.logger.log(`🔄 Reaccionando a PedidoEntregado para registrar compra completada y recalcular scoring: ${payload.clientId}`);
-    try {
-      const esCredito = payload.tipoPago === 'CREDITO';
-      await this.registrarCompraCompletadaHandler.execute(
-        new RegistrarCompraCompletadaCommand(payload.clientId, payload.montoFinal, esCredito),
-      );
-      this.logger.log(`✅ Compra completada registrada exitosamente para cliente: ${payload.clientId}`);
-    } catch (error: any) {
-      this.logger.error(`❌ Error registrando compra completada para cliente ${payload.clientId}: ${error.message}`);
-    }
+    this.logger.log(
+      `📦 Pedido ${payload.pedidoId} entregado (${payload.tipoPago}) para cliente: ${payload.clientId}. El registro de compra completada y ajuste de scoring se gestiona al saldar la deuda correspondiente.`,
+    );
   }
 }

@@ -4,9 +4,12 @@ import { RegistrarCompraCompletadaHandler } from '../../../clientes/application/
 import { RegistrarCompraCompletadaCommand } from '../../../clientes/application/commands/RegistrarCompraCompletada.command';
 import { RegistrarAtrasoHandler } from '../../../clientes/application/commands/RegistrarAtraso.handler';
 import { RegistrarAtrasoCommand } from '../../../clientes/application/commands/RegistrarAtraso.command';
+import { LiberarCreditoHandler } from '../../../clientes/application/commands/LiberarCredito.handler';
+import { LiberarCreditoCommand } from '../../../clientes/application/commands/LiberarCredito.command';
 
 /**
- * DeudaSaldadaListener — BC Clientes reacciona a que un cobro fue saldado:
+ * DeudaSaldadaListener — BC Clientes reacciona a los movimientos financieros:
+ *   - AbonoRegistrado: libera crédito proporcionalmente si queda saldo pendiente.
  *   - CONTADO: registra compra completada inmediatamente.
  *   - CREDITO saldado a tiempo: registra compra completada (puede subir nivel).
  *   - CREDITO vencido sin pago: registra atraso (puede bajar nivel).
@@ -18,7 +21,29 @@ export class DeudaSaldadaClientesListener {
   constructor(
     private readonly registrarCompraCompletadaHandler: RegistrarCompraCompletadaHandler,
     private readonly registrarAtrasoHandler: RegistrarAtrasoHandler,
+    private readonly liberarCreditoHandler: LiberarCreditoHandler,
   ) {}
+
+  @OnEvent('AbonoRegistrado')
+  async handleAbonoRegistrado(payload: {
+    cobroId: string;
+    clientId: string;
+    monto: number;
+    saldoPendiente: number;
+    metodo: string;
+  }) {
+    if (payload.saldoPendiente > 0 && payload.monto > 0) {
+      this.logger.log(`💳 Reaccionando a AbonoRegistrado para liberar crédito parcial ($${payload.monto}) del cliente: ${payload.clientId}`);
+      try {
+        await this.liberarCreditoHandler.execute(
+          new LiberarCreditoCommand(payload.clientId, payload.monto),
+        );
+        this.logger.log(`✅ Crédito parcial de $${payload.monto} liberado para cliente ${payload.clientId}`);
+      } catch (error: any) {
+        this.logger.error(`❌ Error liberando crédito parcial por abono para cliente ${payload.clientId}: ${error.message}`);
+      }
+    }
+  }
 
   @OnEvent('DeudaSaldada')
   async handleDeudaSaldada(payload: {

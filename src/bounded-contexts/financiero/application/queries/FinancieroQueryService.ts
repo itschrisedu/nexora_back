@@ -398,7 +398,11 @@ export class FinancieroQueryService {
 
     const [pedidos, notasVenta, cobros] = await Promise.all([
       this.prisma.order.findMany({
-        where: { clientId, estado: 'ENTREGADO', ...whereTenant },
+        where: {
+          clientId,
+          estado: { in: ['ENTREGADO', 'ENTREGADO_PARCIAL'] },
+          ...whereTenant,
+        },
         include: { lines: true },
         orderBy: { createdAt: 'desc' },
       }),
@@ -472,6 +476,7 @@ export class FinancieroQueryService {
           id: l.id,
           productId: l.productId,
           cantidad: l.cantidad,
+          cantidadEntregada: l.cantidadEntregada || 0,
           precioUnitario: Number(l.precioUnitario || 0),
           subtotal: l.cantidad * Number(l.precioUnitario || 0),
           tipoVenta: l.tipoVenta,
