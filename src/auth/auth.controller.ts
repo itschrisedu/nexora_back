@@ -123,6 +123,14 @@ export class AuthController {
     return { ok: true, user, message: 'Permiso de modificación de precios actualizado.' };
   }
 
+  @Patch('usuarios/:id/unlock')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Rol.ROL_ADMIN, Rol.ROL_SUPER_ADMIN)
+  async unlockUser(@Param('id') id: string) {
+    const user = await this.authService.unlockUser(id);
+    return { ok: true, user, message: 'Cuenta desbloqueada exitosamente.' };
+  }
+
   // ══════════════════════════════════════════
   // FASE E8: TÉRMINOS LEGALES Y CONSENTIMIENTO GPS
   // ══════════════════════════════════════════

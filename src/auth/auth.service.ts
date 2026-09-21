@@ -17,6 +17,8 @@ import { Rol } from '@prisma/client';
 export class AuthService {
   private readonly logger = new Logger(AuthService.name);
   private readonly BCRYPT_ROUNDS = 12;
+  private readonly MAX_LOGIN_ATTEMPTS = 3;
+  private readonly LOCKOUT_HOURS = 24;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -26,6 +28,7 @@ export class AuthService {
 
   /**
    * Login — Autentica al usuario y retorna access + refresh tokens.
+   * Incluye protección contra fuerza bruta: bloqueo automático tras 3 intentos fallidos (24h).
    */
   async login(email: string, password: string) {
     const user = await this.prisma.user.findUnique({ where: { email } });
@@ -38,9 +41,55 @@ export class AuthService {
       throw new UnauthorizedException('Cuenta desactivada. Contacte al administrador');
     }
 
+    // ── Verificar si la cuenta está bloqueada por intentos fallidos ──
+    if (user.bloqueadoHasta && user.bloqueadoHasta > new Date()) {
+      const horasRestantes = Math.ceil((user.bloqueadoHasta.getTime() - Date.now()) / (1000 * 60 * 60));
+      this.logger.warn(`Intento de login en cuenta bloqueada: ${email} (bloqueada por ${horasRestantes}h más)`);
+      throw new UnauthorizedException(
+        `Cuenta bloqueada por seguridad. Demasiados intentos fallidos. Intente nuevamente en ${horasRestantes} hora(s) o contacte al administrador para desbloquearla.`,
+      );
+    }
+
     const passwordValid = await bcrypt.compare(password, user.passwordHash);
     if (!passwordValid) {
-      throw new UnauthorizedException('Credenciales inválidas');
+      // ── Incrementar contador de intentos fallidos ──
+      const nuevosIntentos = (user.intentosFallidos || 0) + 1;
+      const updateData: any = { intentosFallidos: nuevosIntentos };
+
+      if (nuevosIntentos >= this.MAX_LOGIN_ATTEMPTS) {
+        updateData.bloqueadoHasta = new Date(Date.now() + this.LOCKOUT_HOURS * 60 * 60 * 1000);
+        this.logger.warn(
+          `Cuenta BLOQUEADA por ${this.LOCKOUT_HOURS}h: ${email} (${nuevosIntentos} intentos fallidos)`,
+        );
+      } else {
+        this.logger.warn(
+          `Intento fallido ${nuevosIntentos}/${this.MAX_LOGIN_ATTEMPTS} para: ${email}`,
+        );
+      }
+
+      await this.prisma.user.update({
+        where: { id: user.id },
+        data: updateData,
+      });
+
+      const intentosRestantes = this.MAX_LOGIN_ATTEMPTS - nuevosIntentos;
+      if (intentosRestantes > 0) {
+        throw new UnauthorizedException(
+          `Credenciales inválidas. Le quedan ${intentosRestantes} intento(s) antes del bloqueo de cuenta.`,
+        );
+      } else {
+        throw new UnauthorizedException(
+          `Cuenta bloqueada por seguridad. Demasiados intentos fallidos. Intente nuevamente en ${this.LOCKOUT_HOURS} horas o contacte al administrador.`,
+        );
+      }
+    }
+
+    // ── Login exitoso: resetear contador de intentos ──
+    if (user.intentosFallidos > 0 || user.bloqueadoHasta) {
+      await this.prisma.user.update({
+        where: { id: user.id },
+        data: { intentosFallidos: 0, bloqueadoHasta: null },
+      });
     }
 
     const sessionId = randomBytes(16).toString('hex');
@@ -274,6 +323,8 @@ export class AuthService {
         rol: true,
         activo: true,
         permiteCambiarPrecio: true,
+        intentosFallidos: true,
+        bloqueadoHasta: true,
         termsAcceptedAt: true,
         termsVersion: true,
         gpsConsentAt: true,
@@ -374,6 +425,32 @@ export class AuthService {
         permiteCambiarPrecio: true,
       },
     });
+  }
+
+  /**
+   * Desbloquea una cuenta bloqueada por intentos fallidos.
+   * Resetea el contador de intentos y elimina la fecha de bloqueo.
+   */
+  async unlockUser(id: string) {
+    const user = await this.prisma.user.findUnique({ where: { id } });
+    if (!user) {
+      throw new NotFoundException('Usuario no encontrado.');
+    }
+    const updated = await this.prisma.user.update({
+      where: { id },
+      data: { intentosFallidos: 0, bloqueadoHasta: null },
+      select: {
+        id: true,
+        email: true,
+        nombre: true,
+        rol: true,
+        activo: true,
+        intentosFallidos: true,
+        bloqueadoHasta: true,
+      },
+    });
+    this.logger.log(`Cuenta desbloqueada manualmente: ${updated.email}`);
+    return updated;
   }
 
   // ══════════════════════════════════════════
