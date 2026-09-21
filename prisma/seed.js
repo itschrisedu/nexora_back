@@ -57,15 +57,29 @@ function encryptData(text) {
 }
 async function main() {
     console.log('🌱 Iniciando Seed Completo para NEXORA...\n');
+    // ══════════════════════════════
+    // 1. SUPER ADMINISTRADORES
+    // ══════════════════════════════
     const superAdminUsers = [
         { email: 'superadmin@nexora.com', pass: 'SuperAdmin2026!', nombre: 'Super Administrador Global' },
+        { email: 'chrispaucar49@gmail.com', pass: 'Chris1234!', nombre: 'Christopher Paucar (Super Admin)' },
         { email: 'superadmin@nexora.app', pass: 'SuperAdmin123!', nombre: 'Super Admin Soporte' },
     ];
     for (const sa of superAdminUsers) {
         const passwordHash = await bcrypt.hash(sa.pass, 12);
         await prisma.user.upsert({
             where: { email: sa.email },
-            update: { passwordHash, rol: client_1.Rol.ROL_SUPER_ADMIN, activo: true },
+            update: {
+                passwordHash,
+                nombre: sa.nombre,
+                rol: client_1.Rol.ROL_SUPER_ADMIN,
+                activo: true,
+                intentosFallidos: 0,
+                bloqueadoHasta: null,
+                activeSessionId: null,
+                sessionOtp: null,
+                sessionOtpExpiresAt: null,
+            },
             create: {
                 email: sa.email,
                 passwordHash,
@@ -73,10 +87,16 @@ async function main() {
                 rol: client_1.Rol.ROL_SUPER_ADMIN,
                 tenantId: null,
                 activo: true,
+                intentosFallidos: 0,
+                bloqueadoHasta: null,
+                activeSessionId: null,
             },
         });
         console.log(`🔑 Super Admin configurado: ${sa.email} / ${sa.pass}`);
     }
+    // ══════════════════════════════
+    // 2. SERIES Y TALLAS DE CALZADO
+    // ══════════════════════════════
     const seriesData = [
         { nombre: 'ADULTO', tallasDesde: 38, tallasHasta: 43 },
         { nombre: 'JUVENIL', tallasDesde: 34, tallasHasta: 38 },
@@ -110,12 +130,13 @@ async function main() {
         seriesMap[serieData.nombre] = { id: serie.id, tallas };
     }
     console.log('✅ Series y Tallas de Calzado listas');
+    // NIVELES DE CRÉDITO
     const creditLevels = [
-        { nivel: client_1.NivelCredito.SIN_CREDITO, comprasRequeridas: 0, limiteDolares: 0, plazoDias: 0 },
-        { nivel: client_1.NivelCredito.NIVEL_1, comprasRequeridas: 10, limiteDolares: 300, plazoDias: 15 },
-        { nivel: client_1.NivelCredito.NIVEL_2, comprasRequeridas: 15, limiteDolares: 700, plazoDias: 30 },
-        { nivel: client_1.NivelCredito.NIVEL_3, comprasRequeridas: 25, limiteDolares: 1500, plazoDias: 30 },
-        { nivel: client_1.NivelCredito.NIVEL_4, comprasRequeridas: 40, limiteDolares: 3000, plazoDias: 45 },
+        { nivel: client_1.NivelCredito.SIN_CREDITO, comprasRequeridas: 10, limiteDolares: 0, plazoDias: 0 },
+        { nivel: client_1.NivelCredito.NIVEL_1, comprasRequeridas: 15, limiteDolares: 300, plazoDias: 15 },
+        { nivel: client_1.NivelCredito.NIVEL_2, comprasRequeridas: 25, limiteDolares: 700, plazoDias: 30 },
+        { nivel: client_1.NivelCredito.NIVEL_3, comprasRequeridas: 40, limiteDolares: 1500, plazoDias: 30 },
+        { nivel: client_1.NivelCredito.NIVEL_4, comprasRequeridas: 60, limiteDolares: 3000, plazoDias: 45 },
     ];
     for (const level of creditLevels) {
         await prisma.creditLevelConfig.upsert({
@@ -125,17 +146,20 @@ async function main() {
         });
     }
     console.log('✅ Niveles de Crédito listos');
+    // ══════════════════════════════
+    // 3. DEFINICIÓN DE LOS 3 NEGOCIOS / TENANTS
+    // ══════════════════════════════
     const negociosData = [
         {
             nombre: 'Calzados Cevallos Matriz',
             ruc: '1890123456001',
             direccion: 'Av. 24 de Mayo y 10 de Agosto, Cevallos, Tungurahua',
             telefono: '032870123',
-            email: 'contacto@cevallos-calzado.com',
+            email: 'paucarchristopher1j@gmail.com',
             usuarios: [
-                { email: 'admin@cevallos-calzado.com', pass: 'Admin1234!', nombre: 'Administrador Cevallos', rol: client_1.Rol.ROL_ADMIN },
-                { email: 'vendedor@cevallos-calzado.com', pass: 'Vendedor1234!', nombre: 'Carlos Vendedor', rol: client_1.Rol.ROL_VENDEDOR },
-                { email: 'bodega@cevallos-calzado.com', pass: 'Bodega1234!', nombre: 'Manuel Bodeguero', rol: client_1.Rol.ROL_BODEGUERO },
+                { email: 'paucarchristopher1j@gmail.com', pass: 'Admin1234!', nombre: 'Administrador Cevallos', rol: client_1.Rol.ROL_ADMIN },
+                { email: 'paucarchristopher4j@gmail.com', pass: 'Vendedor1234!', nombre: 'Carlos Vendedor', rol: client_1.Rol.ROL_VENDEDOR },
+                { email: 'paucarchristopher5j@gmail.com', pass: 'Bodega1234!', nombre: 'Manuel Bodeguero', rol: client_1.Rol.ROL_BODEGUERO },
             ],
             modelos: [
                 {
@@ -176,10 +200,10 @@ async function main() {
             ruc: '1890987654001',
             direccion: 'Av. Cevallos y Montalvo, Ambato, Tungurahua',
             telefono: '032412890',
-            email: 'ventas@ambato-fitshoes.com',
+            email: 'paucarchristopher2j@gmail.com',
             usuarios: [
-                { email: 'admin@ambato-fitshoes.com', pass: 'FitShoes2026!', nombre: 'Admin FitShoes Ambato', rol: client_1.Rol.ROL_ADMIN },
-                { email: 'ventas@ambato-fitshoes.com', pass: 'Ventas2026!', nombre: 'Lorena Ventas Sport', rol: client_1.Rol.ROL_VENDEDOR },
+                { email: 'paucarchristopher2j@gmail.com', pass: 'FitShoes2026!', nombre: 'Admin FitShoes Ambato', rol: client_1.Rol.ROL_ADMIN },
+                { email: 'paucarchristopher6j@gmail.com', pass: 'Ventas2026!', nombre: 'Lorena Ventas Sport', rol: client_1.Rol.ROL_VENDEDOR },
             ],
             modelos: [
                 {
@@ -212,10 +236,10 @@ async function main() {
             ruc: '1890554433001',
             direccion: 'Calle Bolivar y Castillo, Ambato, Tungurahua',
             telefono: '032824567',
-            email: 'info@tungurahua-elegance.com',
+            email: 'paucarchristopher3j@gmail.com',
             usuarios: [
-                { email: 'admin@tungurahua-elegance.com', pass: 'Elegance2026!', nombre: 'Admin Elegance', rol: client_1.Rol.ROL_ADMIN },
-                { email: 'ventas@tungurahua-elegance.com', pass: 'EleganceVentas2026!', nombre: 'Sofía Asesora Moda', rol: client_1.Rol.ROL_VENDEDOR },
+                { email: 'paucarchristopher3j@gmail.com', pass: 'Elegance2026!', nombre: 'Admin Elegance', rol: client_1.Rol.ROL_ADMIN },
+                { email: 'paucarchristopher7j@gmail.com', pass: 'EleganceVentas2026!', nombre: 'Sofía Asesora Moda', rol: client_1.Rol.ROL_VENDEDOR },
             ],
             modelos: [
                 {
@@ -242,6 +266,9 @@ async function main() {
             ]
         }
     ];
+    // ══════════════════════════════
+    // 4. CREAR CADA NEGOCIO CON SUS DATOS REALES
+    // ══════════════════════════════
     for (const n of negociosData) {
         console.log(`\n🏢 Procesando Negocio: ${n.nombre}...`);
         let tenant = await prisma.tenant.findFirst({ where: { name: n.nombre } });
@@ -271,7 +298,18 @@ async function main() {
             const passwordHash = await bcrypt.hash(u.pass, 12);
             const usr = await prisma.user.upsert({
                 where: { email: u.email },
-                update: { passwordHash, rol: u.rol, tenantId: tenant.id, activo: true },
+                update: {
+                    passwordHash,
+                    nombre: u.nombre,
+                    rol: u.rol,
+                    tenantId: tenant.id,
+                    activo: true,
+                    intentosFallidos: 0,
+                    bloqueadoHasta: null,
+                    activeSessionId: null,
+                    sessionOtp: null,
+                    sessionOtpExpiresAt: null,
+                },
                 create: {
                     email: u.email,
                     passwordHash,
@@ -279,12 +317,16 @@ async function main() {
                     rol: u.rol,
                     tenantId: tenant.id,
                     activo: true,
+                    intentosFallidos: 0,
+                    bloqueadoHasta: null,
+                    activeSessionId: null,
                 },
             });
             if (u.rol === client_1.Rol.ROL_ADMIN)
                 adminUserId = usr.id;
             console.log(`   👤 Usuario configurado: ${u.email} (${u.rol})`);
         }
+        // Proveedores
         for (const prov of n.proveedores) {
             let supplier = await prisma.supplier.findFirst({
                 where: { tenantId: tenant.id, ruc: prov.ruc },
@@ -303,6 +345,7 @@ async function main() {
             }
         }
         console.log(`   📦 Proveedores registrados`);
+        // Clientes
         const clienteIds = [];
         for (const cli of n.clientes) {
             let client = await prisma.client.findFirst({
@@ -327,6 +370,7 @@ async function main() {
             clienteIds.push(client.id);
         }
         console.log(`   👥 Clientes y niveles registrados`);
+        // Modelos, Productos y Stock por Talla
         const productosCreados = [];
         for (const m of n.modelos) {
             const baseCodeStr = `${n.nombre.slice(0, 2).toUpperCase()}-${m.code}`;
@@ -399,6 +443,7 @@ async function main() {
             }
         }
         console.log(`   👟 Catálogo de modelos, productos y stock inicial cargados`);
+        // Pedidos, Notas de Venta y Cobros
         if (clienteIds.length > 0 && productosCreados.length > 0) {
             const firstClient = clienteIds[0];
             const prodSample = productosCreados[0];
@@ -459,6 +504,7 @@ async function main() {
             }
         }
         console.log(`   🛒 Pedidos, Notas de Venta y Cuentas por Cobrar listos`);
+        // Caja Abierta POS
         const cajaExist = await prisma.cierreCaja.findFirst({ where: { tenantId: tenant.id } });
         if (!cajaExist) {
             await prisma.cierreCaja.create({
@@ -531,4 +577,3 @@ main()
     .finally(async () => {
     await prisma.$disconnect();
 });
-//# sourceMappingURL=seed.js.map
