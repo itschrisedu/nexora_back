@@ -111,6 +111,10 @@ export class AgregarColorDto {
 
   @IsOptional()
   customTallas?: Record<string, string[]>;
+
+  @IsString()
+  @IsOptional()
+  supplierId?: string;
 }
 
 // ── Cambiar precio ──

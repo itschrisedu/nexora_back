@@ -159,6 +159,23 @@ export class InventarioController {
       throw new NotFoundException('Algunas de las series seleccionadas no existen');
     }
 
+    if (dto.supplierId) {
+      if (!model.supplierId) {
+        await this.prisma.productModel.update({
+          where: { id: modelId },
+          data: { supplierId: dto.supplierId },
+        });
+      } else if (model.supplierId !== dto.supplierId) {
+        const currentAlternates = model.alternateSupplierIds || [];
+        if (!currentAlternates.includes(dto.supplierId)) {
+          await this.prisma.productModel.update({
+            where: { id: modelId },
+            data: { alternateSupplierIds: [...currentAlternates, dto.supplierId] },
+          });
+        }
+      }
+    }
+
     const createdProductIds: string[] = [];
     const stockInicial = dto.stockInicial ?? 1;
 
