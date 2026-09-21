@@ -104,12 +104,12 @@ export class AuthController {
 
   /**
    * POST /auth/logout
-   * Revoca el refresh token del usuario.
+   * Revoca el refresh token y libera la sesión activa del usuario.
    */
   @Post('logout')
   @HttpCode(HttpStatus.OK)
-  async logout(@Body('refreshToken') refreshToken: string) {
-    await this.authService.logout(refreshToken);
+  async logout(@Body() body: { refreshToken?: string; userId?: string }) {
+    await this.authService.logout(body?.refreshToken, body?.userId);
     return { message: 'Sesión cerrada exitosamente' };
   }
 

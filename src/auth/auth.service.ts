@@ -176,7 +176,8 @@ export class AuthService {
     }
 
     // ── Verificar si ya existe una sesión activa concurrente ──
-    const currentActiveSession = ActiveSessionStore.get(user.id) || user.activeSessionId;
+    const inMemorySession = ActiveSessionStore.get(user.id);
+    const currentActiveSession = inMemorySession || user.activeSessionId;
     if (currentActiveSession && !forceTransfer) {
       this.logger.warn(`Conflicto de sesión única detectado para: ${email}`);
       return {
@@ -524,13 +525,36 @@ export class AuthService {
   }
 
   /**
-   * Logout — Revoca el refresh token.
+   * Logout — Revoca el refresh token y libera la sesión activa del usuario.
    */
-  async logout(token: string) {
-    await this.prisma.refreshToken.update({
-      where: { token },
-      data: { revoked: true },
-    });
+  async logout(token?: string, userId?: string) {
+    let resolvedUserId = userId;
+
+    if (token) {
+      try {
+        const stored = await this.prisma.refreshToken.findUnique({ where: { token } });
+        if (stored) {
+          await this.prisma.refreshToken.update({
+            where: { token },
+            data: { revoked: true },
+          });
+          resolvedUserId = resolvedUserId || stored.userId;
+        }
+      } catch (err: any) {
+        this.logger.warn(`Error al revocar refreshToken en logout: ${err.message}`);
+      }
+    }
+
+    if (resolvedUserId) {
+      ActiveSessionStore.invalidate(resolvedUserId);
+      await this.prisma.user
+        .update({
+          where: { id: resolvedUserId },
+          data: { activeSessionId: null },
+        })
+        .catch((e) => this.logger.warn(`Error limpiando activeSessionId: ${e.message}`));
+      this.logger.log(`Sesión cerrada y liberada en BD para userId: ${resolvedUserId}`);
+    }
   }
 
   /**
