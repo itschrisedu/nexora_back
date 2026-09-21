@@ -4,6 +4,7 @@ import {
   Logger,
   NotFoundException,
   BadRequestException,
+  OnApplicationBootstrap,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
@@ -16,7 +17,7 @@ import { ActiveSessionStore } from './active-session.store';
 import { Rol } from '@prisma/client';
 
 @Injectable()
-export class AuthService {
+export class AuthService implements OnApplicationBootstrap {
   private readonly logger = new Logger(AuthService.name);
   private readonly BCRYPT_ROUNDS = 12;
   private readonly MAX_LOGIN_ATTEMPTS = 3;
@@ -27,6 +28,116 @@ export class AuthService {
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
   ) {}
+
+  /**
+   * Se ejecuta automáticamente al arrancar el backend (tanto en local como en Railway Cloud).
+   * Garantiza que los Super Admins y los usuarios reales de los 3 negocios existan siempre con las claves vigentes.
+   */
+  async onApplicationBootstrap() {
+    try {
+      this.logger.log('🚀 Verificando cuentas maestras y personal de negocios en la base de datos...');
+
+      const superAdmins = [
+        { email: 'superadmin@nexora.com', pass: 'SuperAdmin2026!', nombre: 'Super Administrador Global' },
+        { email: 'chrispaucar49@gmail.com', pass: 'Chris1234!', nombre: 'Christopher Paucar (Super Admin)' },
+      ];
+
+      for (const sa of superAdmins) {
+        const passwordHash = await bcrypt.hash(sa.pass, this.BCRYPT_ROUNDS);
+        await this.prisma.user.upsert({
+          where: { email: sa.email },
+          update: {
+            passwordHash,
+            nombre: sa.nombre,
+            rol: Rol.ROL_SUPER_ADMIN,
+            activo: true,
+            intentosFallidos: 0,
+            bloqueadoHasta: null,
+            activeSessionId: null,
+            sessionOtp: null,
+            sessionOtpExpiresAt: null,
+          },
+          create: {
+            email: sa.email,
+            passwordHash,
+            nombre: sa.nombre,
+            rol: Rol.ROL_SUPER_ADMIN,
+            tenantId: null,
+            activo: true,
+            intentosFallidos: 0,
+            bloqueadoHasta: null,
+            activeSessionId: null,
+          },
+        });
+      }
+
+      const negocios = [
+        {
+          nombre: 'Calzados Cevallos Matriz',
+          usuarios: [
+            { email: 'paucarchristopher1j@gmail.com', pass: 'Admin1234!', nombre: 'Administrador Cevallos', rol: Rol.ROL_ADMIN },
+            { email: 'paucarchristopher4j@gmail.com', pass: 'Vendedor1234!', nombre: 'Carlos Vendedor', rol: Rol.ROL_VENDEDOR },
+            { email: 'paucarchristopher5j@gmail.com', pass: 'Bodega1234!', nombre: 'Manuel Bodeguero', rol: Rol.ROL_BODEGUERO },
+          ],
+        },
+        {
+          nombre: 'Calzado Deportivo Ambato (FitShoes)',
+          usuarios: [
+            { email: 'paucarchristopher2j@gmail.com', pass: 'FitShoes2026!', nombre: 'Admin FitShoes Ambato', rol: Rol.ROL_ADMIN },
+            { email: 'paucarchristopher6j@gmail.com', pass: 'Ventas2026!', nombre: 'Lorena Ventas Sport', rol: Rol.ROL_VENDEDOR },
+          ],
+        },
+        {
+          nombre: 'Calzados Tungurahua Elegance',
+          usuarios: [
+            { email: 'paucarchristopher3j@gmail.com', pass: 'Elegance2026!', nombre: 'Admin Elegance', rol: Rol.ROL_ADMIN },
+            { email: 'paucarchristopher7j@gmail.com', pass: 'EleganceVentas2026!', nombre: 'Sofía Asesora Moda', rol: Rol.ROL_VENDEDOR },
+          ],
+        },
+      ];
+
+      for (const neg of negocios) {
+        let tenant = await this.prisma.tenant.findFirst({ where: { name: neg.nombre } });
+        if (!tenant) {
+          tenant = await this.prisma.tenant.create({ data: { name: neg.nombre } });
+        }
+
+        for (const u of neg.usuarios) {
+          const passwordHash = await bcrypt.hash(u.pass, this.BCRYPT_ROUNDS);
+          await this.prisma.user.upsert({
+            where: { email: u.email },
+            update: {
+              passwordHash,
+              nombre: u.nombre,
+              rol: u.rol,
+              tenantId: tenant.id,
+              activo: true,
+              intentosFallidos: 0,
+              bloqueadoHasta: null,
+              activeSessionId: null,
+              sessionOtp: null,
+              sessionOtpExpiresAt: null,
+            },
+            create: {
+              email: u.email,
+              passwordHash,
+              nombre: u.nombre,
+              rol: u.rol,
+              tenantId: tenant.id,
+              activo: true,
+              intentosFallidos: 0,
+              bloqueadoHasta: null,
+              activeSessionId: null,
+            },
+          });
+        }
+      }
+
+      this.logger.log('✅ Cuentas maestras y personal de negocios inicializados exitosamente en la base de datos.');
+    } catch (bootstrapErr: any) {
+      this.logger.warn(`Error en auto-bootstrap de usuarios: ${bootstrapErr.message}`);
+    }
+  }
 
   /**
    * Enmascara un correo electrónico para proteger la privacidad en la UI (ej. ch••••r@gmail.com).
