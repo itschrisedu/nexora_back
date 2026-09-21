@@ -137,11 +137,11 @@ async function main() {
       ruc: '1890123456001',
       direccion: 'Av. 24 de Mayo y 10 de Agosto, Cevallos, Tungurahua',
       telefono: '032870123',
-      email: 'contacto@cevallos-calzado.com',
+      email: 'paucarchristopher1j@gmail.com',
       usuarios: [
-        { email: 'admin@cevallos-calzado.com', pass: 'Admin1234!', nombre: 'Administrador Cevallos', rol: Rol.ROL_ADMIN },
-        { email: 'vendedor@cevallos-calzado.com', pass: 'Vendedor1234!', nombre: 'Carlos Vendedor', rol: Rol.ROL_VENDEDOR },
-        { email: 'bodega@cevallos-calzado.com', pass: 'Bodega1234!', nombre: 'Manuel Bodeguero', rol: Rol.ROL_BODEGUERO },
+        { email: 'paucarchristopher1j@gmail.com', pass: 'Admin1234!', nombre: 'Administrador Cevallos', rol: Rol.ROL_ADMIN },
+        { email: 'paucarchristopher4j@gmail.com', pass: 'Vendedor1234!', nombre: 'Carlos Vendedor', rol: Rol.ROL_VENDEDOR },
+        { email: 'paucarchristopher5j@gmail.com', pass: 'Bodega1234!', nombre: 'Manuel Bodeguero', rol: Rol.ROL_BODEGUERO },
       ],
       modelos: [
         {
@@ -182,10 +182,10 @@ async function main() {
       ruc: '1890987654001',
       direccion: 'Av. Cevallos y Montalvo, Ambato, Tungurahua',
       telefono: '032412890',
-      email: 'ventas@ambato-fitshoes.com',
+      email: 'paucarchristopher2j@gmail.com',
       usuarios: [
-        { email: 'admin@ambato-fitshoes.com', pass: 'FitShoes2026!', nombre: 'Admin FitShoes Ambato', rol: Rol.ROL_ADMIN },
-        { email: 'ventas@ambato-fitshoes.com', pass: 'Ventas2026!', nombre: 'Lorena Ventas Sport', rol: Rol.ROL_VENDEDOR },
+        { email: 'paucarchristopher2j@gmail.com', pass: 'FitShoes2026!', nombre: 'Admin FitShoes Ambato', rol: Rol.ROL_ADMIN },
+        { email: 'paucarchristopher6j@gmail.com', pass: 'Ventas2026!', nombre: 'Lorena Ventas Sport', rol: Rol.ROL_VENDEDOR },
       ],
       modelos: [
         {
@@ -218,10 +218,10 @@ async function main() {
       ruc: '1890554433001',
       direccion: 'Calle Bolivar y Castillo, Ambato, Tungurahua',
       telefono: '032824567',
-      email: 'info@tungurahua-elegance.com',
+      email: 'paucarchristopher3j@gmail.com',
       usuarios: [
-        { email: 'admin@tungurahua-elegance.com', pass: 'Elegance2026!', nombre: 'Admin Elegance', rol: Rol.ROL_ADMIN },
-        { email: 'ventas@tungurahua-elegance.com', pass: 'EleganceVentas2026!', nombre: 'Sofía Asesora Moda', rol: Rol.ROL_VENDEDOR },
+        { email: 'paucarchristopher3j@gmail.com', pass: 'Elegance2026!', nombre: 'Admin Elegance', rol: Rol.ROL_ADMIN },
+        { email: 'paucarchristopher7j@gmail.com', pass: 'EleganceVentas2026!', nombre: 'Sofía Asesora Moda', rol: Rol.ROL_VENDEDOR },
       ],
       modelos: [
         {
