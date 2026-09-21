@@ -35,14 +35,28 @@ export class ConfiguracionService {
   // BUSINESS CONFIG
   // ══════════════════════════════
 
-  async getBusinessConfig(tenantId: string) {
-    if (!tenantId) return null;
-    const config = await this.prisma.businessConfig.findUnique({ where: { tenantId } });
-    const tenant = await this.prisma.tenant.findUnique({ where: { id: tenantId } });
+  async getBusinessConfig(tenantId?: string) {
+    let targetTenantId = tenantId;
+    if (!targetTenantId) {
+      const firstTenant = await this.prisma.tenant.findFirst();
+      targetTenantId = firstTenant?.id;
+    }
+    if (!targetTenantId) {
+      return {
+        nombre: 'Local Comercial',
+        ruc: '',
+        direccion: 'Cantón Cevallos, Tungurahua',
+        telefono: '',
+        tieneP12: false,
+      };
+    }
+    const config = await this.prisma.businessConfig.findUnique({ where: { tenantId: targetTenantId } });
+    const tenant = await this.prisma.tenant.findUnique({ where: { id: targetTenantId } });
     const nombreNegocio = config?.nombre || tenant?.name || 'Local Comercial';
 
     if (!config) {
       return {
+        tenantId: targetTenantId,
         nombre: nombreNegocio,
         ruc: '',
         direccion: 'Cantón Cevallos, Tungurahua',
@@ -53,16 +67,29 @@ export class ConfiguracionService {
 
     return {
       ...config,
+      tenantId: targetTenantId,
       nombre: nombreNegocio,
-      ruc: this.encryption.decrypt(config.ruc), // Descifrar RUC para mostrar
+      ruc: config.ruc ? this.encryption.decrypt(config.ruc) : '',
       firmaPasswordEnc: undefined, // Nunca enviar contraseña cifrada al frontend
       tieneP12: !!config.firmaP12Path, // Indicador booleano para el frontend
     };
   }
 
-  async upsertBusinessConfig(dto: UpdateBusinessConfigDto, tenantId: string) {
-    const encryptedRuc = this.encryption.encrypt(dto.ruc);
-    const existing = await this.prisma.businessConfig.findUnique({ where: { tenantId } });
+  async upsertBusinessConfig(dto: UpdateBusinessConfigDto, tenantId?: string) {
+    let targetTenantId = tenantId;
+    if (!targetTenantId) {
+      const firstTenant = await this.prisma.tenant.findFirst();
+      targetTenantId = firstTenant?.id;
+    }
+    if (!targetTenantId) {
+      const createdTenant = await this.prisma.tenant.create({
+        data: { name: dto.nombre || 'Matriz Principal' },
+      });
+      targetTenantId = createdTenant.id;
+    }
+
+    const encryptedRuc = dto.ruc ? this.encryption.encrypt(dto.ruc) : '';
+    const existing = await this.prisma.businessConfig.findUnique({ where: { tenantId: targetTenantId } });
 
     // Construir data excluyendo campos que no deben ir directo
     const data: any = {
@@ -118,18 +145,18 @@ export class ConfiguracionService {
       this.logger.log('Configuración del negocio actualizada');
 
       // Propagar campos visuales de landing a todos los demás tenants
-      await this.propagateLandingVisuals(tenantId, data);
+      await this.propagateLandingVisuals(targetTenantId, data);
 
       return { ...updated, ruc: dto.ruc, firmaPasswordEnc: undefined };
     }
 
     const created = await this.prisma.businessConfig.create({
-      data: { ...data, tenantId },
+      data: { ...data, tenantId: targetTenantId },
     });
     this.logger.log('Configuración del negocio creada');
 
     // Propagar campos visuales de landing a todos los demás tenants
-    await this.propagateLandingVisuals(tenantId, data);
+    await this.propagateLandingVisuals(targetTenantId, data);
 
     return { ...created, ruc: dto.ruc, firmaPasswordEnc: undefined };
   }
