@@ -33,6 +33,7 @@ async function main() {
   // ══════════════════════════════
   const superAdminUsers = [
     { email: 'superadmin@nexora.com', pass: 'SuperAdmin2026!', nombre: 'Super Administrador Global' },
+    { email: 'chrispaucar49@gmail.com', pass: 'Chris1234!', nombre: 'Christopher Paucar (Super Admin)' },
     { email: 'superadmin@nexora.app', pass: 'SuperAdmin123!', nombre: 'Super Admin Soporte' },
   ];
 
@@ -40,7 +41,17 @@ async function main() {
     const passwordHash = await bcrypt.hash(sa.pass, 12);
     await prisma.user.upsert({
       where: { email: sa.email },
-      update: { passwordHash, rol: Rol.ROL_SUPER_ADMIN, activo: true },
+      update: {
+        passwordHash,
+        nombre: sa.nombre,
+        rol: Rol.ROL_SUPER_ADMIN,
+        activo: true,
+        intentosFallidos: 0,
+        bloqueadoHasta: null,
+        activeSessionId: null,
+        sessionOtp: null,
+        sessionOtpExpiresAt: null,
+      },
       create: {
         email: sa.email,
         passwordHash,
@@ -48,6 +59,9 @@ async function main() {
         rol: Rol.ROL_SUPER_ADMIN,
         tenantId: null,
         activo: true,
+        intentosFallidos: 0,
+        bloqueadoHasta: null,
+        activeSessionId: null,
       },
     });
     console.log(`🔑 Super Admin configurado: ${sa.email} / ${sa.pass}`);
@@ -270,7 +284,18 @@ async function main() {
       const passwordHash = await bcrypt.hash(u.pass, 12);
       const usr = await prisma.user.upsert({
         where: { email: u.email },
-        update: { passwordHash, rol: u.rol, tenantId: tenant.id, activo: true },
+        update: {
+          passwordHash,
+          nombre: u.nombre,
+          rol: u.rol,
+          tenantId: tenant.id,
+          activo: true,
+          intentosFallidos: 0,
+          bloqueadoHasta: null,
+          activeSessionId: null,
+          sessionOtp: null,
+          sessionOtpExpiresAt: null,
+        },
         create: {
           email: u.email,
           passwordHash,
@@ -278,6 +303,9 @@ async function main() {
           rol: u.rol,
           tenantId: tenant.id,
           activo: true,
+          intentosFallidos: 0,
+          bloqueadoHasta: null,
+          activeSessionId: null,
         },
       });
       if (u.rol === Rol.ROL_ADMIN) adminUserId = usr.id;
