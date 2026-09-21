@@ -60,36 +60,78 @@ enum MetodoPagoGasto {
   OTRO
 }
 
+enum PlanTipo {
+  PLAN_BASICO
+  PLAN_COMERCIAL
+  PLAN_MAYORISTA
+}
+
+enum EstadoSuscripcion {
+  EN_PRUEBA
+  ACTIVA
+  GRACIA
+  SUSPENDIDA
+}
+
 // ──────────────────────────────────────────
 // SAAS — Tenants
 // ──────────────────────────────────────────
 
 model Tenant {
-  id             String           @id @default(uuid())
-  name           String
-  active         Boolean          @default(true)
-  createdAt      DateTime         @default(now())
-  updatedAt      DateTime         @updatedAt
-  users          User[]
-  businessConfig BusinessConfig?
-  productModels  ProductModel[]
-  clients        Client[]
-  orders         Order[]
-  suppliers      Supplier[]
-  seasons        Season[]
-  saleNotes      SaleNote[]
-  cobros         Cobro[]
-  deudas         DeudaProveedor[]
+  id                  String           @id @default(uuid())
+  name                String
+  active              Boolean          @default(true)
+  plan                PlanTipo         @default(PLAN_COMERCIAL)
+  estadoSuscripcion   EstadoSuscripcion @default(EN_PRUEBA)
+  fechaVencimientoPlan DateTime?
+  diasPruebaGratis    Int              @default(15)
+  maxSucursales       Int              @default(3)
+  maxUsuarios         Int              @default(6)
+  precioMensualPlan   Decimal          @default(50.00) @db.Decimal(10, 2)
+  createdAt           DateTime         @default(now())
+  updatedAt           DateTime         @updatedAt
+  users               User[]
+  businessConfig      BusinessConfig?
+  productModels       ProductModel[]
+  clients             Client[]
+  orders              Order[]
+  suppliers           Supplier[]
+  seasons             Season[]
+  saleNotes           SaleNote[]
+  cobros              Cobro[]
+  deudas              DeudaProveedor[]
   clienteDevoluciones ClienteDevolucion[]
   proveedorDevoluciones ProveedorDevolucion[]
   facturasElectronicas FacturaElectronica[]
-  cierresCaja    CierreCaja[]
-  auditLogs      AuditLog[]
-  gastos         Gasto[]
-  empresasTransporte EmpresaTransporte[]
+  cierresCaja         CierreCaja[]
+  auditLogs           AuditLog[]
+  gastos              Gasto[]
+  empresasTransporte  EmpresaTransporte[]
   campanasPromociones CampanaPromocion[]
+  subscriptionPayments SubscriptionPayment[]
 
   @@map("tenants")
+}
+
+model SubscriptionPayment {
+  id                  String           @id @default(uuid())
+  tenantId            String
+  monto               Decimal          @db.Decimal(10, 2)
+  periodoMeses        Int              @default(1)
+  metodoPago          String           @default("TRANSFERENCIA")
+  plan                PlanTipo
+  fechaPago           DateTime         @default(now())
+  fechaInicio         DateTime
+  fechaFin            DateTime
+  numeroFacturaSri    String?
+  facturaAutorizada   Boolean          @default(false)
+  comprobanteUrl      String?
+  notas               String?
+  createdAt           DateTime         @default(now())
+  updatedAt           DateTime         @updatedAt
+  tenant              Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@map("subscription_payments")
 }
 
 // ──────────────────────────────────────────

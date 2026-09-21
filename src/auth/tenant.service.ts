@@ -2,7 +2,28 @@ import { Injectable, Logger, NotFoundException, ConflictException } from '@nestj
 import { PrismaService } from '../shared/infrastructure/prisma/prisma.service';
 import { EncryptionService } from '../shared/infrastructure/encryption/encryption.service';
 import * as bcrypt from 'bcryptjs';
-import { Rol } from '@prisma/client';
+import { Rol, PlanTipo, EstadoSuscripcion } from '@prisma/client';
+
+export const PLAN_DEFAULTS: Record<PlanTipo, { maxSucursales: number; maxUsuarios: number; precioMensual: number; name: string }> = {
+  PLAN_BASICO: {
+    maxSucursales: 1,
+    maxUsuarios: 2,
+    precioMensual: 30.0,
+    name: 'Plan Básico (1 Sucursal / 2 Usuarios)',
+  },
+  PLAN_COMERCIAL: {
+    maxSucursales: 3,
+    maxUsuarios: 6,
+    precioMensual: 50.0,
+    name: 'Plan Comercial (3 Sucursales / 6 Usuarios)',
+  },
+  PLAN_MAYORISTA: {
+    maxSucursales: 999,
+    maxUsuarios: 999,
+    precioMensual: 90.0,
+    name: 'Plan Mayorista (Ilimitado / Multi-Bodega / ML Scoring)',
+  },
+};
 
 @Injectable()
 export class TenantService {
@@ -15,7 +36,7 @@ export class TenantService {
   ) {}
 
   /**
-   * Listar todos los tenants con estadísticas básicas.
+   * Listar todos los tenants con estadísticas y estado de suscripción.
    */
   async listTenants() {
     const tenants = await this.prisma.tenant.findMany({
@@ -37,29 +58,51 @@ export class TenantService {
       orderBy: { createdAt: 'desc' },
     });
 
-    return tenants.map((t) => ({
-      id: t.id,
-      name: t.name,
-      active: t.active,
-      createdAt: t.createdAt,
-      stats: {
-        users: t._count.users,
-        models: t._count.productModels,
-        clients: t._count.clients,
-        orders: t._count.orders,
-      },
-      admins: t.users,
-    }));
+    return tenants.map((t) => {
+      const now = new Date();
+      let diasRestantes = 0;
+      if (t.fechaVencimientoPlan) {
+        const diffMs = new Date(t.fechaVencimientoPlan).getTime() - now.getTime();
+        diasRestantes = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
+      }
+
+      return {
+        id: t.id,
+        name: t.name,
+        active: t.active,
+        plan: t.plan,
+        estadoSuscripcion: t.estadoSuscripcion,
+        fechaVencimientoPlan: t.fechaVencimientoPlan,
+        diasPruebaGratis: t.diasPruebaGratis,
+        maxSucursales: t.maxSucursales,
+        maxUsuarios: t.maxUsuarios,
+        precioMensualPlan: Number(t.precioMensualPlan),
+        diasRestantes,
+        createdAt: t.createdAt,
+        stats: {
+          users: t._count.users,
+          models: t._count.productModels,
+          clients: t._count.clients,
+          orders: t._count.orders,
+        },
+        admins: t.users,
+      };
+    });
   }
 
   /**
-   * Crear un nuevo tenant con un admin inicial.
+   * Crear un nuevo tenant con un admin inicial y configuración de plan SaaS.
    */
   async createTenant(data: {
     name: string;
     adminEmail: string;
     adminNombre: string;
     adminPassword: string;
+    plan?: PlanTipo;
+    diasPruebaGratis?: number;
+    maxSucursales?: number;
+    maxUsuarios?: number;
+    precioMensualPlan?: number;
   }) {
     // Verificar que no exista un tenant con el mismo nombre
     const existing = await this.prisma.tenant.findFirst({
@@ -77,6 +120,17 @@ export class TenantService {
       throw new ConflictException(`El correo "${data.adminEmail}" ya está registrado.`);
     }
 
+    const plan = data.plan || PlanTipo.PLAN_COMERCIAL;
+    const defaults = PLAN_DEFAULTS[plan];
+    const diasPrueba = data.diasPruebaGratis !== undefined ? data.diasPruebaGratis : 15;
+    const maxSucursales = data.maxSucursales ?? defaults.maxSucursales;
+    const maxUsuarios = data.maxUsuarios ?? defaults.maxUsuarios;
+    const precioMensual = data.precioMensualPlan ?? defaults.precioMensual;
+
+    // Calcular fecha de vencimiento inicial por días de prueba
+    const fechaVencimiento = new Date();
+    fechaVencimiento.setDate(fechaVencimiento.getDate() + diasPrueba);
+
     const passwordHash = await bcrypt.hash(data.adminPassword, this.BCRYPT_ROUNDS);
 
     // Crear tenant + admin + businessConfig en transacción
@@ -85,6 +139,13 @@ export class TenantService {
         data: {
           name: data.name,
           active: true,
+          plan,
+          estadoSuscripcion: EstadoSuscripcion.EN_PRUEBA,
+          diasPruebaGratis: diasPrueba,
+          fechaVencimientoPlan: fechaVencimiento,
+          maxSucursales,
+          maxUsuarios,
+          precioMensualPlan: precioMensual,
         },
       });
 
@@ -119,12 +180,19 @@ export class TenantService {
       return { tenant, admin };
     });
 
-    this.logger.log(`Tenant "${data.name}" creado con admin ${data.adminEmail}`);
+    this.logger.log(`Tenant "${data.name}" creado con plan ${plan} y prueba de ${diasPrueba} días.`);
 
     return {
       id: result.tenant.id,
       name: result.tenant.name,
       active: result.tenant.active,
+      plan: result.tenant.plan,
+      estadoSuscripcion: result.tenant.estadoSuscripcion,
+      fechaVencimientoPlan: result.tenant.fechaVencimientoPlan,
+      diasPruebaGratis: result.tenant.diasPruebaGratis,
+      maxSucursales: result.tenant.maxSucursales,
+      maxUsuarios: result.tenant.maxUsuarios,
+      precioMensualPlan: Number(result.tenant.precioMensualPlan),
       createdAt: result.tenant.createdAt,
       admin: result.admin,
     };
@@ -170,7 +238,7 @@ export class TenantService {
   }
 
   /**
-   * Obtener detalles de un tenant específico con todos sus usuarios.
+   * Obtener detalles de un tenant específico con todos sus usuarios y pagos de suscripción.
    */
   async getTenantDetail(tenantId: string) {
     const tenant = await this.prisma.tenant.findUnique({
@@ -205,6 +273,10 @@ export class TenantService {
             telefono: true,
           },
         },
+        subscriptionPayments: {
+          orderBy: { createdAt: 'desc' },
+          take: 12,
+        },
       },
     });
 
@@ -219,10 +291,25 @@ export class TenantService {
         }
       : null;
 
+    const now = new Date();
+    let diasRestantes = 0;
+    if (tenant.fechaVencimientoPlan) {
+      const diffMs = new Date(tenant.fechaVencimientoPlan).getTime() - now.getTime();
+      diasRestantes = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
+    }
+
     return {
       id: tenant.id,
       name: tenant.name,
       active: tenant.active,
+      plan: tenant.plan,
+      estadoSuscripcion: tenant.estadoSuscripcion,
+      fechaVencimientoPlan: tenant.fechaVencimientoPlan,
+      diasPruebaGratis: tenant.diasPruebaGratis,
+      maxSucursales: tenant.maxSucursales,
+      maxUsuarios: tenant.maxUsuarios,
+      precioMensualPlan: Number(tenant.precioMensualPlan),
+      diasRestantes,
       createdAt: tenant.createdAt,
       stats: {
         users: tenant._count.users,
@@ -234,16 +321,37 @@ export class TenantService {
       },
       users: tenant.users,
       businessConfig,
+      subscriptionPayments: tenant.subscriptionPayments.map((p) => ({
+        id: p.id,
+        monto: Number(p.monto),
+        periodoMeses: p.periodoMeses,
+        metodoPago: p.metodoPago,
+        plan: p.plan,
+        fechaPago: p.fechaPago,
+        fechaInicio: p.fechaInicio,
+        fechaFin: p.fechaFin,
+        numeroFacturaSri: p.numeroFacturaSri,
+        facturaAutorizada: p.facturaAutorizada,
+        notas: p.notas,
+        createdAt: p.createdAt,
+      })),
     };
   }
 
   /**
-   * Actualizar nombre y configuración de negocio de un tenant.
+   * Actualizar nombre, configuración de negocio y plan de un tenant.
    */
   async updateTenant(
     tenantId: string,
     data: {
       name?: string;
+      plan?: PlanTipo;
+      estadoSuscripcion?: EstadoSuscripcion;
+      fechaVencimientoPlan?: string | Date;
+      diasPruebaGratis?: number;
+      maxSucursales?: number;
+      maxUsuarios?: number;
+      precioMensualPlan?: number;
       businessConfig?: {
         nombre?: string;
         ruc?: string;
@@ -260,10 +368,26 @@ export class TenantService {
     }
 
     await this.prisma.$transaction(async (tx) => {
-      if (data.name && data.name.trim()) {
+      const tenantUpdates: any = {};
+      if (data.name && data.name.trim()) tenantUpdates.name = data.name.trim();
+      if (data.plan) {
+        tenantUpdates.plan = data.plan;
+        const defaults = PLAN_DEFAULTS[data.plan];
+        if (data.maxSucursales === undefined) tenantUpdates.maxSucursales = defaults.maxSucursales;
+        if (data.maxUsuarios === undefined) tenantUpdates.maxUsuarios = defaults.maxUsuarios;
+        if (data.precioMensualPlan === undefined) tenantUpdates.precioMensualPlan = defaults.precioMensual;
+      }
+      if (data.estadoSuscripcion) tenantUpdates.estadoSuscripcion = data.estadoSuscripcion;
+      if (data.fechaVencimientoPlan) tenantUpdates.fechaVencimientoPlan = new Date(data.fechaVencimientoPlan);
+      if (data.diasPruebaGratis !== undefined) tenantUpdates.diasPruebaGratis = data.diasPruebaGratis;
+      if (data.maxSucursales !== undefined) tenantUpdates.maxSucursales = data.maxSucursales;
+      if (data.maxUsuarios !== undefined) tenantUpdates.maxUsuarios = data.maxUsuarios;
+      if (data.precioMensualPlan !== undefined) tenantUpdates.precioMensualPlan = data.precioMensualPlan;
+
+      if (Object.keys(tenantUpdates).length > 0) {
         await tx.tenant.update({
           where: { id: tenantId },
-          data: { name: data.name.trim() },
+          data: tenantUpdates,
         });
       }
 
@@ -299,6 +423,227 @@ export class TenantService {
   }
 
   /**
+   * Obtiene el estado de suscripción en tiempo real, etapa de gracia y opacidad visual.
+   */
+  async getSubscriptionStatus(tenantId: string) {
+    const tenant = await this.prisma.tenant.findUnique({
+      where: { id: tenantId },
+      include: {
+        businessConfig: {
+          select: { nombre: true, ruc: true },
+        },
+      },
+    });
+
+    if (!tenant) {
+      throw new NotFoundException(`Tenant con ID "${tenantId}" no encontrado.`);
+    }
+
+    const now = new Date();
+    let fechaVencimiento = tenant.fechaVencimientoPlan;
+
+    if (!fechaVencimiento) {
+      // Fallback: calcular basado en createdAt + diasPruebaGratis
+      fechaVencimiento = new Date(tenant.createdAt);
+      fechaVencimiento.setDate(fechaVencimiento.getDate() + (tenant.diasPruebaGratis || 15));
+    }
+
+    const diffMs = new Date(fechaVencimiento).getTime() - now.getTime();
+    const diasRestantes = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
+    const diasVencido = diasRestantes < 0 ? Math.abs(diasRestantes) : 0;
+
+    let stage: 'OK' | 'RENOVACION_PROXIMA' | 'GRACIA_1' | 'GRACIA_2' | 'BLOQUEADO' = 'OK';
+    let opacidad = 1.0;
+    let bloqueado = false;
+    let mensaje = 'Suscripción activa y al día.';
+
+    if (tenant.estadoSuscripcion === EstadoSuscripcion.SUSPENDIDA || !tenant.active) {
+      stage = 'BLOQUEADO';
+      opacidad = 0.0;
+      bloqueado = true;
+      mensaje = 'El acceso a tu espacio ha sido suspendido por administración.';
+    } else if (diasRestantes > 3) {
+      stage = 'OK';
+      opacidad = 1.0;
+      bloqueado = false;
+      mensaje = `Suscripción activa (${diasRestantes} días restantes).`;
+    } else if (diasRestantes >= 0 && diasRestantes <= 3) {
+      stage = 'RENOVACION_PROXIMA';
+      opacidad = 1.0;
+      bloqueado = false;
+      mensaje = `Tu plan vence ${diasRestantes === 0 ? 'hoy' : `en ${diasRestantes} día(s)`}. Renuévalo para mantener el servicio continuo.`;
+    } else {
+      // Días vencidos (Período de gracia y decaimiento visual progresivo)
+      if (diasVencido <= 2) {
+        stage = 'GRACIA_1';
+        opacidad = 0.95;
+        bloqueado = false;
+        mensaje = `Período de Gracia (Día ${diasVencido}/5). Por favor reporta tu comprobante de pago para mantener activo el sistema.`;
+      } else if (diasVencido >= 3 && diasVencido <= 4) {
+        stage = 'GRACIA_2';
+        opacidad = 0.60;
+        bloqueado = false;
+        mensaje = `Aviso Crítico: Plan vencido hace ${diasVencido} días. El bloqueo total del sistema ocurrirá en ${5 - diasVencido} día(s).`;
+      } else {
+        // Día 5 o superior
+        stage = 'BLOQUEADO';
+        opacidad = 0.0;
+        bloqueado = true;
+        mensaje = 'Acceso bloqueado por mensualidad pendiente. Registra tu transferencia para reanudar el servicio inmediatamente.';
+      }
+    }
+
+    return {
+      tenantId: tenant.id,
+      tenantName: tenant.name,
+      plan: tenant.plan,
+      estadoSuscripcion: tenant.estadoSuscripcion,
+      fechaVencimientoPlan: fechaVencimiento,
+      diasRestantes,
+      diasVencido,
+      stage,
+      opacidad,
+      bloqueado,
+      mensaje,
+      maxSucursales: tenant.maxSucursales,
+      maxUsuarios: tenant.maxUsuarios,
+      precioMensualPlan: Number(tenant.precioMensualPlan),
+      superAdminWhatsapp: '593994781205',
+      bancoInfo: {
+        banco: 'Banco Pichincha',
+        tipoCuenta: 'Cuenta de Ahorros / Corriente',
+        numeroCuenta: '2208459102',
+        titular: 'NEXORA Software - Christopher Paucar',
+        ruc: '1805123456001',
+        email: 'pagos@nexora.ec',
+      },
+    };
+  }
+
+  /**
+   * Registrar un pago de suscripción para un tenant y extender su vigencia.
+   */
+  async registerSubscriptionPayment(
+    tenantId: string,
+    data: {
+      monto: number;
+      periodoMeses: number;
+      metodoPago?: string;
+      plan?: PlanTipo;
+      numeroFacturaSri?: string;
+      facturaAutorizada?: boolean;
+      comprobanteUrl?: string;
+      notas?: string;
+    },
+  ) {
+    const tenant = await this.prisma.tenant.findUnique({
+      where: { id: tenantId },
+    });
+    if (!tenant) {
+      throw new NotFoundException(`Tenant con ID "${tenantId}" no encontrado.`);
+    }
+
+    const meses = Number(data.periodoMeses) || 1;
+    const monto = Number(data.monto) || (Number(tenant.precioMensualPlan) * meses);
+    const plan = data.plan || tenant.plan;
+
+    // Calcular fechas del período contratado
+    const now = new Date();
+    let fechaInicio = now;
+
+    // Si la fecha de vencimiento actual aún está en el futuro, extender desde esa fecha
+    if (tenant.fechaVencimientoPlan && new Date(tenant.fechaVencimientoPlan) > now) {
+      fechaInicio = new Date(tenant.fechaVencimientoPlan);
+    }
+
+    const fechaFin = new Date(fechaInicio);
+    fechaFin.setMonth(fechaFin.getMonth() + meses);
+
+    const result = await this.prisma.$transaction(async (tx) => {
+      const payment = await tx.subscriptionPayment.create({
+        data: {
+          tenantId,
+          monto,
+          periodoMeses: meses,
+          metodoPago: data.metodoPago || 'TRANSFERENCIA',
+          plan,
+          fechaPago: now,
+          fechaInicio,
+          fechaFin,
+          numeroFacturaSri: data.numeroFacturaSri,
+          facturaAutorizada: data.facturaAutorizada ?? false,
+          comprobanteUrl: data.comprobanteUrl,
+          notas: data.notas,
+        },
+      });
+
+      const updatedTenant = await tx.tenant.update({
+        where: { id: tenantId },
+        data: {
+          plan,
+          estadoSuscripcion: EstadoSuscripcion.ACTIVA,
+          fechaVencimientoPlan: fechaFin,
+          active: true,
+        },
+      });
+
+      return { payment, updatedTenant };
+    });
+
+    this.logger.log(
+      `Pago de suscripción registrado para Tenant "${tenant.name}": $${monto} por ${meses} mes(es). Nueva vigencia hasta ${fechaFin.toISOString().split('T')[0]}`,
+    );
+
+    return {
+      payment: {
+        id: result.payment.id,
+        monto: Number(result.payment.monto),
+        periodoMeses: result.payment.periodoMeses,
+        metodoPago: result.payment.metodoPago,
+        plan: result.payment.plan,
+        fechaInicio: result.payment.fechaInicio,
+        fechaFin: result.payment.fechaFin,
+        numeroFacturaSri: result.payment.numeroFacturaSri,
+        facturaAutorizada: result.payment.facturaAutorizada,
+      },
+      tenant: {
+        id: result.updatedTenant.id,
+        name: result.updatedTenant.name,
+        plan: result.updatedTenant.plan,
+        estadoSuscripcion: result.updatedTenant.estadoSuscripcion,
+        fechaVencimientoPlan: result.updatedTenant.fechaVencimientoPlan,
+      },
+    };
+  }
+
+  /**
+   * Listar historial de pagos de suscripción de un tenant.
+   */
+  async listSubscriptionPayments(tenantId: string) {
+    const payments = await this.prisma.subscriptionPayment.findMany({
+      where: { tenantId },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    return payments.map((p) => ({
+      id: p.id,
+      tenantId: p.tenantId,
+      monto: Number(p.monto),
+      periodoMeses: p.periodoMeses,
+      metodoPago: p.metodoPago,
+      plan: p.plan,
+      fechaPago: p.fechaPago,
+      fechaInicio: p.fechaInicio,
+      fechaFin: p.fechaFin,
+      numeroFacturaSri: p.numeroFacturaSri,
+      facturaAutorizada: p.facturaAutorizada,
+      comprobanteUrl: p.comprobanteUrl,
+      notas: p.notas,
+      createdAt: p.createdAt,
+    }));
+  }
+
+  /**
    * Eliminar un tenant y todos sus datos en cascada.
    */
   async deleteTenant(tenantId: string) {
@@ -325,6 +670,7 @@ export class TenantService {
       await tx.facturaElectronica.deleteMany({ where: { tenantId } });
       await tx.cierreCaja.deleteMany({ where: { tenantId } });
       await tx.auditLog.deleteMany({ where: { tenantId } });
+      await tx.subscriptionPayment.deleteMany({ where: { tenantId } });
       await tx.tenant.delete({ where: { id: tenantId } });
     });
 
