@@ -701,6 +701,71 @@ export class NotificacionesQueryService {
     };
   }
 
+  /**
+   * Envía un comprobante oficial de transacción (abono, cobro, pedido, entrega, devolución) por correo electrónico.
+   */
+  async enviarEmailComprobante(params: {
+    destinatario: string;
+    asunto: string;
+    tipo: 'ABONO' | 'PEDIDO' | 'ENTREGA' | 'DEVOLUCION' | 'COMPRA' | 'GENERAL';
+    cuerpoHtml?: string;
+    detalles?: any;
+  }) {
+    const { destinatario, asunto, tipo, cuerpoHtml, detalles } = params;
+
+    let finalHtml = cuerpoHtml;
+    if (!finalHtml) {
+      finalHtml = `
+        <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 540px; margin: 0 auto; background: #07080a; color: #eef2f7; border-radius: 20px; padding: 32px 24px; border: 1px solid rgba(255,255,255,0.08);">
+          <div style="text-align: center; margin-bottom: 24px;">
+            <span style="display: inline-block; padding: 5px 12px; background: rgba(16,185,129,0.12); color: #10b981; border: 1px solid rgba(16,185,129,0.25); border-radius: 99px; font-size: 11px; font-weight: 800; letter-spacing: 0.1em; text-transform: uppercase;">
+              NEXORA CALZADO
+            </span>
+            <h1 style="color: #ffffff; font-size: 20px; font-weight: 800; margin: 14px 0 4px;">
+              ${asunto}
+            </h1>
+            <p style="color: rgba(238,242,247,0.6); font-size: 13px; margin: 0;">
+              Comprobante de operación comercial
+            </p>
+          </div>
+
+          <div style="background: #14161a; border-radius: 16px; padding: 20px; border: 1px solid rgba(255,255,255,0.06); margin-bottom: 20px;">
+            ${detalles?.mensaje ? `<p style="font-size: 13px; line-height: 1.6; color: #cbd5e1; white-space: pre-line; margin: 0;">${detalles.mensaje}</p>` : `<p style="font-size: 13px; color: #cbd5e1;">Estimado/a cliente, adjuntamos la información de su transacción realizada en NEXORA.</p>`}
+          </div>
+
+          <p style="text-align: center; font-size: 11px; color: rgba(238,242,247,0.4); margin: 20px 0 0;">
+            Gracias por confiar en NEXORA · Sistema de Gestión Comercial
+          </p>
+        </div>
+      `;
+    }
+
+    try {
+      await this.notificacionService.enviar({
+        canal: 'EMAIL',
+        destinatario,
+        asunto,
+        cuerpoHtml: finalHtml,
+        eventoOrigen: `Comprobante_${tipo}`,
+      });
+
+      return {
+        ok: true,
+        destinatario,
+        tipo,
+        asunto,
+      };
+    } catch (err: any) {
+      return {
+        ok: false,
+        destinatario,
+        tipo,
+        asunto,
+        error: err?.message || 'Error al enviar correo',
+      };
+    }
+  }
+
   private safeDecrypt(encryptedText?: string | null): string {
     if (!encryptedText) return '';
     try {

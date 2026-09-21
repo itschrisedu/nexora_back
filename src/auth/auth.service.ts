@@ -3,11 +3,13 @@ import {
   UnauthorizedException,
   Logger,
   NotFoundException,
+  BadRequestException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcryptjs';
 import { randomBytes } from 'crypto';
+import { Resend } from 'resend';
 import { PrismaService } from '../shared/infrastructure/prisma/prisma.service';
 import { JwtPayload } from './jwt.strategy';
 import { ActiveSessionStore } from './active-session.store';
@@ -27,10 +29,100 @@ export class AuthService {
   ) {}
 
   /**
-   * Login — Autentica al usuario y retorna access + refresh tokens.
-   * Incluye protección contra fuerza bruta: bloqueo automático tras 3 intentos fallidos (24h).
+   * Enmascara un correo electrónico para proteger la privacidad en la UI (ej. ch••••r@gmail.com).
    */
-  async login(email: string, password: string) {
+  private maskEmail(email: string): string {
+    const parts = email.split('@');
+    if (parts.length !== 2) return email;
+    const name = parts[0];
+    const domain = parts[1];
+    const maskedName =
+      name.length > 2
+        ? `${name[0]}${'•'.repeat(Math.min(name.length - 2, 4))}${name[name.length - 1]}`
+        : `${name[0]}•`;
+    return `${maskedName}@${domain}`;
+  }
+
+  /**
+   * Envía un correo electrónico mediante Resend o simulador de consola.
+   */
+  private async sendEmail(to: string, subject: string, html: string): Promise<boolean> {
+    const apiKey = this.configService.get<string>('RESEND_API_KEY', '');
+    const fromEmail = this.configService.get<string>(
+      'NOTIFICATIONS_FROM_EMAIL',
+      'seguridad@nexora.com',
+    );
+
+    if (apiKey && apiKey.trim() !== '') {
+      try {
+        const resend = new Resend(apiKey);
+        const res = await resend.emails.send({
+          from: fromEmail,
+          to,
+          subject,
+          html,
+        });
+        if (res.error) {
+          this.logger.warn(`Resend Error: ${res.error.message}. Simulando en consola.`);
+        } else {
+          this.logger.log(`📧 Correo enviado exitosamente a ${to} (ID: ${res.data?.id})`);
+          return true;
+        }
+      } catch (e: any) {
+        this.logger.warn(`Error al enviar email con Resend: ${e.message}`);
+      }
+    }
+
+    this.logger.log(
+      `\n======================================================\n[SIMULADOR EMAIL] Para: ${to}\nAsunto: ${subject}\n======================================================`,
+    );
+    return true;
+  }
+
+  /**
+   * Genera la plantilla HTML estándar corporativa para códigos OTP de NEXORA.
+   */
+  private getOtpHtmlTemplate(titulo: string, descripcion: string, otp: string): string {
+    return `
+      <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 520px; margin: 0 auto; background: #07080a; color: #eef2f7; border-radius: 24px; padding: 36px 28px; border: 1px solid rgba(255,255,255,0.08); text-align: center;">
+        <div style="margin-bottom: 24px;">
+          <span style="display: inline-block; padding: 6px 14px; background: rgba(16,185,129,0.12); color: #10b981; border: 1px solid rgba(16,185,129,0.25); border-radius: 99px; font-size: 11px; font-weight: 800; letter-spacing: 0.15em; text-transform: uppercase;">
+            Seguridad NEXORA
+          </span>
+          <h1 style="color: #ffffff; font-size: 22px; font-weight: 800; margin: 16px 0 6px; letter-spacing: -0.02em;">
+            ${titulo}
+          </h1>
+          <p style="color: rgba(238,242,247,0.65); font-size: 13px; line-height: 1.5; margin: 0;">
+            ${descripcion}
+          </p>
+        </div>
+
+        <div style="background: linear-gradient(170deg, #14161a, #0f1114); border-radius: 20px; padding: 24px 20px; border: 1px solid rgba(255,255,255,0.06); margin: 24px 0; box-shadow: inset 0 1px 0 rgba(255,255,255,0.05);">
+          <div style="font-size: 11px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: #94a3b8; margin-bottom: 12px;">
+            Código de Verificación (4 Dígitos)
+          </div>
+          <div style="background: #061c14; border: 2px solid #10b981; border-radius: 16px; padding: 14px 24px; display: inline-block; box-shadow: 0 0 24px rgba(16,185,129,0.2);">
+            <span style="font-size: 36px; font-weight: 900; letter-spacing: 12px; color: #34d399; font-family: monospace; margin-left: 12px;">
+              ${otp}
+            </span>
+          </div>
+          <p style="font-size: 12px; color: #64748b; margin: 16px 0 0;">
+            ⏱️ Este código expira en <strong>5 minutos</strong>.
+          </p>
+        </div>
+
+        <p style="font-size: 11px; color: rgba(238,242,247,0.4); margin: 20px 0 0; line-height: 1.4;">
+          Si no realizaste esta solicitud, ignora este mensaje. Nadie del equipo de NEXORA te pedirá este código.
+        </p>
+      </div>
+    `;
+  }
+
+  /**
+   * Login — Autentica al usuario y retorna access + refresh tokens.
+   * Si ya existe una sesión activa en otro dispositivo y no se fuerza, retorna conflicto de sesión.
+   */
+  async login(email: string, password: string, forceTransfer = false) {
     const user = await this.prisma.user.findUnique({ where: { email } });
 
     if (!user) {
@@ -43,16 +135,19 @@ export class AuthService {
 
     // ── Verificar si la cuenta está bloqueada por intentos fallidos ──
     if (user.bloqueadoHasta && user.bloqueadoHasta > new Date()) {
-      const horasRestantes = Math.ceil((user.bloqueadoHasta.getTime() - Date.now()) / (1000 * 60 * 60));
-      this.logger.warn(`Intento de login en cuenta bloqueada: ${email} (bloqueada por ${horasRestantes}h más)`);
+      const horasRestantes = Math.ceil(
+        (user.bloqueadoHasta.getTime() - Date.now()) / (1000 * 60 * 60),
+      );
+      this.logger.warn(
+        `Intento de login en cuenta bloqueada: ${email} (bloqueada por ${horasRestantes}h más)`,
+      );
       throw new UnauthorizedException(
-        `Cuenta bloqueada por seguridad. Demasiados intentos fallidos. Intente nuevamente en ${horasRestantes} hora(s) o contacte al administrador para desbloquearla.`,
+        `Cuenta bloqueada por seguridad. Demasiados intentos fallidos. Intente nuevamente en ${horasRestantes} hora(s) o use la opción de desbloquear por correo.`,
       );
     }
 
     const passwordValid = await bcrypt.compare(password, user.passwordHash);
     if (!passwordValid) {
-      // ── Incrementar contador de intentos fallidos ──
       const nuevosIntentos = (user.intentosFallidos || 0) + 1;
       const updateData: any = { intentosFallidos: nuevosIntentos };
 
@@ -60,10 +155,6 @@ export class AuthService {
         updateData.bloqueadoHasta = new Date(Date.now() + this.LOCKOUT_HOURS * 60 * 60 * 1000);
         this.logger.warn(
           `Cuenta BLOQUEADA por ${this.LOCKOUT_HOURS}h: ${email} (${nuevosIntentos} intentos fallidos)`,
-        );
-      } else {
-        this.logger.warn(
-          `Intento fallido ${nuevosIntentos}/${this.MAX_LOGIN_ATTEMPTS} para: ${email}`,
         );
       }
 
@@ -79,21 +170,50 @@ export class AuthService {
         );
       } else {
         throw new UnauthorizedException(
-          `Cuenta bloqueada por seguridad. Demasiados intentos fallidos. Intente nuevamente en ${this.LOCKOUT_HOURS} horas o contacte al administrador.`,
+          `Cuenta bloqueada por seguridad tras 3 intentos fallidos. Puede desbloquearla mediante el código enviado a su correo registrado.`,
         );
       }
     }
 
-    // ── Login exitoso: resetear contador de intentos ──
-    if (user.intentosFallidos > 0 || user.bloqueadoHasta) {
-      await this.prisma.user.update({
-        where: { id: user.id },
-        data: { intentosFallidos: 0, bloqueadoHasta: null },
-      });
+    // ── Verificar si ya existe una sesión activa concurrente ──
+    const currentActiveSession = ActiveSessionStore.get(user.id) || user.activeSessionId;
+    if (currentActiveSession && !forceTransfer) {
+      this.logger.warn(`Conflicto de sesión única detectado para: ${email}`);
+      return {
+        sessionConflict: true,
+        email: user.email,
+        maskedEmail: this.maskEmail(user.email),
+        message:
+          'Ya existe una sesión abierta para este usuario en otro dispositivo. ¿Desea cerrar la sesión anterior y continuar con la actual?',
+      };
     }
+
+    return this.createSessionResponse(user);
+  }
+
+  /**
+   * Genera los tokens JWT y registra la nueva sesión activa, invalidando la anterior.
+   */
+  private async createSessionResponse(user: any) {
+    // Resetear contador de fallos
+    await this.prisma.user.update({
+      where: { id: user.id },
+      data: {
+        intentosFallidos: 0,
+        bloqueadoHasta: null,
+        sessionOtp: null,
+        sessionOtpExpiresAt: null,
+        sessionOtpAttempts: 0,
+      },
+    });
 
     const sessionId = randomBytes(16).toString('hex');
     ActiveSessionStore.set(user.id, sessionId);
+
+    await this.prisma.user.update({
+      where: { id: user.id },
+      data: { activeSessionId: sessionId },
+    });
 
     const payload: JwtPayload = {
       sub: user.id,
@@ -121,7 +241,7 @@ export class AuthService {
       },
     });
 
-    this.logger.log(`Login exitoso para: ${user.email} (${user.rol}) [Sesión: ${sessionHours}]`);
+    this.logger.log(`Sesión iniciada exitosamente para: ${user.email} (${user.rol})`);
 
     return {
       accessToken,
@@ -138,6 +258,209 @@ export class AuthService {
         gpsConsentAt: user.gpsConsentAt,
       },
     };
+  }
+
+  /**
+   * Solicita un código OTP de 4 dígitos para autorizar la transferencia de sesión.
+   */
+  async requestSessionTransferOtp(email: string, password?: string) {
+    const user = await this.prisma.user.findUnique({ where: { email } });
+    if (!user) {
+      throw new NotFoundException('Usuario no encontrado');
+    }
+
+    if (user.bloqueadoHasta && user.bloqueadoHasta > new Date()) {
+      throw new UnauthorizedException('La cuenta se encuentra bloqueada por seguridad.');
+    }
+
+    if (password) {
+      const passwordValid = await bcrypt.compare(password, user.passwordHash);
+      if (!passwordValid) {
+        throw new UnauthorizedException('Contraseña incorrecta');
+      }
+    }
+
+    const otp = Math.floor(1000 + Math.random() * 9000).toString();
+    const expiresAt = new Date(Date.now() + 5 * 60 * 1000); // 5 minutos
+
+    await this.prisma.user.update({
+      where: { id: user.id },
+      data: {
+        sessionOtp: otp,
+        sessionOtpExpiresAt: expiresAt,
+        sessionOtpAttempts: 0,
+      },
+    });
+
+    const html = this.getOtpHtmlTemplate(
+      'Autorización de Transferencia de Sesión',
+      'Detectamos un intento de inicio de sesión desde un nuevo dispositivo o navegador.',
+      otp,
+    );
+
+    await this.sendEmail(user.email, 'Código de Confirmación de Sesión — NEXORA', html);
+
+    this.logger.log(`🔑 OTP de sesión generado para ${email}: [${otp}]`);
+
+    return {
+      ok: true,
+      maskedEmail: this.maskEmail(user.email),
+      expiresInSeconds: 300,
+      debugCode: process.env.NODE_ENV !== 'production' ? otp : undefined,
+    };
+  }
+
+  /**
+   * Valida el código OTP de transferencia de sesión de 4 dígitos.
+   * Tras 3 intentos erróneos, bloquea la cuenta por 24 horas.
+   */
+  async verifySessionOtp(email: string, otp: string) {
+    const user = await this.prisma.user.findUnique({ where: { email } });
+    if (!user) {
+      throw new NotFoundException('Usuario no encontrado');
+    }
+
+    if (user.bloqueadoHasta && user.bloqueadoHasta > new Date()) {
+      throw new UnauthorizedException('Cuenta bloqueada por seguridad. Contacte al administrador.');
+    }
+
+    if (!user.sessionOtp || !user.sessionOtpExpiresAt || user.sessionOtpExpiresAt < new Date()) {
+      throw new BadRequestException('El código ha expirado o no ha sido solicitado. Solicite uno nuevo.');
+    }
+
+    if (user.sessionOtp !== otp.trim()) {
+      const newAttempts = (user.sessionOtpAttempts || 0) + 1;
+      const totalFailures = (user.intentosFallidos || 0) + 1;
+
+      if (newAttempts >= this.MAX_LOGIN_ATTEMPTS || totalFailures >= this.MAX_LOGIN_ATTEMPTS) {
+        await this.prisma.user.update({
+          where: { id: user.id },
+          data: {
+            intentosFallidos: this.MAX_LOGIN_ATTEMPTS,
+            bloqueadoHasta: new Date(Date.now() + this.LOCKOUT_HOURS * 60 * 60 * 1000),
+            sessionOtp: null,
+            sessionOtpExpiresAt: null,
+          },
+        });
+        throw new UnauthorizedException(
+          'Cuenta bloqueada por 24 horas tras 3 intentos fallidos consecutivos.',
+        );
+      }
+
+      await this.prisma.user.update({
+        where: { id: user.id },
+        data: {
+          sessionOtpAttempts: newAttempts,
+          intentosFallidos: totalFailures,
+        },
+      });
+
+      const remaining = this.MAX_LOGIN_ATTEMPTS - newAttempts;
+      throw new UnauthorizedException(
+        `Código incorrecto. Le quedan ${remaining} intento(s) antes del bloqueo.`,
+      );
+    }
+
+    // OTP Correcto: Iniciar sesión y cerrar la anterior
+    this.logger.log(`✅ OTP de transferencia verificado con éxito para: ${email}`);
+    return this.createSessionResponse(user);
+  }
+
+  /**
+   * Solicita un código OTP de 4 dígitos para auto-desbloqueo o recuperación de cuenta
+   * disponible para Super Admin, Admin y Colaboradores.
+   */
+  async requestUnlockOtp(email: string) {
+    const user = await this.prisma.user.findUnique({ where: { email } });
+    if (!user) {
+      throw new NotFoundException('No existe ninguna cuenta asociada a este correo electrónico.');
+    }
+
+    const otp = Math.floor(1000 + Math.random() * 9000).toString();
+    const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
+
+    await this.prisma.user.update({
+      where: { id: user.id },
+      data: {
+        sessionOtp: otp,
+        sessionOtpExpiresAt: expiresAt,
+        sessionOtpAttempts: 0,
+      },
+    });
+
+    const html = this.getOtpHtmlTemplate(
+      'Desbloqueo y Recuperación de Cuenta',
+      'Has solicitado desbloquear tu cuenta o recuperar el acceso a tu panel de NEXORA.',
+      otp,
+    );
+
+    await this.sendEmail(user.email, 'Código de Desbloqueo de Cuenta — NEXORA', html);
+    this.logger.log(`🔓 OTP de desbloqueo generado para ${email}: [${otp}]`);
+
+    return {
+      ok: true,
+      maskedEmail: this.maskEmail(user.email),
+      expiresInSeconds: 300,
+      debugCode: process.env.NODE_ENV !== 'production' ? otp : undefined,
+    };
+  }
+
+  /**
+   * Valida el código OTP de desbloqueo y restablece la cuenta de inmediato.
+   */
+  async verifyUnlockOtp(email: string, otp: string, newPassword?: string) {
+    const user = await this.prisma.user.findUnique({ where: { email } });
+    if (!user) {
+      throw new NotFoundException('Usuario no encontrado');
+    }
+
+    if (!user.sessionOtp || !user.sessionOtpExpiresAt || user.sessionOtpExpiresAt < new Date()) {
+      throw new BadRequestException('El código ha expirado o es inválido. Solicite un nuevo código.');
+    }
+
+    if (user.sessionOtp !== otp.trim()) {
+      const newAttempts = (user.sessionOtpAttempts || 0) + 1;
+      if (newAttempts >= this.MAX_LOGIN_ATTEMPTS) {
+        await this.prisma.user.update({
+          where: { id: user.id },
+          data: {
+            bloqueadoHasta: new Date(Date.now() + this.LOCKOUT_HOURS * 60 * 60 * 1000),
+            sessionOtp: null,
+            sessionOtpExpiresAt: null,
+          },
+        });
+        throw new UnauthorizedException('Excedió el número de intentos permitidos.');
+      }
+
+      await this.prisma.user.update({
+        where: { id: user.id },
+        data: { sessionOtpAttempts: newAttempts },
+      });
+
+      throw new UnauthorizedException(
+        `Código incorrecto. Le quedan ${this.MAX_LOGIN_ATTEMPTS - newAttempts} intento(s).`,
+      );
+    }
+
+    const updateData: any = {
+      intentosFallidos: 0,
+      bloqueadoHasta: null,
+      sessionOtp: null,
+      sessionOtpExpiresAt: null,
+      sessionOtpAttempts: 0,
+    };
+
+    if (newPassword && newPassword.length >= 6) {
+      updateData.passwordHash = await bcrypt.hash(newPassword, this.BCRYPT_ROUNDS);
+    }
+
+    const updatedUser = await this.prisma.user.update({
+      where: { id: user.id },
+      data: updateData,
+    });
+
+    this.logger.log(`🎉 Cuenta desbloqueada exitosamente para ${email} (${user.rol})`);
+    return this.createSessionResponse(updatedUser);
   }
 
   /**

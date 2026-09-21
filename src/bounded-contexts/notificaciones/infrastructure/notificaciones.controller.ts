@@ -56,6 +56,24 @@ export class NotificacionesController {
   }
 
   /**
+   * Envío automático de comprobantes oficiales por correo electrónico en segundo plano.
+   */
+  @Post('email-comprobante')
+  @Roles(Rol.ROL_ADMIN, Rol.ROL_VENDEDOR, Rol.ROL_SUPER_ADMIN, Rol.ROL_BODEGUERO)
+  async enviarEmailComprobante(
+    @Body()
+    body: {
+      destinatario: string;
+      asunto: string;
+      tipo: 'ABONO' | 'PEDIDO' | 'ENTREGA' | 'DEVOLUCION' | 'COMPRA' | 'GENERAL';
+      cuerpoHtml?: string;
+      detalles?: any;
+    },
+  ) {
+    return this.queryService.enviarEmailComprobante(body);
+  }
+
+  /**
    * Disparo manual de verificación de cobros por vencer / vencidos.
    */
   @Post('ejecutar-cron-cobros')

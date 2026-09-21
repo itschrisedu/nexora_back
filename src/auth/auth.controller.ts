@@ -28,11 +28,64 @@ export class AuthController {
   /**
    * POST /auth/login
    * Autentica al usuario y retorna access + refresh tokens.
+   * Si existe sesión previa activa y no se fuerza, retorna status de conflicto de sesión.
    */
   @Post('login')
   @HttpCode(HttpStatus.OK)
-  async login(@Body() dto: LoginDto) {
-    return this.authService.login(dto.email, dto.password);
+  async login(@Body() dto: LoginDto & { forceTransfer?: boolean }) {
+    return this.authService.login(dto.email, dto.password, dto.forceTransfer);
+  }
+
+  /**
+   * POST /auth/request-session-otp
+   * Emite un código OTP de 4 dígitos para transferir la sesión activa.
+   */
+  @Post('request-session-otp')
+  @HttpCode(HttpStatus.OK)
+  async requestSessionOtp(@Body() body: { email: string; password?: string }) {
+    if (!body?.email) {
+      throw new BadRequestException('El correo electrónico es obligatorio.');
+    }
+    return this.authService.requestSessionTransferOtp(body.email, body.password);
+  }
+
+  /**
+   * POST /auth/verify-session-otp
+   * Valida el código OTP de 4 dígitos y completa el inicio de sesión.
+   */
+  @Post('verify-session-otp')
+  @HttpCode(HttpStatus.OK)
+  async verifySessionOtp(@Body() body: { email: string; otp: string }) {
+    if (!body?.email || !body?.otp) {
+      throw new BadRequestException('El correo y el código de verificación son requeridos.');
+    }
+    return this.authService.verifySessionOtp(body.email, body.otp);
+  }
+
+  /**
+   * POST /auth/request-unlock-otp
+   * Emite un código OTP para desbloqueo universal de cuenta (Admin y Super Admin).
+   */
+  @Post('request-unlock-otp')
+  @HttpCode(HttpStatus.OK)
+  async requestUnlockOtp(@Body() body: { email: string }) {
+    if (!body?.email) {
+      throw new BadRequestException('El correo electrónico es obligatorio.');
+    }
+    return this.authService.requestUnlockOtp(body.email);
+  }
+
+  /**
+   * POST /auth/verify-unlock-otp
+   * Valida el código OTP de desbloqueo y restablece el acceso de inmediato.
+   */
+  @Post('verify-unlock-otp')
+  @HttpCode(HttpStatus.OK)
+  async verifyUnlockOtp(@Body() body: { email: string; otp: string; newPassword?: string }) {
+    if (!body?.email || !body?.otp) {
+      throw new BadRequestException('El correo y el código de verificación son requeridos.');
+    }
+    return this.authService.verifyUnlockOtp(body.email, body.otp, body.newPassword);
   }
 
   /**
