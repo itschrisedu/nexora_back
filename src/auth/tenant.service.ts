@@ -125,7 +125,7 @@ export class TenantService {
     const diasPrueba = data.diasPruebaGratis !== undefined ? data.diasPruebaGratis : 15;
     const maxSucursales = data.maxSucursales ?? defaults.maxSucursales;
     const maxUsuarios = data.maxUsuarios ?? defaults.maxUsuarios;
-    const precioMensual = data.precioMensualPlan ?? defaults.precioMensual;
+    const precioMensual = data.precioMensualPlan !== undefined && data.precioMensualPlan !== null ? Number(data.precioMensualPlan) : defaults.precioMensual;
 
     // Calcular fecha de vencimiento inicial por días de prueba
     const fechaVencimiento = new Date();
@@ -544,7 +544,7 @@ export class TenantService {
     }
 
     const meses = Number(data.periodoMeses) || 1;
-    const monto = Number(data.monto) || (Number(tenant.precioMensualPlan) * meses);
+    const monto = (data.monto !== undefined && data.monto !== null && !isNaN(Number(data.monto))) ? Number(data.monto) : (Number(tenant.precioMensualPlan) * meses);
     const plan = data.plan || tenant.plan;
 
     // Calcular fechas del período contratado
