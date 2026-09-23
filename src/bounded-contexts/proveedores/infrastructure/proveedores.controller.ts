@@ -19,6 +19,8 @@ import { Rol } from '@prisma/client';
 
 import { RegistrarSupplierHandler } from '../application/commands/RegistrarSupplier.handler';
 import { RegistrarSupplierCommand } from '../application/commands/RegistrarSupplier.command';
+import { ActualizarSupplierHandler } from '../application/commands/ActualizarSupplier.handler';
+import { ActualizarSupplierCommand } from '../application/commands/ActualizarSupplier.command';
 import { CrearSupplierOrderHandler } from '../application/commands/CrearSupplierOrder.handler';
 import { CrearSupplierOrderCommand } from '../application/commands/CrearSupplierOrder.command';
 import { ActualizarSupplierOrderHandler } from '../application/commands/ActualizarSupplierOrder.handler';
@@ -31,18 +33,27 @@ import { ProveedoresQueryService } from '../application/queries/ProveedoresQuery
 import { PrismaService } from '../../../shared/infrastructure/prisma/prisma.service';
 import {
   RegistrarSupplierDto,
+  ActualizarSupplierDto,
   CrearSupplierOrderDto,
   ActualizarSupplierOrderDto,
   RegistrarMerchandiseEntryDto,
   RegistrarSupplierPaymentDto,
 } from './dto/proveedores.dto';
 import { AutoDespachoOrdenesService } from './services/AutoDespachoOrdenes.service';
+import {
+  formatearNombres,
+  formatearEmail,
+  formatearDireccion,
+  validarEmailEstricto,
+} from '../../../shared/utils/text-formatters';
+import { validarRuc } from '../../../shared/utils/ecuador-validators';
 
 @Controller('proveedores')
 @UseGuards(JwtAuthGuard, RolesGuard)
 export class ProveedoresController {
   constructor(
     private readonly registrarSupplierHandler: RegistrarSupplierHandler,
+    private readonly actualizarSupplierHandler: ActualizarSupplierHandler,
     private readonly crearOrderHandler: CrearSupplierOrderHandler,
     private readonly actualizarOrderHandler: ActualizarSupplierOrderHandler,
     private readonly registrarEntryHandler: RegistrarMerchandiseEntryHandler,
@@ -72,23 +83,78 @@ export class ProveedoresController {
   @Post()
   @Roles(Rol.ROL_ADMIN)
   async registrarProveedor(@Body() dto: RegistrarSupplierDto, @Req() req: any) {
+    if (dto.ruc && !validarRuc(dto.ruc)) {
+      throw new BadRequestException('El RUC ecuatoriano ingresado no es válido (13 dígitos numéricos).');
+    }
+    if (dto.email) {
+      const emailVal = validarEmailEstricto(dto.email);
+      if (!emailVal.valido) {
+        throw new BadRequestException(emailVal.mensaje);
+      }
+    }
+
+    const razonSocialFormateada = dto.razonSocial ? dto.razonSocial.trim() : '';
+    const contactoFormateado = dto.contacto ? formatearNombres(dto.contacto, 3) : undefined;
+    const direccionFormateada = dto.direccion ? formatearDireccion(dto.direccion) : undefined;
+    const emailFormateado = dto.email ? formatearEmail(dto.email) : undefined;
+
     const id = await this.registrarSupplierHandler.execute(
       new RegistrarSupplierCommand(
         dto.ruc,
-        dto.razonSocial,
+        razonSocialFormateada,
         req.user.tenantId,
+        contactoFormateado,
+        direccionFormateada,
+        emailFormateado,
+      ),
+    );
+    return { ok: true, id, message: 'Proveedor registrado correctamente.' };
+  }
+
+  @Put(':id')
+  @Roles(Rol.ROL_ADMIN)
+  async actualizarProveedor(
+    @Param('id') id: string,
+    @Body() dto: ActualizarSupplierDto,
+  ) {
+    if (dto.email) {
+      const emailVal = validarEmailEstricto(dto.email);
+      if (!emailVal.valido) {
+        throw new BadRequestException(emailVal.mensaje);
+      }
+    }
+
+    await this.actualizarSupplierHandler.execute(
+      new ActualizarSupplierCommand(
+        id,
+        dto.razonSocial,
         dto.contacto,
         dto.direccion,
         dto.email,
       ),
     );
-    return { ok: true, id, message: 'Proveedor registrado correctamente.' };
+    return { ok: true, message: 'Proveedor actualizado correctamente.' };
+  }
+
+  @Patch(':id')
+  @Roles(Rol.ROL_ADMIN)
+  async patchProveedor(
+    @Param('id') id: string,
+    @Body() dto: ActualizarSupplierDto,
+  ) {
+    return this.actualizarProveedor(id, dto);
   }
 
   @Get()
   @Roles(Rol.ROL_ADMIN, Rol.ROL_VENDEDOR, Rol.ROL_BODEGUERO)
   async listarProveedores(@Req() req: any, @Query('q') q?: string) {
     return this.queryService.buscarProveedores(req.user.tenantId, q);
+  }
+
+  @Get(':id')
+  @Roles(Rol.ROL_ADMIN, Rol.ROL_VENDEDOR, Rol.ROL_BODEGUERO)
+  async obtenerProveedor(@Param('id') id: string) {
+    return this.queryService.obtenerProveedor(id);
   }
 
   @Get('pagos/todos')
@@ -304,14 +370,5 @@ export class ProveedoresController {
     return this.queryService.obtenerCuentaCorriente(id);
   }
 
-  // ══════════════════════════════════════════
-  // OBTENER UN PROVEEDOR POR ID
-  // (debe ir AL FINAL para no interceptar rutas literales)
-  // ══════════════════════════════════════════
-
-  @Get(':id')
-  @Roles(Rol.ROL_ADMIN)
-  async obtenerProveedor(@Param('id') id: string) {
-    return this.queryService.obtenerProveedor(id);
-  }
 }
+

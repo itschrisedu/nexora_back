@@ -35,6 +35,13 @@ import {
   validarTelefonoCelular,
   normalizarTelefonoCelular,
 } from '../../../shared/utils/ecuador-validators';
+import {
+  formatearNombres,
+  formatearApellidos,
+  formatearEmail,
+  validarEmailEstricto,
+  formatearDireccion,
+} from '../../../shared/utils/text-formatters';
 
 @Controller('clientes')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -142,6 +149,13 @@ export class ClientesController {
       throw new BadRequestException('El RUC ecuatoriano ingresado no es válido (13 dígitos, terminado en 001).');
     }
 
+    if (dto.email) {
+      const emailVal = validarEmailEstricto(dto.email);
+      if (!emailVal.valido) {
+        throw new BadRequestException(emailVal.mensaje);
+      }
+    }
+
     const telNormalizado = normalizarTelefonoCelular(dto.telefono);
     const targetTenantId = req.user.tenantId || req.user.originalTenantId;
 
@@ -150,13 +164,13 @@ export class ClientesController {
     }
 
     const command = new RegistrarClienteCommand(
-      dto.nombre.trim(),
-      dto.apellido.trim(),
+      formatearNombres(dto.nombre, 3),
+      formatearApellidos(dto.apellido),
       telNormalizado,
-      dto.email?.trim() ?? null,
+      dto.email ? formatearEmail(dto.email) : null,
       dto.ruc?.trim() ?? null,
       dto.cedula?.trim() ?? null,
-      dto.direccion?.trim() ?? null,
+      dto.direccion ? formatearDireccion(dto.direccion) : null,
       dto.notas?.trim() ?? null,
       targetTenantId,
     );
@@ -179,18 +193,24 @@ export class ClientesController {
     if (dto.ruc && !validarRuc(dto.ruc)) {
       throw new BadRequestException('El RUC ecuatoriano ingresado no es válido (13 dígitos, terminado en 001).');
     }
+    if (dto.email) {
+      const emailVal = validarEmailEstricto(dto.email);
+      if (!emailVal.valido) {
+        throw new BadRequestException(emailVal.mensaje);
+      }
+    }
 
     const telNormalizado = dto.telefono ? normalizarTelefonoCelular(dto.telefono) : dto.telefono;
 
     const command = new ActualizarClienteCommand(
       id,
-      dto.nombre.trim(),
-      dto.apellido.trim(),
+      formatearNombres(dto.nombre, 3),
+      formatearApellidos(dto.apellido),
       telNormalizado,
-      dto.email?.trim() ?? null,
+      dto.email ? formatearEmail(dto.email) : null,
       dto.ruc?.trim() ?? null,
       dto.cedula?.trim() ?? null,
-      dto.direccion?.trim() ?? null,
+      dto.direccion ? formatearDireccion(dto.direccion) : null,
       dto.notas?.trim() ?? null,
     );
     await this.actualizarClienteHandler.execute(command);

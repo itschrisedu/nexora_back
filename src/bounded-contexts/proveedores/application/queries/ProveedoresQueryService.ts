@@ -79,14 +79,24 @@ export class ProveedoresQueryService {
       };
     });
 
-    if (q) {
-      const normalizedQuery = q.toLowerCase();
-      return formated.filter(
-        (s) =>
-          s.razonSocial.toLowerCase().includes(normalizedQuery) ||
-          s.ruc.includes(normalizedQuery) ||
-          (s.contacto && s.contacto.toLowerCase().includes(normalizedQuery)),
-      );
+    if (q && q.trim()) {
+      const terminos = q.toLowerCase().trim().split(/\s+/).filter(Boolean);
+      return formated.filter((s) => {
+        const razon = (s.razonSocial || '').toLowerCase();
+        const ruc = (s.ruc || '').toLowerCase();
+        const contacto = (s.contacto || '').toLowerCase();
+        const direccion = (s.direccion || '').toLowerCase();
+        const email = (s.email || '').toLowerCase();
+
+        return terminos.every(
+          (t) =>
+            razon.includes(t) ||
+            ruc.includes(t) ||
+            contacto.includes(t) ||
+            direccion.includes(t) ||
+            email.includes(t),
+        );
+      });
     }
 
     return formated;

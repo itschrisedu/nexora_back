@@ -33,12 +33,17 @@ export class ClientesQueryService {
       where.tenantId = tenantId;
     }
 
-    if (filtros.q) {
-      where.OR = [
-        { nombre: { contains: filtros.q, mode: 'insensitive' } },
-        { apellido: { contains: filtros.q, mode: 'insensitive' } },
-        { telefono: { contains: filtros.q, mode: 'insensitive' } },
-      ];
+    if (filtros.q && filtros.q.trim()) {
+      const terminos = filtros.q.trim().split(/\s+/).filter(Boolean);
+      where.AND = terminos.map((term) => ({
+        OR: [
+          { nombre: { contains: term, mode: 'insensitive' } },
+          { apellido: { contains: term, mode: 'insensitive' } },
+          { telefono: { contains: term, mode: 'insensitive' } },
+          { email: { contains: term, mode: 'insensitive' } },
+          { direccion: { contains: term, mode: 'insensitive' } },
+        ],
+      }));
     }
 
     if (filtros.nivelCredito) {
