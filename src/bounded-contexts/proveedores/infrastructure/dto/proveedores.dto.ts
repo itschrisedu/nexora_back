@@ -6,9 +6,21 @@ export class RegistrarSupplierDto {
   @IsString()
   ruc: string;
 
-  @IsNotEmpty({ message: 'La razón social es obligatoria.' })
+  @IsOptional()
   @IsString()
-  razonSocial: string;
+  razonSocial?: string;
+
+  @IsOptional()
+  @IsString()
+  nombreComercial?: string;
+
+  @IsOptional()
+  @IsString()
+  nombres?: string;
+
+  @IsOptional()
+  @IsString()
+  apellidos?: string;
 
   @IsOptional()
   @IsString()

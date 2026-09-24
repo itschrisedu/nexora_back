@@ -49,7 +49,7 @@ export class CrearProductoHandler {
       suppliers.map(s => [s.id, { ...s, sigla: generarSiglaProveedor(s.razonSocial) }])
     );
 
-    const primarySupplierId = command.supplierId || (suppliers[0]?.id ?? null);
+    const primarySupplierId = command.supplierId || null;
     const alternateIds = Array.from(allSupplierIds).filter(id => id !== primarySupplierId);
 
     // 2. Crear el modelo padre

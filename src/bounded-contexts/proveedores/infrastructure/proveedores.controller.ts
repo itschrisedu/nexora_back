@@ -93,8 +93,17 @@ export class ProveedoresController {
       }
     }
 
-    const razonSocialFormateada = dto.razonSocial ? dto.razonSocial.trim() : '';
-    const contactoFormateado = dto.contacto ? formatearNombres(dto.contacto, 3) : undefined;
+    const razonSocialFormateada = (
+      dto.razonSocial ||
+      dto.nombreComercial ||
+      `${dto.nombres || ''} ${dto.apellidos || ''}`
+    ).trim();
+
+    if (!razonSocialFormateada) {
+      throw new BadRequestException('Debe ingresar la Razón Social o los Nombres y Apellidos del proveedor.');
+    }
+
+    const contactoFormateado = dto.contacto ? dto.contacto.trim() : (dto.nombres ? `${dto.nombres.trim()} ${dto.apellidos || ''}`.trim() : undefined);
     const direccionFormateada = dto.direccion ? formatearDireccion(dto.direccion) : undefined;
     const emailFormateado = dto.email ? formatearEmail(dto.email) : undefined;
 
