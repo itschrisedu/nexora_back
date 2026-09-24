@@ -10,17 +10,17 @@ export function capitalizarPalabra(palabra: string): string {
   return limpia.charAt(0).toUpperCase() + limpia.slice(1).toLowerCase();
 }
 
-export function formatearNombres(valor: string, maxPalabras: number = 3): string {
+export function formatearNombres(valor: string, maxPalabras?: number): string {
   if (!valor) return '';
   const soloLetras = valor.replace(/[^a-zA-ZáéíóúÁÉÍÓÚñÑ\s]/g, '');
   const palabras = soloLetras.split(/\s+/).filter(Boolean);
-  const palabrasPermitidas = palabras.slice(0, maxPalabras);
+  const palabrasPermitidas = maxPalabras ? palabras.slice(0, maxPalabras) : palabras;
   const formateadas = palabrasPermitidas.map(capitalizarPalabra);
   return formateadas.join(' ');
 }
 
 export function formatearApellidos(valor: string): string {
-  return formatearNombres(valor, 2);
+  return formatearNombres(valor);
 }
 
 export function dividirNombres(nombresStr: string): {

@@ -42,10 +42,10 @@ export class ProveedoresQueryService {
   }
 
   async buscarProveedores(tenantId?: string | null, q?: string) {
-    const where: any = {};
-    if (tenantId) {
-      where.tenantId = tenantId;
+    if (!tenantId) {
+      return [];
     }
+    const where: any = { tenantId };
     const suppliers = await this.prisma.supplier.findMany({
       where,
       include: {

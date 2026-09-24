@@ -185,10 +185,10 @@ export class InventarioQueryService {
   }
 
   async listarModelos(tenantId?: string | null) {
-    const where: any = {};
-    if (tenantId) {
-      where.tenantId = tenantId;
+    if (!tenantId) {
+      return [];
     }
+    const where: any = { tenantId };
 
     const [modelos, allSuppliers] = await Promise.all([
       this.prisma.productModel.findMany({
@@ -215,7 +215,7 @@ export class InventarioQueryService {
         orderBy: { name: 'asc' },
       }),
       this.prisma.supplier.findMany({
-        where: tenantId ? { tenantId } : {},
+        where: { tenantId },
         include: {
           _count: { select: { orders: true } },
         },
