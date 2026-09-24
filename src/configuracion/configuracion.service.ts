@@ -142,6 +142,14 @@ export class ConfiguracionService {
         where: { id: existing.id },
         data,
       });
+
+      if (dto.nombre && targetTenantId) {
+        await this.prisma.tenant.update({
+          where: { id: targetTenantId },
+          data: { name: dto.nombre },
+        }).catch(() => null);
+      }
+
       this.logger.log('Configuración del negocio actualizada');
 
       // Propagar campos visuales de landing a todos los demás tenants
@@ -153,6 +161,14 @@ export class ConfiguracionService {
     const created = await this.prisma.businessConfig.create({
       data: { ...data, tenantId: targetTenantId },
     });
+
+    if (dto.nombre && targetTenantId) {
+      await this.prisma.tenant.update({
+        where: { id: targetTenantId },
+        data: { name: dto.nombre },
+      }).catch(() => null);
+    }
+
     this.logger.log('Configuración del negocio creada');
 
     // Propagar campos visuales de landing a todos los demás tenants

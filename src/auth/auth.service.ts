@@ -977,6 +977,35 @@ export class AuthService implements OnApplicationBootstrap {
     return user;
   }
 
+  async changePassword(userId: string, passwordActual: string, passwordNuevo: string) {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) {
+      throw new NotFoundException('Usuario no encontrado.');
+    }
+
+    const isCurrentValid = await bcrypt.compare(passwordActual, user.passwordHash);
+    if (!isCurrentValid) {
+      throw new BadRequestException('La contraseña actual ingresada es incorrecta.');
+    }
+
+    if (!passwordNuevo || passwordNuevo.length < 8) {
+      throw new BadRequestException('La nueva contraseña debe tener al menos 8 caracteres.');
+    }
+
+    const newHash = await bcrypt.hash(passwordNuevo, this.BCRYPT_ROUNDS);
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: {
+        passwordHash: newHash,
+        intentosFallidos: 0,
+        bloqueadoHasta: null,
+      },
+    });
+
+    this.logger.log(`Contraseña actualizada exitosamente para el usuario: ${user.email}`);
+    return { ok: true, message: 'Contraseña actualizada correctamente.' };
+  }
+
   // ── Utilidades ──────────────────────────────
 
   private calculateExpirationDate(duration: string): Date {

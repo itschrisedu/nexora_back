@@ -202,9 +202,16 @@ export class AuthController {
     return this.authService.acceptGpsConsent(req.user.id);
   }
 
-  @Get('terms-status')
+  @Post('change-password')
   @UseGuards(JwtAuthGuard)
-  async getTermsStatus(@Req() req: any) {
-    return this.authService.getTermsStatus(req.user.id);
+  @HttpCode(HttpStatus.OK)
+  async changePassword(
+    @Req() req: any,
+    @Body() body: { passwordActual: string; passwordNuevo: string }
+  ) {
+    if (!body?.passwordActual || !body?.passwordNuevo) {
+      throw new BadRequestException('Debe ingresar la contraseña actual y la nueva contraseña.');
+    }
+    return this.authService.changePassword(req.user.id, body.passwordActual, body.passwordNuevo);
   }
 }
