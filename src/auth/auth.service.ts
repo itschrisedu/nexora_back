@@ -234,7 +234,10 @@ export class AuthService implements OnApplicationBootstrap {
    * Si ya existe una sesión activa en otro dispositivo y no se fuerza, retorna conflicto de sesión.
    */
   async login(email: string, password: string, forceTransfer = false) {
-    const user = await this.prisma.user.findUnique({ where: { email } });
+    const user = await this.prisma.user.findUnique({
+      where: { email },
+      include: { tenant: true },
+    });
 
     if (!user) {
       throw new UnauthorizedException('Credenciales inválidas');
@@ -364,6 +367,7 @@ export class AuthService implements OnApplicationBootstrap {
         nombre: user.nombre,
         rol: user.rol,
         tenantId: user.tenantId,
+        tenantName: user.tenant?.name || null,
         permiteCambiarPrecio: user.permiteCambiarPrecio,
         termsAcceptedAt: user.termsAcceptedAt,
         termsVersion: user.termsVersion,

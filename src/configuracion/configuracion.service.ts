@@ -599,6 +599,7 @@ export class ConfiguracionService {
               telefono: true,
               email: true,
               logoUrl: true,
+              ruc: true,
             },
           },
           _count: {
@@ -618,6 +619,7 @@ export class ConfiguracionService {
         active: s.active,
         isMatriz: false,
         isCurrent: false,
+        ruc: s.businessConfig?.ruc ? this.encryption.decrypt(s.businessConfig.ruc) : '',
         direccion: s.businessConfig?.direccion || 'Sin dirección',
         telefono: s.businessConfig?.telefono || '',
         email: s.businessConfig?.email || '',
@@ -677,6 +679,7 @@ export class ConfiguracionService {
       active: s.active,
       isMatriz: s.id === tenantId,
       isCurrent: s.id === tenantId,
+      ruc: s.businessConfig?.ruc ? this.encryption.decrypt(s.businessConfig.ruc) : '',
       direccion: s.businessConfig?.direccion || 'Sin dirección',
       telefono: s.businessConfig?.telefono || '',
       email: s.businessConfig?.email || '',
@@ -696,6 +699,7 @@ export class ConfiguracionService {
     tenantId: string,
     data: {
       name: string;
+      ruc?: string;
       direccion?: string;
       telefono?: string;
       email?: string;
@@ -720,12 +724,18 @@ export class ConfiguracionService {
         },
       });
 
-      // 2. Crear configuración comercial inicial para la sucursal
+      // 2. Determinar RUC: si se proporciona uno específico se usa; de lo contrario se hereda el RUC matriz
+      const cleanRuc = data.ruc ? data.ruc.replace(/\D/g, '') : '';
+      const sucursalRucEnc = cleanRuc.length === 13
+        ? this.encryption.encrypt(cleanRuc)
+        : (currentTenant.businessConfig?.ruc || this.encryption.encrypt('0000000000001'));
+
+      // 3. Crear configuración comercial inicial para la sucursal
       await tx.businessConfig.create({
         data: {
           tenantId: childTenant.id,
           nombre: data.name,
-          ruc: currentTenant.businessConfig?.ruc || this.encryption.encrypt('0000000000001'),
+          ruc: sucursalRucEnc,
           direccion: data.direccion || currentTenant.businessConfig?.direccion || 'Cevallos, Ecuador',
           telefono: data.telefono || currentTenant.businessConfig?.telefono,
           email: data.email || currentTenant.businessConfig?.email,
@@ -734,7 +744,7 @@ export class ConfiguracionService {
         },
       });
 
-      // 3. Crear usuario encargado/vendedor si se proporcionó
+      // 4. Crear usuario encargado/vendedor si se proporcionó
       if (data.adminEmail && data.adminPassword) {
         const passwordHash = await bcrypt.hash(data.adminPassword, 12);
         await tx.user.create({
@@ -757,13 +767,14 @@ export class ConfiguracionService {
   }
 
   /**
-   * Actualiza los datos de una sucursal (nombre, dirección, teléfono, email, estado).
+   * Actualiza los datos de una sucursal (nombre, RUC, dirección, teléfono, email, estado).
    */
   async updateSucursal(
     tenantId: string,
     sucursalId: string,
     data: {
       name?: string;
+      ruc?: string;
       direccion?: string;
       telefono?: string;
       email?: string;
@@ -798,6 +809,12 @@ export class ConfiguracionService {
         if (data.direccion !== undefined) configData.direccion = data.direccion;
         if (data.telefono !== undefined) configData.telefono = data.telefono;
         if (data.email !== undefined) configData.email = data.email;
+        if (data.ruc !== undefined) {
+          const cleanRuc = data.ruc.replace(/\D/g, '');
+          if (cleanRuc.length === 13) {
+            configData.ruc = this.encryption.encrypt(cleanRuc);
+          }
+        }
 
         if (Object.keys(configData).length > 0) {
           await tx.businessConfig.update({
