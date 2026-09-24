@@ -1,5 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../../../shared/infrastructure/prisma/prisma.service';
+import { EncryptionService } from '../../../../shared/infrastructure/encryption/encryption.service';
 import { generarSiglaProveedor } from '../../../../shared/utils/text-formatters';
 
 /**
@@ -9,7 +10,10 @@ import { generarSiglaProveedor } from '../../../../shared/utils/text-formatters'
  */
 @Injectable()
 export class InventarioQueryService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly encryptionService: EncryptionService,
+  ) {}
 
   async obtenerProducto(id: string) {
     const producto = await this.prisma.product.findUnique({
@@ -248,11 +252,15 @@ export class InventarioQueryService {
           isPrimary: true,
         });
         seenIds.add(m.supplierId);
-      } else if (m.supplier) {
+      } else if (m.supplier && m.supplier.tenantId === tenantId) {
+        let decRuc = m.supplier.ruc;
+        try {
+          decRuc = this.encryptionService.decrypt(m.supplier.ruc);
+        } catch {}
         associatedSuppliers.push({
           id: m.supplier.id,
           razonSocial: m.supplier.razonSocial,
-          ruc: m.supplier.ruc,
+          ruc: decRuc,
           contacto: m.supplier.contacto,
           direccion: m.supplier.direccion,
           email: m.supplier.email,
@@ -389,6 +397,13 @@ export class InventarioQueryService {
     const variantSupplier = record.supplier || mdl?.supplier || null;
     const supplierSigla = variantSupplier?.razonSocial ? generarSiglaProveedor(variantSupplier.razonSocial) : '';
 
+    let supRuc = variantSupplier?.ruc;
+    if (supRuc) {
+      try {
+        supRuc = this.encryptionService.decrypt(supRuc);
+      } catch {}
+    }
+
     return {
       id: record.id,
       tenantId: mdl?.tenantId,
@@ -407,7 +422,7 @@ export class InventarioQueryService {
         ? {
             id: variantSupplier.id,
             razonSocial: variantSupplier.razonSocial,
-            ruc: variantSupplier.ruc,
+            ruc: supRuc,
             contacto: variantSupplier.contacto,
             direccion: variantSupplier.direccion,
             email: variantSupplier.email,
