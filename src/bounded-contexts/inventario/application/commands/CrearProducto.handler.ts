@@ -7,6 +7,7 @@ import { Serie } from '../../domain/value-objects/Serie';
 import { StockPorTalla } from '../../domain/value-objects/StockPorTalla';
 import { PrismaService } from '../../../../shared/infrastructure/prisma/prisma.service';
 import { Talla } from '../../domain/value-objects/Talla';
+import { generarSiglaProveedor } from '../../../../shared/utils/text-formatters';
 
 @Injectable()
 export class CrearProductoHandler {
@@ -25,6 +26,32 @@ export class CrearProductoHandler {
       throw new ConflictException(`El modelo con código base "${command.baseCode}" ya existe`);
     }
 
+    // Recolectar todos los supplierIds involucrados
+    const allSupplierIds = new Set<string>();
+    if (command.supplierId) allSupplierIds.add(command.supplierId);
+    if (Array.isArray(command.alternateSupplierIds)) {
+      command.alternateSupplierIds.forEach(id => { if (id) allSupplierIds.add(id); });
+    }
+    if (command.seriesPrices) {
+      Object.values(command.seriesPrices).forEach(sp => {
+        if (sp.supplierId) allSupplierIds.add(sp.supplierId);
+      });
+    }
+
+    // Cargar datos de los proveedores para generar siglas
+    const suppliers = allSupplierIds.size > 0
+      ? await this.prisma.supplier.findMany({
+          where: { id: { in: Array.from(allSupplierIds) } },
+          select: { id: true, razonSocial: true },
+        })
+      : [];
+    const suppliersMap = new Map<string, { id: string; razonSocial: string; sigla: string }>(
+      suppliers.map(s => [s.id, { ...s, sigla: generarSiglaProveedor(s.razonSocial) }])
+    );
+
+    const primarySupplierId = command.supplierId || (suppliers[0]?.id ?? null);
+    const alternateIds = Array.from(allSupplierIds).filter(id => id !== primarySupplierId);
+
     // 2. Crear el modelo padre
     const modelId = crypto.randomUUID();
     await this.prisma.productModel.create({
@@ -34,8 +61,8 @@ export class CrearProductoHandler {
         name: command.name,
         brand: command.brand,
         material: command.material,
-        supplierId: command.supplierId || undefined,
-        alternateSupplierIds: command.alternateSupplierIds || [],
+        supplierId: primarySupplierId || undefined,
+        alternateSupplierIds: alternateIds,
         tenantId: command.tenantId!,
       },
     });
@@ -57,33 +84,34 @@ export class CrearProductoHandler {
       for (const serieConfig of seriesConfigs) {
         const serieVO = Serie.create(serieConfig.nombre);
 
-        // Generar código único: BASECODE-COLOR(3)-SERIE(3)
+        // Resolver proveedor específico de esta serie / variante
+        const seriePrices = command.seriesPrices?.[serieConfig.id];
+        const variantSupplierId = seriePrices?.supplierId || primarySupplierId || null;
+        const supplierInfo = variantSupplierId ? suppliersMap.get(variantSupplierId) : null;
+        const sigla = supplierInfo?.sigla ? `-${supplierInfo.sigla}` : '';
+
+        // Generar código único: BASECODE-COLOR(3)-SERIE(3)[-SIGLA]
         const colorSuffix = colorEntry.color.substring(0, 3).toUpperCase();
         const serieSuffix = serieConfig.nombre.substring(0, 3).toUpperCase();
-        const code = `${command.baseCode}-${colorSuffix}-${serieSuffix}`;
+        let code = `${command.baseCode}-${colorSuffix}-${serieSuffix}${sigla}`;
 
-        // Verificar que no exista un producto con ese código
+        // Verificar si existe conflicto de código
         const existeCodigo = await this.productoRepository.findByCodigo(code);
         if (existeCodigo) {
-          throw new ConflictException(`El producto con código "${code}" ya existe`);
+          code = `${code}-${Math.floor(Math.random() * 899 + 100)}`;
         }
 
         // Crear stock por talla — con soporte para tallas personalizadas
         const stockPorTallaList: StockPorTalla[] = [];
-
-        // Verificar si hay tallas personalizadas para esta serie
         const customTallaIds = command.customTallas?.[serieConfig.id];
 
         if (customTallaIds && customTallaIds.length > 0) {
-          // Modo personalizado: el usuario eligió tallas específicas
-          // Contar repeticiones de cada tallaId para calcular stock extra
           const tallaCountMap = new Map<string, number>();
           for (const tid of customTallaIds) {
             tallaCountMap.set(tid, (tallaCountMap.get(tid) || 0) + 1);
           }
 
           for (const [tallaId, count] of tallaCountMap.entries()) {
-            // Verificar que la talla pertenece a esta serie
             const tallaConfig = serieConfig.tallas.find(t => t.id === tallaId);
             if (!tallaConfig) continue;
 
@@ -91,14 +119,13 @@ export class CrearProductoHandler {
             stockPorTallaList.push(
               StockPorTalla.create(
                 tallaId,
-                command.stockInicial * count, // Stock multiplicado por repeticiones
+                command.stockInicial * count,
                 0,
                 command.stockMinimo,
               ),
             );
           }
         } else {
-          // Modo estándar: usar TODAS las tallas de la serie
           for (const talla of serieConfig.tallas) {
             Talla.create(talla.numero, serieVO);
             stockPorTallaList.push(
@@ -113,7 +140,6 @@ export class CrearProductoHandler {
         }
 
         // Determinar precios: usar precios por serie si están disponibles
-        const seriePrices = command.seriesPrices?.[serieConfig.id];
         const finalCostPrice = seriePrices?.costPrice ?? command.costPrice;
         const finalSalePrice = seriePrices?.salePrice ?? command.salePrice;
 
@@ -128,6 +154,7 @@ export class CrearProductoHandler {
           Money.create(finalSalePrice),
           serieVO,
           stockPorTallaList,
+          variantSupplierId,
         );
 
         await this.productoRepository.save(producto);

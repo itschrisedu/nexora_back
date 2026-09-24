@@ -245,6 +245,14 @@ export class ActualizarProductoDto {
   @Min(0.01)
   salePrice?: number;
 
+  @IsString()
+  @IsOptional()
+  supplierId?: string | null;
+
+  @IsString()
+  @IsOptional()
+  motivoCambioPrecio?: string;
+
   @IsArray()
   @IsOptional()
   tallas?: { tallaId?: string; numero?: number; cantidad: number }[];

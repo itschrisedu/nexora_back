@@ -1,5 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../../../shared/infrastructure/prisma/prisma.service';
+import { generarSiglaProveedor } from '../../../../shared/utils/text-formatters';
 
 /**
  * InventarioQueryService — Servicio de consultas de inventario.
@@ -15,8 +16,12 @@ export class InventarioQueryService {
       where: { id },
       include: {
         model: {
-          include: { tenant: { select: { id: true, name: true } } },
+          include: {
+            supplier: true,
+            tenant: { select: { id: true, name: true } },
+          },
         },
+        supplier: true,
         serie: {
           include: {
             tallas: { orderBy: { numero: 'asc' } },
@@ -76,6 +81,7 @@ export class InventarioQueryService {
             tenant: { select: { id: true, name: true } },
           },
         },
+        supplier: true,
         serie: {
           include: {
             tallas: { orderBy: { numero: 'asc' } },
@@ -102,8 +108,12 @@ export class InventarioQueryService {
       where,
       include: {
         model: {
-          include: { tenant: { select: { id: true, name: true } } },
+          include: {
+            supplier: true,
+            tenant: { select: { id: true, name: true } },
+          },
         },
+        supplier: true,
         serie: {
           include: {
             tallas: { orderBy: { numero: 'asc' } },
@@ -137,8 +147,12 @@ export class InventarioQueryService {
       where,
       include: {
         model: {
-          include: { tenant: { select: { id: true, name: true } } },
+          include: {
+            supplier: true,
+            tenant: { select: { id: true, name: true } },
+          },
         },
+        supplier: true,
         serie: {
           include: {
             tallas: { orderBy: { numero: 'asc' } },
@@ -184,6 +198,7 @@ export class InventarioQueryService {
           tenant: { select: { id: true, name: true } },
           products: {
             include: {
+              supplier: true,
               serie: {
                 include: {
                   tallas: { orderBy: { numero: 'asc' } },
@@ -371,6 +386,9 @@ export class InventarioQueryService {
       t.cantidadSerie = r;
     });
 
+    const variantSupplier = record.supplier || mdl?.supplier || null;
+    const supplierSigla = variantSupplier?.razonSocial ? generarSiglaProveedor(variantSupplier.razonSocial) : '';
+
     return {
       id: record.id,
       tenantId: mdl?.tenantId,
@@ -384,6 +402,18 @@ export class InventarioQueryService {
       fotoUrl: record.imageUrl,
       precioCosto: Number(record.costPrice),
       precioVenta: Number(record.salePrice),
+      supplierId: record.supplierId || mdl?.supplierId || null,
+      supplier: variantSupplier
+        ? {
+            id: variantSupplier.id,
+            razonSocial: variantSupplier.razonSocial,
+            ruc: variantSupplier.ruc,
+            contacto: variantSupplier.contacto,
+            direccion: variantSupplier.direccion,
+            email: variantSupplier.email,
+          }
+        : null,
+      supplierSigla,
       serie: record.serie
         ? { id: record.serie.id, nombre: record.serie.nombre }
         : null,

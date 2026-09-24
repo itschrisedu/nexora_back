@@ -340,6 +340,8 @@ model Product {
   salePrice         Decimal            @db.Decimal(10, 2)
   serieId           String
   serie             SeriesConfig       @relation(fields: [serieId], references: [id])
+  supplierId        String?
+  supplier          Supplier?          @relation(fields: [supplierId], references: [id], onDelete: SetNull)
   active            Boolean            @default(true)
   reordenAutomatica Boolean            @default(true)
   createdAt         DateTime           @default(now())
@@ -763,6 +765,7 @@ model Supplier {
   payments    SupplierPayment[]
   devoluciones ProveedorDevolucion[]
   productModels ProductModel[]
+  products    Product[]
   createdAt   DateTime           @default(now())
   updatedAt   DateTime           @updatedAt
   tenant      Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)

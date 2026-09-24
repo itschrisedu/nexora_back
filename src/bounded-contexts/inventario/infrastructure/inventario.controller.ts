@@ -52,6 +52,7 @@ import { InventarioQueryService } from '../application/queries/InventarioQuerySe
 import { PrismaService } from '../../../shared/infrastructure/prisma/prisma.service';
 import { CloudinaryService } from '../../../shared/infrastructure/cloudinary/cloudinary.service';
 import { EncryptionService } from '../../../shared/infrastructure/encryption/encryption.service';
+import { generarSiglaProveedor } from '../../../shared/utils/text-formatters';
 
 @Controller('inventario')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -176,6 +177,19 @@ export class InventarioController {
       }
     }
 
+    // Cargar información del proveedor asignado para generar sigla
+    let supplierSigla = '';
+    const variantSupplierId = dto.supplierId || model.supplierId || null;
+    if (variantSupplierId) {
+      const sup = await this.prisma.supplier.findUnique({
+        where: { id: variantSupplierId },
+        select: { razonSocial: true },
+      });
+      if (sup) {
+        supplierSigla = generarSiglaProveedor(sup.razonSocial);
+      }
+    }
+
     const createdProductIds: string[] = [];
     const stockInicial = dto.stockInicial ?? 1;
 
@@ -185,7 +199,8 @@ export class InventarioController {
       const colorClean = dto.color.trim();
       const colorSuffix = colorClean.substring(0, 3).toUpperCase();
       const serieSuffix = serieConfig.nombre.substring(0, 3).toUpperCase();
-      let code = `${model.baseCode}-${colorSuffix}-${serieSuffix}`;
+      const siglaSuffix = supplierSigla ? `-${supplierSigla}` : '';
+      let code = `${model.baseCode}-${colorSuffix}-${serieSuffix}${siglaSuffix}`;
 
       const existeCodigo = await this.productoRepository.findByCodigo(code);
       if (existeCodigo) {
@@ -851,6 +866,26 @@ export class InventarioController {
 
     await this.prisma.$transaction(async (tx) => {
       const targetSerieId = dto.serieId || product.serieId;
+      const newCost = dto.costPrice !== undefined ? dto.costPrice : Number(product.costPrice);
+      const newSale = dto.salePrice !== undefined ? dto.salePrice : Number(product.salePrice);
+      const prevCost = Number(product.costPrice);
+      const prevSale = Number(product.salePrice);
+
+      const priceChanged = Math.abs(newCost - prevCost) > 0.001 || Math.abs(newSale - prevSale) > 0.001;
+
+      if (priceChanged) {
+        await tx.priceHistory.create({
+          data: {
+            productId: id,
+            previousCostPrice: prevCost,
+            previousSalePrice: prevSale,
+            newCostPrice: newCost,
+            newSalePrice: newSale,
+            changedById: req.user?.userId || req.user?.id || 'SISTEMA',
+            reason: dto.motivoCambioPrecio || (newCost !== prevCost ? 'Ajuste de costo de entrega del taller' : 'Ajuste de precio de venta'),
+          },
+        });
+      }
 
       await tx.product.update({
         where: { id },
@@ -860,6 +895,7 @@ export class InventarioController {
           ...(dto.serieId && { serieId: dto.serieId }),
           ...(dto.costPrice && { costPrice: dto.costPrice }),
           ...(dto.salePrice && { salePrice: dto.salePrice }),
+          ...(dto.supplierId !== undefined && { supplierId: dto.supplierId }),
         },
       });
 

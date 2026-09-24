@@ -5,6 +5,7 @@ import { PrismaService } from '../../../shared/infrastructure/prisma/prisma.serv
 import { Money } from '../../../shared/domain/Money';
 import { Serie } from '../domain/value-objects/Serie';
 import { StockPorTalla } from '../domain/value-objects/StockPorTalla';
+import { generarSiglaProveedor } from '../../../shared/utils/text-formatters';
 
 @Injectable()
 export class PrismaProductoRepository extends IProductoRepository {
@@ -18,7 +19,8 @@ export class PrismaProductoRepository extends IProductoRepository {
     const record = await this.prisma.product.findUnique({
       where: { id },
       include: {
-        model: true,
+        model: { include: { supplier: true } },
+        supplier: true,
         serie: true,
         stockByTalla: { include: { talla: true } },
         priceHistory: { orderBy: { createdAt: 'desc' } },
@@ -33,7 +35,8 @@ export class PrismaProductoRepository extends IProductoRepository {
     const record = await this.prisma.product.findUnique({
       where: { code: codigo },
       include: {
-        model: true,
+        model: { include: { supplier: true } },
+        supplier: true,
         serie: true,
         stockByTalla: { include: { talla: true } },
         priceHistory: { orderBy: { createdAt: 'desc' } },
@@ -48,7 +51,8 @@ export class PrismaProductoRepository extends IProductoRepository {
     const records = await this.prisma.product.findMany({
       where: { serie: { nombre: serieNombre } },
       include: {
-        model: true,
+        model: { include: { supplier: true } },
+        supplier: true,
         serie: true,
         stockByTalla: { include: { talla: true } },
         priceHistory: { orderBy: { createdAt: 'desc' } },
@@ -124,6 +128,7 @@ export class PrismaProductoRepository extends IProductoRepository {
         costPrice: producto.costPrice.amount,
         salePrice: producto.salePrice.amount,
         serieId: serieConfig.id,
+        supplierId: producto.supplierId,
         active: producto.active,
         stockByTalla: {
           createMany: { data: stockEntries },
@@ -142,6 +147,7 @@ export class PrismaProductoRepository extends IProductoRepository {
         imageUrl: producto.imageUrl,
         costPrice: producto.costPrice.amount,
         salePrice: producto.salePrice.amount,
+        supplierId: producto.supplierId,
         active: producto.active,
       },
     });
@@ -226,6 +232,9 @@ export class PrismaProductoRepository extends IProductoRepository {
       }),
     );
 
+    const supplierName = record.supplier?.razonSocial || record.model?.supplier?.razonSocial || '';
+    const supplierSigla = supplierName ? generarSiglaProveedor(supplierName) : '';
+
     return Producto.reconstruir(
       record.id,
       record.modelId,
@@ -242,6 +251,9 @@ export class PrismaProductoRepository extends IProductoRepository {
       record.model?.brand || '',
       record.model?.baseCode || '',
       record.model?.material || null,
+      record.supplierId || record.model?.supplierId || null,
+      supplierName,
+      supplierSigla,
     );
   }
 }

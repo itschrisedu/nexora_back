@@ -38,11 +38,14 @@ export class Producto extends AggregateRoot {
     private _stockPorTalla: Map<string, StockPorTalla>,
     private _priceHistory: PriceHistoryEntry[] = [],
     private _active: boolean = true,
-    // Campos del modelo padre (para lectura, cargados desde el JOIN)
+    private _supplierId: string | null = null,
+    // Campos del modelo padre y proveedor (para lectura, cargados desde el JOIN)
     private _modelName: string = '',
     private _modelBrand: string = '',
     private _modelBaseCode: string = '',
     private _modelMaterial: string | null = null,
+    private _supplierName: string = '',
+    private _supplierSigla: string = '',
   ) {
     super();
   }
@@ -57,6 +60,7 @@ export class Producto extends AggregateRoot {
     salePrice: Money,
     serie: Serie,
     stockPorTallaList: StockPorTalla[],
+    supplierId: string | null = null,
   ): Producto {
     if (costPrice.amount <= 0 || salePrice.amount <= 0) {
       throw new Error('Los precios de costo y venta deben ser mayores que cero');
@@ -77,6 +81,7 @@ export class Producto extends AggregateRoot {
       stockMap,
       [],
       true,
+      supplierId,
     );
 
     producto.addDomainEvent(new ProductoCreado(id, code, serie.value));
@@ -170,6 +175,22 @@ export class Producto extends AggregateRoot {
 
   get material(): string | null {
     return this._modelMaterial;
+  }
+
+  get supplierId(): string | null {
+    return this._supplierId;
+  }
+
+  get supplierName(): string {
+    return this._supplierName;
+  }
+
+  get supplierSigla(): string {
+    return this._supplierSigla;
+  }
+
+  asignarProveedor(supplierId: string | null): void {
+    this._supplierId = supplierId;
   }
 
   // ── Métodos de Negocio ──────────────────────
@@ -332,6 +353,9 @@ export class Producto extends AggregateRoot {
     modelBrand: string = '',
     modelBaseCode: string = '',
     modelMaterial: string | null = null,
+    supplierId: string | null = null,
+    supplierName: string = '',
+    supplierSigla: string = '',
   ): Producto {
     const stockMap = new Map<string, StockPorTalla>();
     stockPorTallaList.forEach((s) => stockMap.set(s.tallaId, s));
@@ -348,10 +372,13 @@ export class Producto extends AggregateRoot {
       stockMap,
       historial,
       active,
+      supplierId,
       modelName,
       modelBrand,
       modelBaseCode,
       modelMaterial,
+      supplierName,
+      supplierSigla,
     );
   }
 

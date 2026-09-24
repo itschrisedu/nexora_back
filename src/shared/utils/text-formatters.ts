@@ -132,3 +132,37 @@ export function normalizarNombreNegocioBD(nombre: string): string {
   if (!nombre) return '';
   return nombre.toLowerCase().trim();
 }
+
+/**
+ * Genera una sigla corta y discreta (2 a 3 letras mayúsculas) a partir del nombre o razón social del proveedor/taller.
+ * Utilizada para identificación interna discreta de variantes de calzado (ej: JP para Juan Pérez, CC para Curtiduría Cevallos).
+ */
+export function generarSiglaProveedor(nombreOrazonSocial: string): string {
+  if (!nombreOrazonSocial) return '';
+  const limpia = nombreOrazonSocial
+    .replace(/[^a-zA-ZáéíóúÁÉÍÓÚñÑ\s]/g, '')
+    .trim();
+  if (!limpia) return '';
+
+  const stopwords = new Set([
+    'de', 'del', 'la', 'el', 'los', 'las', 'y', 'e', 'en', 'sa', 'cia', 'cia.', 's.a.', 'ltda', 'sas', 'taller', 'calzado', 'calzados'
+  ]);
+
+  const palabras = limpia
+    .split(/\s+/)
+    .filter(p => Boolean(p) && !stopwords.has(p.toLowerCase()));
+
+  if (palabras.length >= 2) {
+    const sigla = palabras.slice(0, 3).map(p => p.charAt(0).toUpperCase()).join('');
+    return sigla.slice(0, 3);
+  } else if (palabras.length === 1) {
+    return palabras[0].slice(0, 3).toUpperCase();
+  }
+
+  const todasPalabras = limpia.split(/\s+/).filter(Boolean);
+  if (todasPalabras.length >= 2) {
+    return todasPalabras.slice(0, 2).map(p => p.charAt(0).toUpperCase()).join('');
+  }
+  return limpia.slice(0, 2).toUpperCase();
+}
+
