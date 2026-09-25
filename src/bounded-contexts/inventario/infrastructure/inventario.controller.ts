@@ -202,9 +202,16 @@ export class InventarioController {
       const siglaSuffix = supplierSigla ? `-${supplierSigla}` : '';
       let code = `${model.baseCode}-${colorSuffix}-${serieSuffix}${siglaSuffix}`;
 
+      // Si ya existe este código (misma combinación o mismo proveedor), generar secuencial limpio: -002, -003...
       const existeCodigo = await this.productoRepository.findByCodigo(code);
       if (existeCodigo) {
-        code = `${code}-${Math.floor(Math.random() * 899 + 100)}`;
+        let counter = 2;
+        let candidateCode = `${code}-${String(counter).padStart(3, '0')}`;
+        while (await this.productoRepository.findByCodigo(candidateCode)) {
+          counter++;
+          candidateCode = `${code}-${String(counter).padStart(3, '0')}`;
+        }
+        code = candidateCode;
       }
 
       const stockPorTallaList: StockPorTalla[] = [];
@@ -247,6 +254,7 @@ export class InventarioController {
         Money.create(finalSalePrice),
         serieVO,
         stockPorTallaList,
+        variantSupplierId,
       );
 
       await this.productoRepository.save(producto);

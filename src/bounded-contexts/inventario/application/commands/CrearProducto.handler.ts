@@ -95,10 +95,16 @@ export class CrearProductoHandler {
         const serieSuffix = serieConfig.nombre.substring(0, 3).toUpperCase();
         let code = `${command.baseCode}-${colorSuffix}-${serieSuffix}${sigla}`;
 
-        // Verificar si existe conflicto de código
+        // Verificar si existe conflicto de código para generar secuencial limpio: -002, -003...
         const existeCodigo = await this.productoRepository.findByCodigo(code);
         if (existeCodigo) {
-          code = `${code}-${Math.floor(Math.random() * 899 + 100)}`;
+          let counter = 2;
+          let candidateCode = `${code}-${String(counter).padStart(3, '0')}`;
+          while (await this.productoRepository.findByCodigo(candidateCode)) {
+            counter++;
+            candidateCode = `${code}-${String(counter).padStart(3, '0')}`;
+          }
+          code = candidateCode;
         }
 
         // Crear stock por talla — con soporte para tallas personalizadas
