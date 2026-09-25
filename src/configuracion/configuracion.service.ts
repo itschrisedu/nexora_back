@@ -200,7 +200,7 @@ export class ConfiguracionService {
       'heroTitulo', 'heroSubtitulo', 'heroBannerUrl', 'heroBackgroundUrl', 'heroFraseCorta',
       'cardTitulo', 'cardSubtitulo', 'cardEtiqueta', 'cardGarantia',
       'sobreNosotros', 'garantiaTaller', 'caracteristicasCalidad',
-      'materialDestacado', 'materialDescripcion', 'logoUrl', 'primaryColor',
+      'materialDestacado', 'materialDescripcion',
     ];
     for (const key of keys) {
       if (data[key] !== undefined) {
