@@ -568,7 +568,7 @@ export class ConfiguracionService {
   // ══════════════════════════════
 
   /**
-   * Obtiene la lista de IDs de tenants pertenecientes a la misma empresa (mismo RUC descifrado).
+   * Obtiene la lista de IDs de tenants pertenecientes a la misma empresa.
    */
   async getOrganizationTenantIds(tenantId: string): Promise<string[]> {
     if (!tenantId) return [];
@@ -578,26 +578,38 @@ export class ConfiguracionService {
     });
     if (!mainTenant) return [tenantId];
 
-    const plainRuc = mainTenant.businessConfig?.ruc
-      ? this.encryption.decrypt(mainTenant.businessConfig.ruc)
-      : null;
+    const safeDecryptRuc = (encRuc?: string | null) => {
+      if (!encRuc) return '';
+      const dec = this.encryption.decrypt(encRuc);
+      return dec === '0000000000001' ? '' : (dec || '');
+    };
 
-    if (!plainRuc) return [tenantId];
+    const plainRuc = mainTenant.businessConfig?.ruc
+      ? safeDecryptRuc(mainTenant.businessConfig.ruc)
+      : null;
 
     const allTenants = await this.prisma.tenant.findMany({
       where: { active: true },
-      include: { businessConfig: true },
+      include: { businessConfig: true, users: true },
+    });
+
+    // Encontrar admin general del tenant
+    const mainAdmin = await this.prisma.user.findFirst({
+      where: { tenantId, rol: { in: [Rol.ROL_ADMIN, Rol.ROL_SUPER_ADMIN] } },
     });
 
     const matching = allTenants.filter((t) => {
       if (t.id === tenantId) return true;
-      if (t.businessConfig?.ruc) {
-        return this.encryption.decrypt(t.businessConfig.ruc) === plainRuc;
+      if (plainRuc && t.businessConfig?.ruc && safeDecryptRuc(t.businessConfig.ruc) === plainRuc) {
+        return true;
+      }
+      if (mainAdmin && t.users.some((u) => u.parentId === mainAdmin.id || u.id === mainAdmin.id)) {
+        return true;
       }
       return false;
     });
 
-    return matching.map((t) => t.id);
+    return Array.from(new Set(matching.map((t) => t.id)));
   }
 
   /**
@@ -610,31 +622,37 @@ export class ConfiguracionService {
       return dec === '0000000000001' ? '' : (dec || '');
     };
 
-    if (!tenantId) {
-      const allTenants = await this.prisma.tenant.findMany({
-        where: { active: true },
-        include: {
-          businessConfig: {
-            select: {
-              nombre: true,
-              direccion: true,
-              telefono: true,
-              email: true,
-              logoUrl: true,
-              ruc: true,
-            },
-          },
-          _count: {
-            select: {
-              users: true,
-              orders: true,
-              productModels: true,
-            },
+    const allTenants = await this.prisma.tenant.findMany({
+      include: {
+        businessConfig: {
+          select: {
+            nombre: true,
+            direccion: true,
+            telefono: true,
+            email: true,
+            logoUrl: true,
+            ruc: true,
           },
         },
-        orderBy: { createdAt: 'asc' },
-      });
+        users: {
+          select: {
+            id: true,
+            parentId: true,
+            rol: true,
+          },
+        },
+        _count: {
+          select: {
+            users: true,
+            orders: true,
+            productModels: true,
+          },
+        },
+      },
+      orderBy: { createdAt: 'asc' },
+    });
 
+    if (!tenantId) {
       return allTenants.map((s) => ({
         id: s.id,
         name: s.name,
@@ -642,6 +660,8 @@ export class ConfiguracionService {
         isMatriz: false,
         isCurrent: false,
         ruc: safeDecryptRuc(s.businessConfig?.ruc),
+        isRucPropio: false,
+        rucMatriz: '',
         direccion: s.businessConfig?.direccion || 'Sin dirección',
         telefono: s.businessConfig?.telefono || '',
         email: s.businessConfig?.email || '',
@@ -659,59 +679,51 @@ export class ConfiguracionService {
       include: { businessConfig: true },
     });
 
-    const plainRuc = mainTenant?.businessConfig?.ruc
+    const plainRucMatriz = mainTenant?.businessConfig?.ruc
       ? safeDecryptRuc(mainTenant.businessConfig.ruc)
-      : null;
+      : '';
 
-    const allTenants = await this.prisma.tenant.findMany({
-      where: { active: true },
-      include: {
-        businessConfig: {
-          select: {
-            nombre: true,
-            direccion: true,
-            telefono: true,
-            email: true,
-            logoUrl: true,
-            ruc: true,
-          },
-        },
-        _count: {
-          select: {
-            users: true,
-            orders: true,
-            productModels: true,
-          },
-        },
-      },
-      orderBy: { createdAt: 'asc' },
+    // Encontrar admin general para asociar sucursales creadas bajo su cuenta
+    const mainAdmin = await this.prisma.user.findFirst({
+      where: { tenantId, rol: { in: [Rol.ROL_ADMIN, Rol.ROL_SUPER_ADMIN] } },
     });
 
     const matching = allTenants.filter((s) => {
       if (s.id === tenantId) return true;
-      if (plainRuc && s.businessConfig?.ruc) {
-        return safeDecryptRuc(s.businessConfig.ruc) === plainRuc;
+      if (plainRucMatriz && s.businessConfig?.ruc && safeDecryptRuc(s.businessConfig.ruc) === plainRucMatriz) {
+        return true;
+      }
+      if (mainAdmin && s.users.some((u) => u.parentId === mainAdmin.id || u.id === mainAdmin.id)) {
+        return true;
       }
       return false;
     });
 
-    return matching.map((s) => ({
-      id: s.id,
-      name: s.name,
-      active: s.active,
-      isMatriz: s.id === tenantId,
-      isCurrent: s.id === tenantId,
-      ruc: safeDecryptRuc(s.businessConfig?.ruc),
-      direccion: s.businessConfig?.direccion || 'Sin dirección',
-      telefono: s.businessConfig?.telefono || '',
-      email: s.businessConfig?.email || '',
-      stats: {
-        usuarios: s._count.users,
-        pedidos: s._count.orders,
-        modelos: s._count.productModels,
-      },
-      createdAt: s.createdAt,
-    }));
+    return matching.map((s) => {
+      const sucursalRuc = safeDecryptRuc(s.businessConfig?.ruc);
+      const isMatriz = s.id === tenantId;
+      const isRucPropio = !isMatriz && Boolean(sucursalRuc && sucursalRuc !== plainRucMatriz);
+
+      return {
+        id: s.id,
+        name: s.name,
+        active: s.active,
+        isMatriz,
+        isCurrent: s.id === tenantId,
+        ruc: sucursalRuc || plainRucMatriz || '',
+        isRucPropio,
+        rucMatriz: plainRucMatriz,
+        direccion: s.businessConfig?.direccion || 'Sin dirección',
+        telefono: s.businessConfig?.telefono || '',
+        email: s.businessConfig?.email || '',
+        stats: {
+          usuarios: s._count.users,
+          pedidos: s._count.orders,
+          modelos: s._count.productModels,
+        },
+        createdAt: s.createdAt,
+      };
+    });
   }
 
   /**
@@ -737,6 +749,11 @@ export class ConfiguracionService {
 
     if (!currentTenant) throw new NotFoundException('Empresa no encontrada');
 
+    // Obtener admin principal del tenant para asociar parentId
+    const mainAdmin = await this.prisma.user.findFirst({
+      where: { tenantId, rol: { in: [Rol.ROL_ADMIN, Rol.ROL_SUPER_ADMIN] } },
+    });
+
     const sucursal = await this.prisma.$transaction(async (tx) => {
       // 1. Crear el tenant de la sucursal
       const childTenant = await tx.tenant.create({
@@ -746,13 +763,20 @@ export class ConfiguracionService {
         },
       });
 
-      // 2. Determinar RUC: la sucursal hereda el RUC matriz de la empresa (sin inventar RUC ficticio)
-      const currentRuc = currentTenant.businessConfig?.ruc;
-      let sucursalRucEnc = currentRuc || this.encryption.encrypt('');
-      if (currentRuc) {
-        const decrypted = this.encryption.decrypt(currentRuc);
-        if (!decrypted || decrypted === '0000000000001') {
-          sucursalRucEnc = this.encryption.encrypt('');
+      // 2. Determinar RUC: Si el usuario coloca RUC propio, se usa ese; si no, hereda el RUC matriz
+      let sucursalRucEnc: string;
+      const cleanCustomRuc = data.ruc && data.ruc.trim() ? data.ruc.replace(/\D/g, '').slice(0, 13) : '';
+
+      if (cleanCustomRuc) {
+        sucursalRucEnc = this.encryption.encrypt(cleanCustomRuc);
+      } else {
+        const currentRuc = currentTenant.businessConfig?.ruc;
+        sucursalRucEnc = currentRuc || this.encryption.encrypt('');
+        if (currentRuc) {
+          const decrypted = this.encryption.decrypt(currentRuc);
+          if (!decrypted || decrypted === '0000000000001') {
+            sucursalRucEnc = this.encryption.encrypt('');
+          }
         }
       }
 
@@ -786,9 +810,11 @@ export class ConfiguracionService {
             email: data.adminEmail.trim().toLowerCase(),
             nombre: data.adminNombre?.trim() || `Encargado ${data.name.trim()}`,
             rol: Rol.ROL_ADMIN,
+            esAdminGeneral: false,
             passwordHash,
             activo: true,
             tenantId: childTenant.id,
+            parentId: mainAdmin?.id || null,
           },
         });
       }
@@ -801,7 +827,7 @@ export class ConfiguracionService {
   }
 
   /**
-   * Actualiza los datos de una sucursal (nombre, dirección, teléfono, email, estado).
+   * Actualiza los datos de una sucursal (nombre, dirección, teléfono, email, RUC, estado).
    */
   async updateSucursal(
     tenantId: string,
@@ -823,6 +849,11 @@ export class ConfiguracionService {
     if (!sucursal) {
       throw new NotFoundException('Sucursal no encontrada');
     }
+
+    const mainTenant = await this.prisma.tenant.findUnique({
+      where: { id: tenantId },
+      include: { businessConfig: true },
+    });
 
     await this.prisma.$transaction(async (tx) => {
       // Actualizar Tenant
@@ -850,6 +881,18 @@ export class ConfiguracionService {
           configData.email = data.email && data.email.trim()
             ? data.email.trim().toLowerCase()
             : null;
+        }
+
+        // Si se envía RUC en la actualización
+        if (data.ruc !== undefined) {
+          const cleanCustomRuc = data.ruc && data.ruc.trim() ? data.ruc.replace(/\D/g, '').slice(0, 13) : '';
+          if (cleanCustomRuc) {
+            configData.ruc = this.encryption.encrypt(cleanCustomRuc);
+          } else {
+            // Si lo limpia, hereda el RUC de la matriz
+            const mainRuc = mainTenant?.businessConfig?.ruc;
+            configData.ruc = mainRuc || this.encryption.encrypt('');
+          }
         }
 
         if (Object.keys(configData).length > 0) {
