@@ -109,6 +109,10 @@ export class UpdateBusinessConfigDto {
 
   @IsString()
   @IsOptional()
+  heroFraseCorta?: string;
+
+  @IsString()
+  @IsOptional()
   cardTitulo?: string;
 
   @IsString()

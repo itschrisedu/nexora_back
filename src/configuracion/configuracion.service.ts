@@ -130,6 +130,7 @@ export class ConfiguracionService {
     if (dto.heroSubtitulo !== undefined) data.heroSubtitulo = dto.heroSubtitulo;
     if (dto.heroBannerUrl !== undefined) data.heroBannerUrl = dto.heroBannerUrl;
     if (dto.heroBackgroundUrl !== undefined) data.heroBackgroundUrl = dto.heroBackgroundUrl;
+    if (dto.heroFraseCorta !== undefined) data.heroFraseCorta = dto.heroFraseCorta;
     if (dto.cardTitulo !== undefined) data.cardTitulo = dto.cardTitulo;
     if (dto.cardSubtitulo !== undefined) data.cardSubtitulo = dto.cardSubtitulo;
     if (dto.cardEtiqueta !== undefined) data.cardEtiqueta = dto.cardEtiqueta;
@@ -196,7 +197,7 @@ export class ConfiguracionService {
   private async propagateLandingVisuals(sourceTenantId: string, data: any) {
     const visualFields: Record<string, any> = {};
     const keys = [
-      'heroTitulo', 'heroSubtitulo', 'heroBannerUrl', 'heroBackgroundUrl',
+      'heroTitulo', 'heroSubtitulo', 'heroBannerUrl', 'heroBackgroundUrl', 'heroFraseCorta',
       'cardTitulo', 'cardSubtitulo', 'cardEtiqueta', 'cardGarantia',
       'sobreNosotros', 'garantiaTaller', 'caracteristicasCalidad',
       'materialDestacado', 'materialDescripcion', 'logoUrl', 'primaryColor',

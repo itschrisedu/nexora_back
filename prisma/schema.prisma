@@ -230,6 +230,7 @@ model BusinessConfig {
   heroSubtitulo         String?  @default("Venta al por mayor y menor directamente desde fábrica con los mejores estándares de calidad y durabilidad.")
   heroBannerUrl         String?
   heroBackgroundUrl     String?
+  heroFraseCorta        String?  @default("100% Cuero Cevallos")
   cardTitulo            String?  @default("Hecho a Mano en Tungurahua")
   cardSubtitulo         String?  @default("Cada par refleja la tradición zapatera de Cevallos con tecnología de confort y cuero vacuno genuino.")
   cardEtiqueta          String?  @default("Artesanía & Confort")

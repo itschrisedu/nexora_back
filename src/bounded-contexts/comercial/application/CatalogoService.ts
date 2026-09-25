@@ -65,6 +65,7 @@ export class CatalogoService {
       heroSubtitulo: config?.heroSubtitulo || 'Venta al por mayor y menor directamente desde fábrica con los mejores estándares de calidad y durabilidad.',
       heroBannerUrl: config?.heroBannerUrl || null,
       heroBackgroundUrl: config?.heroBackgroundUrl || null,
+      heroFraseCorta: config?.heroFraseCorta !== undefined ? config.heroFraseCorta : '100% Cuero Cevallos',
       cardTitulo: config?.cardTitulo || 'Hecho a Mano en Tungurahua',
       cardSubtitulo: config?.cardSubtitulo || 'Cada par refleja la tradición zapatera de Cevallos con tecnología de confort y cuero vacuno genuino.',
       cardEtiqueta: config?.cardEtiqueta || 'Artesanía & Confort',
