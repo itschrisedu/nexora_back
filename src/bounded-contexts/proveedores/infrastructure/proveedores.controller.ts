@@ -46,7 +46,7 @@ import {
   formatearDireccion,
   validarEmailEstricto,
 } from '../../../shared/utils/text-formatters';
-import { validarRuc } from '../../../shared/utils/ecuador-validators';
+import { validarRuc, validarCedula } from '../../../shared/utils/ecuador-validators';
 
 @Controller('proveedores')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -83,8 +83,8 @@ export class ProveedoresController {
   @Post()
   @Roles(Rol.ROL_ADMIN)
   async registrarProveedor(@Body() dto: RegistrarSupplierDto, @Req() req: any) {
-    if (dto.ruc && !validarRuc(dto.ruc)) {
-      throw new BadRequestException('El RUC ecuatoriano ingresado no es válido (13 dígitos numéricos).');
+    if (dto.ruc && !validarRuc(dto.ruc) && !validarCedula(dto.ruc)) {
+      throw new BadRequestException('El RUC o Cédula ingresado no es válido (10 o 13 dígitos numéricos).');
     }
     if (dto.email) {
       const emailVal = validarEmailEstricto(dto.email);
