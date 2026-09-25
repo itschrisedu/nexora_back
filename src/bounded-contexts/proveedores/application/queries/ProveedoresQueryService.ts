@@ -580,9 +580,12 @@ export class ProveedoresQueryService {
   }
 
   private formatSupplier(raw: any) {
+    if (!raw) return null;
     let rucDescifrado = raw.ruc;
     try {
-      rucDescifrado = this.encryptionService.decrypt(raw.ruc);
+      if (raw.ruc) {
+        rucDescifrado = this.encryptionService.decrypt(raw.ruc);
+      }
     } catch (e) {
       // Fallback
     }
@@ -590,13 +593,13 @@ export class ProveedoresQueryService {
       id: raw.id,
       tenantId: raw.tenantId,
       sucursalNombre: raw.tenant?.name || '',
-      ruc: rucDescifrado,
-      razonSocial: raw.razonSocial,
-      nombre: raw.razonSocial, // Alias for UI consistency
-      contacto: raw.contacto,
-      direccion: raw.direccion,
-      email: raw.email,
-      activo: raw.activo,
+      ruc: rucDescifrado || '',
+      razonSocial: raw.razonSocial || '',
+      nombre: raw.razonSocial || '', // Alias for UI consistency
+      contacto: raw.contacto || '',
+      direccion: raw.direccion || '',
+      email: raw.email || '',
+      activo: raw.activo ?? true,
       createdAt: raw.createdAt,
       updatedAt: raw.updatedAt,
     };
