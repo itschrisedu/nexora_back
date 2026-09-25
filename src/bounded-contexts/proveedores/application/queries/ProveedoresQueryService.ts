@@ -41,11 +41,61 @@ export class ProveedoresQueryService {
     };
   }
 
+  private async getOrganizationTenantIds(tenantId: string): Promise<string[]> {
+    if (!tenantId) return [];
+    const mainTenant = await this.prisma.tenant.findUnique({
+      where: { id: tenantId },
+      include: { businessConfig: true },
+    });
+    let plainRucMatriz = '';
+    if (mainTenant?.businessConfig?.ruc) {
+      try {
+        plainRucMatriz = this.encryptionService.decrypt(mainTenant.businessConfig.ruc);
+      } catch {}
+    }
+
+    const allTenants = await this.prisma.tenant.findMany({
+      where: { active: true },
+      include: {
+        businessConfig: true,
+        users: { select: { id: true, parentId: true } },
+      },
+    });
+
+    const mainAdmin = await this.prisma.user.findFirst({
+      where: { tenantId, rol: { in: ['ROL_ADMIN', 'ROL_SUPER_ADMIN'] as any } },
+    });
+
+    const userInBranch = await this.prisma.user.findFirst({
+      where: { tenantId },
+      include: { parent: true },
+    });
+
+    const matching = allTenants.filter((s) => {
+      if (s.id === tenantId) return true;
+      if (plainRucMatriz && s.businessConfig?.ruc) {
+        try {
+          if (this.encryptionService.decrypt(s.businessConfig.ruc) === plainRucMatriz) return true;
+        } catch {}
+      }
+      if (mainAdmin && s.users.some((u) => u.parentId === mainAdmin.id || u.id === mainAdmin.id)) {
+        return true;
+      }
+      if (userInBranch?.parentId && (s.users.some((u) => u.id === userInBranch.parentId || u.parentId === userInBranch.parentId))) {
+        return true;
+      }
+      return false;
+    });
+
+    return matching.map((s) => s.id);
+  }
+
   async buscarProveedores(tenantId?: string | null, q?: string) {
     if (!tenantId) {
       return [];
     }
-    const where: any = { tenantId };
+    const targetTenantIds = await this.getOrganizationTenantIds(tenantId);
+    const where: any = targetTenantIds.length > 0 ? { tenantId: { in: targetTenantIds } } : { tenantId };
     const suppliers = await this.prisma.supplier.findMany({
       where,
       include: {
@@ -322,7 +372,8 @@ export class ProveedoresQueryService {
       where.supplierId = supplierId;
     }
     if (tenantId) {
-      where.supplier = { tenantId };
+      const targetTenants = await this.getOrganizationTenantIds(tenantId);
+      where.supplier = targetTenants.length > 0 ? { tenantId: { in: targetTenants } } : { tenantId };
     }
     const orders = await this.prisma.supplierOrder.findMany({
       where,
@@ -472,7 +523,8 @@ export class ProveedoresQueryService {
       where.supplierId = supplierId;
     }
     if (tenantId) {
-      where.supplier = { tenantId };
+      const targetTenants = await this.getOrganizationTenantIds(tenantId);
+      where.supplier = targetTenants.length > 0 ? { tenantId: { in: targetTenants } } : { tenantId };
     }
     const entries = await this.prisma.merchandiseEntry.findMany({
       where,
@@ -501,7 +553,8 @@ export class ProveedoresQueryService {
   async listarTodosPagos(tenantId?: string | null) {
     const where: any = {};
     if (tenantId) {
-      where.supplier = { tenantId };
+      const targetTenants = await this.getOrganizationTenantIds(tenantId);
+      where.supplier = targetTenants.length > 0 ? { tenantId: { in: targetTenants } } : { tenantId };
     }
     const payments = await this.prisma.supplierPayment.findMany({
       where,
