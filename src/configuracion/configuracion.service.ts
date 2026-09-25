@@ -589,7 +589,6 @@ export class ConfiguracionService {
       : null;
 
     const allTenants = await this.prisma.tenant.findMany({
-      where: { active: true },
       include: { businessConfig: true, users: true },
     });
 
@@ -905,6 +904,65 @@ export class ConfiguracionService {
     });
 
     this.logger.log(`Sucursal "${data.name || sucursal.name}" actualizada`);
+    return this.getSucursales(tenantId);
+  }
+
+  /**
+   * Elimina una sucursal si no contiene historial de transacciones.
+   */
+  async deleteSucursal(tenantId: string, sucursalId: string) {
+    if (tenantId === sucursalId) {
+      throw new BadRequestException('No es posible eliminar la Matriz Principal de la empresa.');
+    }
+
+    const sucursal = await this.prisma.tenant.findUnique({
+      where: { id: sucursalId },
+      include: {
+        _count: {
+          select: {
+            orders: true,
+            saleNotes: true,
+            cobros: true,
+            deudas: true,
+            gastos: true,
+            users: true,
+          },
+        },
+      },
+    });
+
+    if (!sucursal) {
+      throw new NotFoundException('Sucursal no encontrada.');
+    }
+
+    // Proteger integridad contable si tiene pedidos o notas de venta registradas
+    if (sucursal._count.orders > 0 || sucursal._count.saleNotes > 0) {
+      throw new BadRequestException(
+        `No se puede eliminar la sucursal "${sucursal.name}" porque tiene ${sucursal._count.orders} pedidos y ${sucursal._count.saleNotes} notas de venta registradas. Para deshabilitarla sin perder el historial contable, cámbiala a estado "Inactiva".`,
+      );
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      // Reasignar usuarios de esa sucursal a la matriz para no dejarlos huérfanos
+      if (sucursal._count.users > 0) {
+        await tx.user.updateMany({
+          where: { tenantId: sucursalId },
+          data: { tenantId },
+        });
+      }
+
+      // Eliminar configuración comercial si existe
+      await tx.businessConfig.deleteMany({
+        where: { tenantId: sucursalId },
+      });
+
+      // Eliminar tenant
+      await tx.tenant.delete({
+        where: { id: sucursalId },
+      });
+    });
+
+    this.logger.log(`Sucursal "${sucursal.name}" eliminada exitosamente`);
     return this.getSucursales(tenantId);
   }
 

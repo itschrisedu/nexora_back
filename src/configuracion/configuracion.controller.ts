@@ -255,6 +255,15 @@ export class ConfiguracionController {
     return this.configuracionService.updateSucursal(req.user.tenantId, id, dto);
   }
 
+  @Delete('sucursales/:id')
+  @Roles(Rol.ROL_ADMIN, Rol.ROL_SUPER_ADMIN)
+  async deleteSucursal(
+    @Param('id') id: string,
+    @Req() req: any,
+  ) {
+    return this.configuracionService.deleteSucursal(req.user.tenantId, id);
+  }
+
   @Get('sucursales/:id/personal')
   @Roles(Rol.ROL_ADMIN, Rol.ROL_SUPER_ADMIN)
   async getPersonalBySucursal(@Param('id') sucursalId: string) {
