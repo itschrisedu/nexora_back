@@ -1,4 +1,4 @@
-import { Injectable, Logger, NotFoundException, ConflictException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, ConflictException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../shared/infrastructure/prisma/prisma.service';
 import { EncryptionService } from '../shared/infrastructure/encryption/encryption.service';
 import * as bcrypt from 'bcryptjs';
@@ -104,6 +104,14 @@ export class TenantService {
     maxUsuarios?: number;
     precioMensualPlan?: number;
   }) {
+    // Validar formato y arroba única en el correo del administrador
+    const cleanEmail = (data.adminEmail || '').trim().toLowerCase();
+    const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
+    if (!cleanEmail || !emailRegex.test(cleanEmail) || (cleanEmail.match(/@/g) || []).length !== 1) {
+      throw new BadRequestException('El correo del administrador debe ser un email válido y contener exactamente un arroba (@).');
+    }
+    data.adminEmail = cleanEmail;
+
     // Verificar que no exista un tenant con el mismo nombre
     const existing = await this.prisma.tenant.findFirst({
       where: { name: data.name },
@@ -692,6 +700,14 @@ export class TenantService {
       rol?: Rol;
     },
   ) {
+    // Validar formato del correo
+    const cleanEmail = (data.email || '').trim().toLowerCase();
+    const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
+    if (!cleanEmail || !emailRegex.test(cleanEmail) || (cleanEmail.match(/@/g) || []).length !== 1) {
+      throw new BadRequestException('El correo debe ser un email válido y contener exactamente un arroba (@).');
+    }
+    data.email = cleanEmail;
+
     const tenant = await this.prisma.tenant.findUnique({ where: { id: tenantId } });
     if (!tenant) throw new NotFoundException('Tenant no encontrado.');
 

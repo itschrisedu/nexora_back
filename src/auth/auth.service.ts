@@ -821,6 +821,14 @@ export class AuthService implements OnApplicationBootstrap {
       throw new UnauthorizedException('No se puede crear otro Super Admin.');
     }
 
+    // Validar formato del correo
+    const cleanEmail = (email || '').trim().toLowerCase();
+    const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
+    if (!cleanEmail || !emailRegex.test(cleanEmail) || (cleanEmail.match(/@/g) || []).length !== 1) {
+      throw new BadRequestException('El correo debe ser un email válido y contener exactamente un arroba (@).');
+    }
+    email = cleanEmail;
+
     const existing = await this.prisma.user.findUnique({ where: { email } });
     if (existing) {
       throw new UnauthorizedException('El correo ya está registrado.');
