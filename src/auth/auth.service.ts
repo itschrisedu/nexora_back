@@ -817,8 +817,8 @@ export class AuthService implements OnApplicationBootstrap {
     if (rol === Rol.ROL_ADMIN && !isCallerAdminGeneral) {
       throw new UnauthorizedException('Solo un Administrador General o Super Admin puede crear administradores.');
     }
-    if (rol === Rol.ROL_SUPER_ADMIN) {
-      throw new UnauthorizedException('No se puede crear otro Super Admin.');
+    if (rol === Rol.ROL_SUPER_ADMIN && requestUser.rol !== 'ROL_SUPER_ADMIN') {
+      throw new UnauthorizedException('Solo un Super Administrador puede crear otro Super Administrador.');
     }
 
     // Validar formato del correo

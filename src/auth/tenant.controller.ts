@@ -217,4 +217,56 @@ export class TenantController {
   async deleteUserForTenant(@Param('userId') userId: string) {
     return this.tenantService.deleteUser(userId);
   }
+
+  // ══════════════════════════════════════════
+  // GESTIÓN DE SUPER ADMINISTRADORES
+  // ══════════════════════════════════════════
+
+  /**
+   * GET /tenants/super-admins
+   * Listar todos los Super Administradores.
+   */
+  @Get('super-admins')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Rol.ROL_SUPER_ADMIN)
+  async listSuperAdmins() {
+    return this.tenantService.listSuperAdmins();
+  }
+
+  /**
+   * POST /tenants/super-admins
+   * Crear un nuevo Super Administrador.
+   */
+  @Post('super-admins')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Rol.ROL_SUPER_ADMIN)
+  async createSuperAdmin(@Body() dto: { nombre: string; email: string; password: string }) {
+    return this.tenantService.createSuperAdmin(dto);
+  }
+
+  /**
+   * PATCH /tenants/super-admins/:id
+   * Editar un Super Administrador existente.
+   */
+  @Patch('super-admins/:id')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Rol.ROL_SUPER_ADMIN)
+  async updateSuperAdmin(
+    @Param('id') id: string,
+    @Body() dto: { nombre?: string; email?: string; password?: string; activo?: boolean },
+  ) {
+    return this.tenantService.updateSuperAdmin(id, dto);
+  }
+
+  /**
+   * DELETE /tenants/super-admins/:id
+   * Eliminar un Super Administrador.
+   */
+  @Delete('super-admins/:id')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Rol.ROL_SUPER_ADMIN)
+  async deleteSuperAdmin(@Param('id') id: string, @Req() req: any) {
+    return this.tenantService.deleteSuperAdmin(id, req.user?.id);
+  }
 }
+

@@ -798,6 +798,141 @@ export class TenantService {
   }
 
   /**
+   * Listar todos los usuarios con rol Super Admin.
+   */
+  async listSuperAdmins() {
+    return this.prisma.user.findMany({
+      where: { rol: Rol.ROL_SUPER_ADMIN },
+      select: {
+        id: true,
+        nombre: true,
+        email: true,
+        rol: true,
+        activo: true,
+        createdAt: true,
+        intentosFallidos: true,
+        bloqueadoHasta: true,
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  /**
+   * Crear un nuevo Super Admin.
+   */
+  async createSuperAdmin(data: { nombre: string; email: string; password: string }) {
+    const cleanEmail = (data.email || '').trim().toLowerCase();
+    const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
+    if (!cleanEmail || !emailRegex.test(cleanEmail)) {
+      throw new BadRequestException('El correo debe ser un email válido.');
+    }
+    if (!data.password || data.password.trim().length < 6) {
+      throw new BadRequestException('La contraseña debe tener al menos 6 caracteres.');
+    }
+    if (!data.nombre || !data.nombre.trim()) {
+      throw new BadRequestException('El nombre del Super Administrador es obligatorio.');
+    }
+
+    const existing = await this.prisma.user.findUnique({ where: { email: cleanEmail } });
+    if (existing) {
+      throw new ConflictException(`El correo "${cleanEmail}" ya está registrado.`);
+    }
+
+    const passwordHash = await bcrypt.hash(data.password.trim(), this.BCRYPT_ROUNDS);
+    const user = await this.prisma.user.create({
+      data: {
+        email: cleanEmail,
+        nombre: data.nombre.trim(),
+        rol: Rol.ROL_SUPER_ADMIN,
+        passwordHash,
+        activo: true,
+        tenantId: null,
+      },
+      select: {
+        id: true,
+        nombre: true,
+        email: true,
+        rol: true,
+        activo: true,
+        createdAt: true,
+      },
+    });
+
+    this.logger.log(`Nuevo Super Admin creado: "${user.email}" (${user.id})`);
+    return user;
+  }
+
+  /**
+   * Actualizar un Super Admin existente.
+   */
+  async updateSuperAdmin(id: string, data: { nombre?: string; email?: string; password?: string; activo?: boolean }) {
+    const user = await this.prisma.user.findUnique({ where: { id } });
+    if (!user || user.rol !== Rol.ROL_SUPER_ADMIN) {
+      throw new NotFoundException('Super Administrador no encontrado.');
+    }
+
+    if (data.email && data.email.trim().toLowerCase() !== user.email) {
+      const cleanEmail = data.email.trim().toLowerCase();
+      const existing = await this.prisma.user.findUnique({ where: { email: cleanEmail } });
+      if (existing) {
+        throw new ConflictException(`El correo "${cleanEmail}" ya está registrado.`);
+      }
+    }
+
+    const updateData: any = {};
+    if (data.nombre !== undefined) updateData.nombre = data.nombre.trim();
+    if (data.email !== undefined) updateData.email = data.email.trim().toLowerCase();
+    if (data.activo !== undefined) updateData.activo = data.activo;
+    if (data.password && data.password.trim()) {
+      if (data.password.trim().length < 6) {
+        throw new BadRequestException('La contraseña debe tener al menos 6 caracteres.');
+      }
+      updateData.passwordHash = await bcrypt.hash(data.password.trim(), this.BCRYPT_ROUNDS);
+    }
+
+    const updated = await this.prisma.user.update({
+      where: { id },
+      data: updateData,
+      select: {
+        id: true,
+        nombre: true,
+        email: true,
+        rol: true,
+        activo: true,
+        createdAt: true,
+      },
+    });
+
+    this.logger.log(`Super Admin "${user.id}" actualizado.`);
+    return updated;
+  }
+
+  /**
+   * Eliminar un Super Admin con protecciones de seguridad.
+   */
+  async deleteSuperAdmin(id: string, requesterUserId: string) {
+    if (id === requesterUserId) {
+      throw new BadRequestException('No puedes eliminar tu propia cuenta de Super Administrador en sesión activa.');
+    }
+
+    const user = await this.prisma.user.findUnique({ where: { id } });
+    if (!user || user.rol !== Rol.ROL_SUPER_ADMIN) {
+      throw new NotFoundException('Super Administrador no encontrado.');
+    }
+
+    const totalSuperAdmins = await this.prisma.user.count({
+      where: { rol: Rol.ROL_SUPER_ADMIN },
+    });
+    if (totalSuperAdmins <= 1) {
+      throw new BadRequestException('No se puede eliminar el único Super Administrador del sistema.');
+    }
+
+    await this.prisma.user.delete({ where: { id } });
+    this.logger.warn(`Super Admin "${user.email}" (${id}) eliminado por "${requesterUserId}".`);
+    return { message: `Super Administrador "${user.nombre}" eliminado correctamente.` };
+  }
+
+  /**
    * Obtener reporte global de ingresos, pagos y métricas de suscripciones para Super Admin.
    */
   async getGlobalSubscriptionReport() {
