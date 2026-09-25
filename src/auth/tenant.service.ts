@@ -796,4 +796,159 @@ export class TenantService {
     this.logger.warn(`Usuario "${user.email}" (${userId}) eliminado por Super Admin.`);
     return { message: `Usuario "${user.nombre}" eliminado correctamente.` };
   }
+
+  /**
+   * Obtener reporte global de ingresos, pagos y métricas de suscripciones para Super Admin.
+   */
+  async getGlobalSubscriptionReport() {
+    const now = new Date();
+    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+
+    const [payments, tenants] = await Promise.all([
+      this.prisma.subscriptionPayment.findMany({
+        include: {
+          tenant: {
+            select: {
+              id: true,
+              name: true,
+              plan: true,
+              estadoSuscripcion: true,
+              active: true,
+              fechaVencimientoPlan: true,
+            },
+          },
+        },
+        orderBy: { fechaPago: 'desc' },
+      }),
+      this.prisma.tenant.findMany({
+        select: {
+          id: true,
+          name: true,
+          active: true,
+          plan: true,
+          estadoSuscripcion: true,
+          fechaVencimientoPlan: true,
+          precioMensualPlan: true,
+          diasPruebaGratis: true,
+          createdAt: true,
+          _count: {
+            select: {
+              users: true,
+              orders: true,
+              clients: true,
+            },
+          },
+        },
+        orderBy: { name: 'asc' },
+      }),
+    ]);
+
+    let totalRecaudado = 0;
+    let ingresosMesActual = 0;
+    const recaudacionPorPlan: Record<string, number> = {
+      PLAN_BASICO: 0,
+      PLAN_COMERCIAL: 0,
+      PLAN_MAYORISTA: 0,
+    };
+    const recaudacionPorMetodo: Record<string, number> = {};
+
+    const formattedPayments = payments.map((p) => {
+      const montoNum = Number(p.monto) || 0;
+      totalRecaudado += montoNum;
+
+      if (p.fechaPago && new Date(p.fechaPago) >= startOfMonth) {
+        ingresosMesActual += montoNum;
+      }
+
+      if (p.plan) {
+        recaudacionPorPlan[p.plan] = (recaudacionPorPlan[p.plan] || 0) + montoNum;
+      }
+
+      const metodo = p.metodoPago || 'TRANSFERENCIA';
+      recaudacionPorMetodo[metodo] = (recaudacionPorMetodo[metodo] || 0) + montoNum;
+
+      return {
+        id: p.id,
+        tenantId: p.tenantId,
+        tenantName: p.tenant?.name || 'Local',
+        tenantPlan: p.tenant?.plan || p.plan,
+        monto: montoNum,
+        periodoMeses: p.periodoMeses,
+        metodoPago: p.metodoPago,
+        plan: p.plan,
+        fechaPago: p.fechaPago,
+        fechaInicio: p.fechaInicio,
+        fechaFin: p.fechaFin,
+        numeroFacturaSri: p.numeroFacturaSri,
+        facturaAutorizada: p.facturaAutorizada,
+        notas: p.notas,
+      };
+    });
+
+    let mrrProyectado = 0;
+    let localesAlDia = 0;
+    let localesPorVencer = 0;
+    let localesVencidos = 0;
+    let localesEnPrueba = 0;
+
+    const localesStatus = tenants.map((t) => {
+      let diasRestantes = 0;
+      if (t.fechaVencimientoPlan) {
+        const diffMs = new Date(t.fechaVencimientoPlan).getTime() - now.getTime();
+        diasRestantes = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
+      }
+
+      const precioPlan = Number(t.precioMensualPlan) || 0;
+      if (t.active) {
+        mrrProyectado += precioPlan;
+      }
+
+      let estadoCalculado = 'AL_DIA';
+      if (t.estadoSuscripcion === EstadoSuscripcion.EN_PRUEBA) {
+        localesEnPrueba++;
+        estadoCalculado = 'EN_PRUEBA';
+      } else if (diasRestantes < 0) {
+        localesVencidos++;
+        estadoCalculado = 'VENCIDO';
+      } else if (diasRestantes <= 7) {
+        localesPorVencer++;
+        estadoCalculado = 'POR_VENCER';
+      } else {
+        localesAlDia++;
+        estadoCalculado = 'AL_DIA';
+      }
+
+      return {
+        id: t.id,
+        name: t.name,
+        active: t.active,
+        plan: t.plan,
+        precioMensualPlan: precioPlan,
+        estadoSuscripcion: t.estadoSuscripcion,
+        estadoCalculado,
+        fechaVencimientoPlan: t.fechaVencimientoPlan,
+        diasRestantes,
+        totalUsuarios: t._count.users,
+        totalPedidos: t._count.orders,
+        totalClientes: t._count.clients,
+      };
+    });
+
+    return {
+      kpis: {
+        totalRecaudado,
+        ingresosMesActual,
+        mrrProyectado,
+        totalLocales: tenants.length,
+        localesAlDia,
+        localesPorVencer,
+        localesVencidos,
+        localesEnPrueba,
+      },
+      recaudacionPorPlan,
+      recaudacionPorMetodo,
+      pagos: formattedPayments,
+      locales: localesStatus,
+    };
+  }
 }

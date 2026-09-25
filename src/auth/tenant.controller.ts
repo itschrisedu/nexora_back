@@ -61,6 +61,17 @@ export class TenantController {
   }
 
   /**
+   * GET /tenants/reportes/ingresos-suscripciones
+   * Reporte global consolidado de ingresos por suscripción y estado de locales para Super Admin.
+   */
+  @Get('reportes/ingresos-suscripciones')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Rol.ROL_SUPER_ADMIN)
+  async getSubscriptionReport() {
+    return this.tenantService.getGlobalSubscriptionReport();
+  }
+
+  /**
    * GET /tenants/:id
    * Detalle de un tenant con todos sus usuarios y pagos.
    */
