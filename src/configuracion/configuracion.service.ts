@@ -604,6 +604,12 @@ export class ConfiguracionService {
    * Obtiene la lista de todas las sucursales pertenecientes a la organización.
    */
   async getSucursales(tenantId: string) {
+    const safeDecryptRuc = (encRuc?: string | null) => {
+      if (!encRuc) return '';
+      const dec = this.encryption.decrypt(encRuc);
+      return dec === '0000000000001' ? '' : (dec || '');
+    };
+
     if (!tenantId) {
       const allTenants = await this.prisma.tenant.findMany({
         where: { active: true },
@@ -635,7 +641,7 @@ export class ConfiguracionService {
         active: s.active,
         isMatriz: false,
         isCurrent: false,
-        ruc: s.businessConfig?.ruc ? this.encryption.decrypt(s.businessConfig.ruc) : '',
+        ruc: safeDecryptRuc(s.businessConfig?.ruc),
         direccion: s.businessConfig?.direccion || 'Sin dirección',
         telefono: s.businessConfig?.telefono || '',
         email: s.businessConfig?.email || '',
@@ -654,7 +660,7 @@ export class ConfiguracionService {
     });
 
     const plainRuc = mainTenant?.businessConfig?.ruc
-      ? this.encryption.decrypt(mainTenant.businessConfig.ruc)
+      ? safeDecryptRuc(mainTenant.businessConfig.ruc)
       : null;
 
     const allTenants = await this.prisma.tenant.findMany({
@@ -684,7 +690,7 @@ export class ConfiguracionService {
     const matching = allTenants.filter((s) => {
       if (s.id === tenantId) return true;
       if (plainRuc && s.businessConfig?.ruc) {
-        return this.encryption.decrypt(s.businessConfig.ruc) === plainRuc;
+        return safeDecryptRuc(s.businessConfig.ruc) === plainRuc;
       }
       return false;
     });
@@ -695,7 +701,7 @@ export class ConfiguracionService {
       active: s.active,
       isMatriz: s.id === tenantId,
       isCurrent: s.id === tenantId,
-      ruc: s.businessConfig?.ruc ? this.encryption.decrypt(s.businessConfig.ruc) : '',
+      ruc: safeDecryptRuc(s.businessConfig?.ruc),
       direccion: s.businessConfig?.direccion || 'Sin dirección',
       telefono: s.businessConfig?.telefono || '',
       email: s.businessConfig?.email || '',
@@ -735,38 +741,50 @@ export class ConfiguracionService {
       // 1. Crear el tenant de la sucursal
       const childTenant = await tx.tenant.create({
         data: {
-          name: data.name,
+          name: data.name.trim(),
           active: true,
         },
       });
 
-      // 2. Determinar RUC: si se proporciona uno específico se usa; de lo contrario se hereda el RUC matriz
-      const cleanRuc = data.ruc ? data.ruc.replace(/\D/g, '') : '';
-      const sucursalRucEnc = cleanRuc.length === 13
-        ? this.encryption.encrypt(cleanRuc)
-        : (currentTenant.businessConfig?.ruc || this.encryption.encrypt('0000000000001'));
+      // 2. Determinar RUC: la sucursal hereda el RUC matriz de la empresa (sin inventar RUC ficticio)
+      const currentRuc = currentTenant.businessConfig?.ruc;
+      let sucursalRucEnc = currentRuc || this.encryption.encrypt('');
+      if (currentRuc) {
+        const decrypted = this.encryption.decrypt(currentRuc);
+        if (!decrypted || decrypted === '0000000000001') {
+          sucursalRucEnc = this.encryption.encrypt('');
+        }
+      }
 
-      // 3. Crear configuración comercial inicial para la sucursal
+      // 3. Crear configuración comercial inicial para la sucursal sin datos inventados
+      const cleanTelefono = data.telefono && data.telefono.trim()
+        ? data.telefono.replace(/\D/g, '').slice(0, 10)
+        : null;
+
+      const cleanEmail = data.email && data.email.trim()
+        ? data.email.trim().toLowerCase()
+        : null;
+
       await tx.businessConfig.create({
         data: {
           tenantId: childTenant.id,
-          nombre: data.name,
+          nombre: data.name.trim(),
           ruc: sucursalRucEnc,
-          direccion: data.direccion || currentTenant.businessConfig?.direccion || 'Cevallos, Ecuador',
-          telefono: data.telefono || currentTenant.businessConfig?.telefono,
-          email: data.email || currentTenant.businessConfig?.email,
+          direccion: data.direccion?.trim() || 'Cevallos, Ecuador',
+          telefono: cleanTelefono,
+          email: cleanEmail,
           logoUrl: currentTenant.businessConfig?.logoUrl,
           primaryColor: currentTenant.businessConfig?.primaryColor || '#0F172A',
         },
       });
 
-      // 4. Crear usuario encargado/vendedor si se proporcionó
+      // 4. Crear usuario encargado si se proporcionó
       if (data.adminEmail && data.adminPassword) {
         const passwordHash = await bcrypt.hash(data.adminPassword, 12);
         await tx.user.create({
           data: {
-            email: data.adminEmail,
-            nombre: data.adminNombre || `Encargado ${data.name}`,
+            email: data.adminEmail.trim().toLowerCase(),
+            nombre: data.adminNombre?.trim() || `Encargado ${data.name.trim()}`,
             rol: Rol.ROL_ADMIN,
             passwordHash,
             activo: true,
@@ -783,7 +801,7 @@ export class ConfiguracionService {
   }
 
   /**
-   * Actualiza los datos de una sucursal (nombre, RUC, dirección, teléfono, email, estado).
+   * Actualiza los datos de una sucursal (nombre, dirección, teléfono, email, estado).
    */
   async updateSucursal(
     tenantId: string,
@@ -812,7 +830,7 @@ export class ConfiguracionService {
         await tx.tenant.update({
           where: { id: sucursalId },
           data: {
-            ...(data.name !== undefined && { name: data.name }),
+            ...(data.name !== undefined && { name: data.name.trim() }),
             ...(data.active !== undefined && { active: data.active }),
           },
         });
@@ -821,15 +839,17 @@ export class ConfiguracionService {
       // Actualizar BusinessConfig
       if (sucursal.businessConfig) {
         const configData: any = {};
-        if (data.name !== undefined) configData.nombre = data.name;
-        if (data.direccion !== undefined) configData.direccion = data.direccion;
-        if (data.telefono !== undefined) configData.telefono = data.telefono;
-        if (data.email !== undefined) configData.email = data.email;
-        if (data.ruc !== undefined) {
-          const cleanRuc = data.ruc.replace(/\D/g, '');
-          if (cleanRuc.length === 13) {
-            configData.ruc = this.encryption.encrypt(cleanRuc);
-          }
+        if (data.name !== undefined) configData.nombre = data.name.trim();
+        if (data.direccion !== undefined) configData.direccion = data.direccion?.trim() || 'Cevallos, Ecuador';
+        if (data.telefono !== undefined) {
+          configData.telefono = data.telefono && data.telefono.trim()
+            ? data.telefono.replace(/\D/g, '').slice(0, 10)
+            : null;
+        }
+        if (data.email !== undefined) {
+          configData.email = data.email && data.email.trim()
+            ? data.email.trim().toLowerCase()
+            : null;
         }
 
         if (Object.keys(configData).length > 0) {
