@@ -26,6 +26,15 @@ export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
   /**
+   * GET /auth/debug-sentry
+   * Endpoint de prueba para verificar captura de errores en Sentry.
+   */
+  @Get('debug-sentry')
+  debugSentry() {
+    throw new Error('⚡ [NEXORA Backend] Error de prueba provocado en NestJS');
+  }
+
+  /**
    * POST /auth/login
    * Autentica al usuario y retorna access + refresh tokens.
    * Si existe sesión previa activa y no se fuerza, retorna status de conflicto de sesión.

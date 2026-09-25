@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { SentryModule } from '@sentry/nestjs/setup';
 import { ConfigModule } from '@nestjs/config';
 import { EventEmitterModule } from '@nestjs/event-emitter';
 import { ScheduleModule } from '@nestjs/schedule';
@@ -17,6 +18,9 @@ import { ReportesModule } from './bounded-contexts/reportes/infrastructure/repor
 
 @Module({
   imports: [
+    // Sentry Monitoring Root Module
+    SentryModule.forRoot(),
+
     // Carga las variables de entorno desde .env
     ConfigModule.forRoot({
       isGlobal: true,

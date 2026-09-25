@@ -6,6 +6,7 @@ import {
   HttpStatus,
   Logger,
 } from '@nestjs/common';
+import { SentryExceptionCaptured } from '@sentry/nestjs';
 import { Response } from 'express';
 
 /**
@@ -16,6 +17,7 @@ import { Response } from 'express';
 export class HttpExceptionFilter implements ExceptionFilter {
   private readonly logger = new Logger(HttpExceptionFilter.name);
 
+  @SentryExceptionCaptured()
   catch(exception: unknown, host: ArgumentsHost) {
     const ctx = host.switchToHttp();
     const response = ctx.getResponse<Response>();
@@ -46,6 +48,13 @@ export class HttpExceptionFilter implements ExceptionFilter {
         `Excepción no controlada: ${exception.message}`,
         exception.stack,
       );
+    }
+
+    // Reportar errores 500 y excepciones críticas a Sentry
+    if (status >= HttpStatus.INTERNAL_SERVER_ERROR) {
+      import('@sentry/nestjs').then((Sentry) => {
+        Sentry.captureException(exception);
+      }).catch(() => {});
     }
 
     response.status(status).json({

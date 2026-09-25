@@ -1,3 +1,4 @@
+import './instrument';
 import './shared/infrastructure/dns-fallback';
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe, Logger } from '@nestjs/common';
