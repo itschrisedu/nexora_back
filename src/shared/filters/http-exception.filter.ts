@@ -18,9 +18,9 @@ export class HttpExceptionFilter implements ExceptionFilter {
   private readonly logger = new Logger(HttpExceptionFilter.name);
 
   @SentryExceptionCaptured()
-  catch(exception: unknown, host: ArgumentsHost) {
+  catch(exception: unknown, host: any) {
     const ctx = host.switchToHttp();
-    const response = ctx.getResponse<Response>();
+    const response = ctx.getResponse() as Response;
 
     let status = HttpStatus.INTERNAL_SERVER_ERROR;
     let message = 'Error interno del servidor';
