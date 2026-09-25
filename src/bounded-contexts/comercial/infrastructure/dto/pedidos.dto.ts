@@ -82,6 +82,18 @@ export class CrearPedidoDto {
   @IsString()
   @IsOptional()
   ciudadEnvio?: string;
+
+  // Anticipos y Adelantos de Dinero
+  @IsOptional()
+  adelanto?: number;
+
+  @IsString()
+  @IsOptional()
+  metodoAdelanto?: string;
+
+  @IsString()
+  @IsOptional()
+  referenciaAdelanto?: string;
 }
 
 export class ActualizarEnvioPedidoDto {

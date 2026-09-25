@@ -254,6 +254,9 @@ export class ComercialQueryService {
       courier: record.courier || null,
       direccionEnvio: record.direccionEnvio || null,
       ciudadEnvio: record.ciudadEnvio || null,
+      adelanto: record.adelanto ? Number(record.adelanto) : 0,
+      metodoAdelanto: record.metodoAdelanto || null,
+      referenciaAdelanto: record.referenciaAdelanto || null,
       createdAt: record.createdAt,
       updatedAt: record.updatedAt,
       lines: record.lines?.map((l: any) => {

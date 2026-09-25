@@ -148,37 +148,79 @@ export class PedidoEntregadoFinancieroListener {
         },
       });
 
-      // 6. Crear Cobro según tipo de pago
+      // 6. Crear Cobro según tipo de pago sincronizando adelanto de dinero
       const cobroId = crypto.randomUUID();
       let cobro: Cobro;
+      const montoAdelanto = Number(order.adelanto || 0);
+
+      let metodoPago = 'EFECTIVO';
+      let notasPago = 'Pago de contado al entregar';
+      if (order.notas) {
+        if (order.notas.includes('TRANSFERENCIA')) metodoPago = 'TRANSFERENCIA';
+        else if (order.notas.includes('DEPOSITO')) metodoPago = 'DEPOSITO';
+        else if (order.notas.includes('CHEQUE')) metodoPago = 'CHEQUE';
+        notasPago = order.notas;
+      }
+
+      const vencimiento = new Date();
+      vencimiento.setDate(vencimiento.getDate() + 30);
+
+      // Usamos crearCredito como base para poder registrar los abonos secuenciales y mantener la trazabilidad
+      cobro = Cobro.crearCredito(cobroId, saleNoteId, payload.clientId, Money.create(total), vencimiento);
 
       if (payload.tipoPago === 'CONTADO') {
-        cobro = Cobro.crearContado(cobroId, saleNoteId, payload.clientId, Money.create(total));
+        if (montoAdelanto > 0) {
+          const adelantoReal = Math.min(montoAdelanto, total);
+          cobro.registrarAbono(
+            crypto.randomUUID(),
+            Money.create(adelantoReal),
+            order.metodoAdelanto || 'EFECTIVO',
+            order.userId || 'system',
+            `Anticipo recibido al registrar pedido ${order.referenciaAdelanto ? `(Ref: ${order.referenciaAdelanto})` : ''}`.trim(),
+          );
 
-        let metodoPago = 'EFECTIVO';
-        let notasPago = 'Pago de contado al entregar';
-        if (order.notas) {
-          if (order.notas.includes('TRANSFERENCIA')) metodoPago = 'TRANSFERENCIA';
-          else if (order.notas.includes('DEPOSITO')) metodoPago = 'DEPOSITO';
-          else if (order.notas.includes('CHEQUE')) metodoPago = 'CHEQUE';
-          notasPago = order.notas;
+          const saldoRestante = Math.round((total - adelantoReal) * 100) / 100;
+          if (saldoRestante > 0) {
+            cobro.registrarAbono(
+              crypto.randomUUID(),
+              Money.create(saldoRestante),
+              metodoPago,
+              order.userId || 'system',
+              'Pago de saldo restante de contado al entregar',
+            );
+          }
+        } else {
+          cobro.registrarAbono(
+            crypto.randomUUID(),
+            Money.create(total),
+            metodoPago,
+            order.userId || 'system',
+            notasPago,
+          );
         }
-
-        cobro.registrarAbono(
-          crypto.randomUUID(),
-          Money.create(total),
-          metodoPago,
-          order.userId || 'system',
-          notasPago,
-        );
       } else {
-        // CREDITO: plazo de 30 días por defecto (se puede ajustar según nivel del cliente)
-        const vencimiento = new Date();
-        vencimiento.setDate(vencimiento.getDate() + 30);
-        cobro = Cobro.crearCredito(cobroId, saleNoteId, payload.clientId, Money.create(total), vencimiento);
+        // CREDITO: Registrar anticipo si hubo uno previo
+        if (montoAdelanto > 0) {
+          const adelantoReal = Math.min(montoAdelanto, total);
+          cobro.registrarAbono(
+            crypto.randomUUID(),
+            Money.create(adelantoReal),
+            order.metodoAdelanto || 'EFECTIVO',
+            order.userId || 'system',
+            `Anticipo recibido al registrar pedido ${order.referenciaAdelanto ? `(Ref: ${order.referenciaAdelanto})` : ''}`.trim(),
+          );
+        }
       }
 
       await this.cobroRepo.save(cobro, tenantId);
+
+      // Actualizar tipo de cobro exacto en DB (CONTADO vs CREDITO)
+      if (payload.tipoPago === 'CONTADO') {
+        await this.prisma.cobro.update({
+          where: { id: cobroId },
+          data: { tipo: 'CONTADO' },
+        });
+      }
 
       // 7. Emitir NotaVentaGenerada
       this.eventBus.publish(

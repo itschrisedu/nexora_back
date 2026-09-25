@@ -825,4 +825,142 @@ export class FinancieroQueryService {
       monto: montoNum,
     };
   }
+
+  // ── Cambiar Tipo de Venta / Cobro (Contado <-> Crédito) ───────────
+  async cambiarTipoCobro(
+    cobroId: string,
+    body: {
+      nuevoTipo: 'CREDITO' | 'CONTADO';
+      diasPlazo?: number;
+      fechaVencimiento?: string;
+      notas?: string;
+      montoAbonadoInicial?: number;
+      metodoAbonoInicial?: string;
+    },
+    tenantId: string,
+    userId: string,
+  ) {
+    const cobro = await this.prisma.cobro.findUnique({
+      where: { id: cobroId },
+      include: { abonos: true, saleNote: true },
+    });
+
+    if (!cobro) {
+      throw new NotFoundException(`Cobro con ID "${cobroId}" no encontrado`);
+    }
+
+    const montoTotal = Number(cobro.montoTotal);
+
+    if (body.nuevoTipo === 'CREDITO') {
+      // Reemplazar abonos con el abono inicial real si aplica
+      await this.prisma.cobroAbono.deleteMany({
+        where: { cobroId },
+      });
+
+      let saldoPendiente = montoTotal;
+      const abonoInicial = Number(body.montoAbonadoInicial || 0);
+
+      if (abonoInicial > 0) {
+        const abonoReal = Math.min(abonoInicial, montoTotal);
+        await this.prisma.cobroAbono.create({
+          data: {
+            id: crypto.randomUUID(),
+            cobroId,
+            monto: abonoReal,
+            metodo: body.metodoAbonoInicial || 'EFECTIVO',
+            notas: body.notas ? `Anticipo/Abono inicial: ${body.notas}` : 'Anticipo/Abono inicial registrado',
+            userId,
+          },
+        });
+        saldoPendiente = Math.round((montoTotal - abonoReal) * 100) / 100;
+      }
+
+      // Calcular fecha de vencimiento
+      const dias = Number(body.diasPlazo || 30);
+      const fechaVencimiento = body.fechaVencimiento
+        ? new Date(body.fechaVencimiento)
+        : new Date(Date.now() + dias * 24 * 60 * 60 * 1000);
+
+      const nuevoEstado = saldoPendiente === 0
+        ? CobroEstado.SALDADO
+        : (saldoPendiente < montoTotal ? CobroEstado.PARCIALMENTE_PAGADO : CobroEstado.PENDIENTE);
+
+      await this.prisma.cobro.update({
+        where: { id: cobroId },
+        data: {
+          tipo: 'CREDITO',
+          saldoPendiente,
+          fechaVencimiento,
+          estado: nuevoEstado,
+        },
+      });
+
+      // Recalcular crédito utilizado del cliente
+      if (cobro.clientId) {
+        const todosCobrosPendientes = await this.prisma.cobro.findMany({
+          where: { clientId: cobro.clientId, estado: { in: ['PENDIENTE', 'PARCIALMENTE_PAGADO'] } },
+          select: { saldoPendiente: true },
+        });
+        const sumaDeuda = todosCobrosPendientes.reduce((acc, c) => acc + Number(c.saldoPendiente), 0);
+        await this.prisma.client.update({
+          where: { id: cobro.clientId },
+          data: { creditoUtilizado: sumaDeuda },
+        });
+      }
+
+      return {
+        ok: true,
+        message: 'Venta convertida a CRÉDITO exitosamente.',
+        cobroId,
+        saldoPendiente,
+        fechaVencimiento,
+      };
+    } else {
+      // Cambiar a CONTADO: Saldo pendiente = 0 y estado SALDADO
+      const abonosActuales = await this.prisma.cobroAbono.findMany({ where: { cobroId } });
+      const totalAbonado = abonosActuales.reduce((acc, a) => acc + Number(a.monto), 0);
+      const faltante = Math.round((montoTotal - totalAbonado) * 100) / 100;
+
+      if (faltante > 0) {
+        await this.prisma.cobroAbono.create({
+          data: {
+            id: crypto.randomUUID(),
+            cobroId,
+            monto: faltante,
+            metodo: body.metodoAbonoInicial || 'EFECTIVO',
+            notas: body.notas || 'Cancelación total al cambiar a contado',
+            userId,
+          },
+        });
+      }
+
+      await this.prisma.cobro.update({
+        where: { id: cobroId },
+        data: {
+          tipo: 'CONTADO',
+          saldoPendiente: 0,
+          estado: CobroEstado.SALDADO,
+        },
+      });
+
+      // Recalcular crédito utilizado del cliente
+      if (cobro.clientId) {
+        const todosCobrosPendientes = await this.prisma.cobro.findMany({
+          where: { clientId: cobro.clientId, estado: { in: ['PENDIENTE', 'PARCIALMENTE_PAGADO'] } },
+          select: { saldoPendiente: true },
+        });
+        const sumaDeuda = todosCobrosPendientes.reduce((acc, c) => acc + Number(c.saldoPendiente), 0);
+        await this.prisma.client.update({
+          where: { id: cobro.clientId },
+          data: { creditoUtilizado: sumaDeuda },
+        });
+      }
+
+      return {
+        ok: true,
+        message: 'Venta convertida a CONTADO y saldada exitosamente.',
+        cobroId,
+      };
+    }
+  }
 }

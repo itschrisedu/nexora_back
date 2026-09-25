@@ -114,6 +114,9 @@ export class PedidosController {
       dto.courier,
       dto.direccionEnvio,
       dto.ciudadEnvio,
+      dto.adelanto ? Number(dto.adelanto) : 0,
+      dto.metodoAdelanto,
+      dto.referenciaAdelanto,
     );
     const id = await this.crearPedidoHandler.execute(command);
     return { id, message: 'Pedido creado exitosamente' };
@@ -185,6 +188,16 @@ export class PedidosController {
         montoTotal,
         tipoPago: dto.tipoPago || pedidoExistente.tipoPago,
         notas: dto.notas !== undefined ? dto.notas : pedidoExistente.notas,
+        adelanto: dto.adelanto !== undefined ? Number(dto.adelanto) : pedidoExistente.adelanto,
+        metodoAdelanto: dto.metodoAdelanto !== undefined ? dto.metodoAdelanto : pedidoExistente.metodoAdelanto,
+        referenciaAdelanto: dto.referenciaAdelanto !== undefined ? dto.referenciaAdelanto : pedidoExistente.referenciaAdelanto,
+        tipoEntrega: dto.tipoEntrega !== undefined ? dto.tipoEntrega : pedidoExistente.tipoEntrega,
+        asumeFlete: dto.asumeFlete !== undefined ? dto.asumeFlete : pedidoExistente.asumeFlete,
+        costoEnvio: dto.costoEnvio !== undefined ? Number(dto.costoEnvio) : pedidoExistente.costoEnvio,
+        guiaEnvio: dto.guiaEnvio !== undefined ? dto.guiaEnvio : pedidoExistente.guiaEnvio,
+        courier: dto.courier !== undefined ? dto.courier : pedidoExistente.courier,
+        direccionEnvio: dto.direccionEnvio !== undefined ? dto.direccionEnvio : pedidoExistente.direccionEnvio,
+        ciudadEnvio: dto.ciudadEnvio !== undefined ? dto.ciudadEnvio : pedidoExistente.ciudadEnvio,
       },
     });
 

@@ -24,5 +24,8 @@ export class CrearPedidoCommand {
     public readonly courier?: string,
     public readonly direccionEnvio?: string,
     public readonly ciudadEnvio?: string,
+    public readonly adelanto?: number,
+    public readonly metodoAdelanto?: string,
+    public readonly referenciaAdelanto?: string,
   ) {}
 }

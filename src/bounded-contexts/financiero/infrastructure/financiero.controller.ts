@@ -109,6 +109,24 @@ export class FinancieroController {
     return this.queryService.registrarDeudaManual(body, req.user.tenantId, req.user.sub);
   }
 
+  @Post('cobros/:id/cambiar-tipo')
+  @Roles(Rol.ROL_ADMIN, Rol.ROL_VENDEDOR)
+  async cambiarTipoCobro(
+    @Param('id') cobroId: string,
+    @Body()
+    body: {
+      nuevoTipo: 'CREDITO' | 'CONTADO';
+      diasPlazo?: number;
+      fechaVencimiento?: string;
+      notas?: string;
+      montoAbonadoInicial?: number;
+      metodoAbonoInicial?: string;
+    },
+    @Req() req: any,
+  ) {
+    return this.queryService.cambiarTipoCobro(cobroId, body, req.user.tenantId, req.user.sub);
+  }
+
   // ══════════════════════════════════════════
   // NOTAS DE VENTA
   // ══════════════════════════════════════════

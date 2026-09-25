@@ -537,6 +537,9 @@ model Order {
   courier       String?
   direccionEnvio String?
   ciudadEnvio   String?
+  adelanto      Decimal?       @default(0.00) @db.Decimal(10, 2)
+  metodoAdelanto String?
+  referenciaAdelanto String?
   lines         OrderLine[]
   queueEntry    OrderQueue?
   dispatchOrder DispatchOrder?
