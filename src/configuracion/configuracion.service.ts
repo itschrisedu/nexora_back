@@ -50,8 +50,20 @@ export class ConfiguracionService {
         tieneP12: false,
       };
     }
-    const config = await this.prisma.businessConfig.findUnique({ where: { tenantId: targetTenantId } });
+    let config = await this.prisma.businessConfig.findUnique({ where: { tenantId: targetTenantId } });
     const tenant = await this.prisma.tenant.findUnique({ where: { id: targetTenantId } });
+
+    // Si es una sucursal y no tiene configuración propia, buscar si pertenece a un admin matriz
+    if (!config) {
+      const userInBranch = await this.prisma.user.findFirst({
+        where: { tenantId: targetTenantId, parentId: { not: null } },
+        include: { parent: { include: { tenant: { include: { businessConfig: true } } } } },
+      });
+      if (userInBranch?.parent?.tenant?.businessConfig) {
+        config = userInBranch.parent.tenant.businessConfig;
+      }
+    }
+
     const nombreNegocio = config?.nombre || tenant?.name || 'Local Comercial';
 
     if (!config) {

@@ -38,9 +38,19 @@ export class CatalogoService {
    */
   async obtenerInfoTienda(tenantIdParam?: string) {
     const tenant = await this.resolveTenant(tenantIdParam);
-    const config = await this.prisma.businessConfig.findUnique({
+    let config = await this.prisma.businessConfig.findUnique({
       where: { tenantId: tenant.id },
     });
+
+    if (!config) {
+      const userInBranch = await this.prisma.user.findFirst({
+        where: { tenantId: tenant.id, parentId: { not: null } },
+        include: { parent: { include: { tenant: { include: { businessConfig: true } } } } },
+      });
+      if (userInBranch?.parent?.tenant?.businessConfig) {
+        config = userInBranch.parent.tenant.businessConfig;
+      }
+    }
 
     return {
       tenantId: tenant.id,
