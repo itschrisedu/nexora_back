@@ -306,8 +306,17 @@ export class InventarioQueryService {
         material: m.material,
         active: m.active,
         reordenAutomatica: m.reordenAutomatica,
-        supplierId: m.supplierId,
-        supplier: m.supplier
+        supplierId: (m.supplierId && (suppliersMap.has(m.supplierId) || (m.supplier && m.supplier.tenantId === tenantId))) ? m.supplierId : null,
+        supplier: (m.supplierId && suppliersMap.has(m.supplierId))
+          ? {
+              id: m.supplier.id,
+              razonSocial: m.supplier.razonSocial,
+              ruc: m.supplier.ruc,
+              contacto: m.supplier.contacto,
+              direccion: m.supplier.direccion,
+              email: m.supplier.email,
+            }
+          : (m.supplier && m.supplier.tenantId === tenantId)
           ? {
               id: m.supplier.id,
               razonSocial: m.supplier.razonSocial,
@@ -394,7 +403,11 @@ export class InventarioQueryService {
       t.cantidadSerie = r;
     });
 
-    const variantSupplier = record.supplier || mdl?.supplier || null;
+    const variantSupplier = (record.supplier && (!record.tenantId || record.supplier.tenantId === record.tenantId))
+      ? record.supplier
+      : (mdl?.supplier && (!mdl?.tenantId || mdl.supplier.tenantId === mdl.tenantId))
+      ? mdl.supplier
+      : null;
     const supplierSigla = variantSupplier?.razonSocial ? generarSiglaProveedor(variantSupplier.razonSocial) : '';
 
     let supRuc = variantSupplier?.ruc;
