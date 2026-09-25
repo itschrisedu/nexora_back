@@ -23,6 +23,7 @@ import {
   ActualizarEstadoPedidoDto,
   ActualizarEnvioPedidoDto,
   EntregarItemsPedidoDto,
+  ActualizarAdelantoPedidoDto,
 } from './dto/pedidos.dto';
 import { CrearPedidoHandler } from '../application/commands/CrearPedido.handler';
 import { CrearPedidoCommand } from '../application/commands/CrearPedido.command';
@@ -202,6 +203,47 @@ export class PedidosController {
     });
 
     return { id, message: 'Pedido actualizado exitosamente', montoTotal };
+  }
+
+  @Put(':id/adelanto')
+  @Roles(Rol.ROL_ADMIN, Rol.ROL_VENDEDOR, Rol.ROL_BODEGUERO)
+  async actualizarAdelantoPedido(
+    @Param('id') id: string,
+    @Body() dto: ActualizarAdelantoPedidoDto,
+    @Req() req: any,
+  ) {
+    const pedidoExistente = await this.prisma.order.findUnique({
+      where: { id },
+    });
+
+    if (!pedidoExistente) {
+      throw new NotFoundException(`El pedido con ID "${id}" no existe`);
+    }
+
+    if (pedidoExistente.estado === 'ENTREGADO' || pedidoExistente.estado === 'CANCELADO') {
+      throw new BadRequestException(`No se puede modificar el anticipo de un pedido en estado "${pedidoExistente.estado}"`);
+    }
+
+    const adelanto = Math.max(0, Number(dto.adelanto || 0));
+    const metodoAdelanto = adelanto > 0 ? (dto.metodoAdelanto || 'EFECTIVO') : null;
+    const referenciaAdelanto = adelanto > 0 ? (dto.referenciaAdelanto || null) : null;
+
+    const updated = await this.prisma.order.update({
+      where: { id },
+      data: {
+        adelanto,
+        metodoAdelanto,
+        referenciaAdelanto,
+      },
+    });
+
+    return {
+      id,
+      message: 'Anticipo/Adelanto actualizado exitosamente',
+      adelanto: Number(updated.adelanto),
+      metodoAdelanto: updated.metodoAdelanto,
+      referenciaAdelanto: updated.referenciaAdelanto,
+    };
   }
 
   @Put(':id/estado')

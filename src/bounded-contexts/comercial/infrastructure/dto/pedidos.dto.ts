@@ -179,4 +179,18 @@ export class EntregarItemsPedidoDto {
   items!: ItemAEntregarDto[];
 }
 
+export class ActualizarAdelantoPedidoDto {
+  @IsNotEmpty()
+  adelanto!: number;
+
+  @IsString()
+  @IsOptional()
+  metodoAdelanto?: string;
+
+  @IsString()
+  @IsOptional()
+  referenciaAdelanto?: string;
+}
+
+
 
