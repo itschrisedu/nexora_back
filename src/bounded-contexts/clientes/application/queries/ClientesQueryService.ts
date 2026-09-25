@@ -166,6 +166,7 @@ export class ClientesQueryService {
       limiteCredito: Number(record.limiteCredito),
       creditoUtilizado: Number(record.creditoUtilizado),
       creditoDisponible: Math.max(0, Number(record.limiteCredito) - Number(record.creditoUtilizado)),
+      saldoAFavor: Number(record.saldoAFavor || 0),
       activo: record.activo,
       tenantId: record.tenantId,
       sucursalNombre: record.tenant?.name || '',
