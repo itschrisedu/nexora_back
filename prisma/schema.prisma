@@ -144,6 +144,7 @@ model User {
   passwordHash   String
   nombre         String
   rol            Rol
+  esAdminGeneral Boolean         @default(false)
   activo         Boolean         @default(true)
   permiteCambiarPrecio Boolean   @default(false)
   intentosFallidos Int           @default(0)

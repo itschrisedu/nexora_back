@@ -876,6 +876,7 @@ export class ConfiguracionService {
         nombre: true,
         email: true,
         rol: true,
+        esAdminGeneral: true,
         activo: true,
         permiteCambiarPrecio: true,
         createdAt: true,
@@ -944,6 +945,7 @@ export class ConfiguracionService {
         nombre: true,
         email: true,
         rol: true,
+        esAdminGeneral: true,
         activo: true,
         permiteCambiarPrecio: true,
         tenantId: true,
@@ -964,6 +966,7 @@ export class ConfiguracionService {
       nombre?: string;
       email?: string;
       rol?: Rol;
+      esAdminGeneral?: boolean;
       activo?: boolean;
       permiteCambiarPrecio?: boolean;
       tenantId?: string;
@@ -991,6 +994,7 @@ export class ConfiguracionService {
         nombre: data.nombre !== undefined ? data.nombre : user.nombre,
         email: data.email !== undefined ? data.email : user.email,
         rol: data.rol !== undefined ? data.rol : user.rol,
+        esAdminGeneral: data.esAdminGeneral !== undefined ? data.esAdminGeneral : user.esAdminGeneral,
         activo: data.activo !== undefined ? data.activo : user.activo,
         permiteCambiarPrecio:
           data.permiteCambiarPrecio !== undefined
@@ -1003,6 +1007,7 @@ export class ConfiguracionService {
         nombre: true,
         email: true,
         rol: true,
+        esAdminGeneral: true,
         activo: true,
         permiteCambiarPrecio: true,
         tenantId: true,

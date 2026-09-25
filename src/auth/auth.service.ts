@@ -369,6 +369,7 @@ export class AuthService implements OnApplicationBootstrap {
         tenantId: user.tenantId,
         tenantName: user.tenant?.name || null,
         permiteCambiarPrecio: user.permiteCambiarPrecio,
+        esAdminGeneral: user.esAdminGeneral || (!user.parentId && user.rol === Rol.ROL_ADMIN),
         termsAcceptedAt: user.termsAcceptedAt,
         termsVersion: user.termsVersion,
         gpsConsentAt: user.gpsConsentAt,
@@ -783,6 +784,7 @@ export class AuthService implements OnApplicationBootstrap {
         email: true,
         nombre: true,
         rol: true,
+        esAdminGeneral: true,
         activo: true,
         permiteCambiarPrecio: true,
         intentosFallidos: true,
@@ -802,13 +804,18 @@ export class AuthService implements OnApplicationBootstrap {
     nombre: string,
     rol: Rol,
     password: string,
-    requestUser: { id: string; rol: string; tenantId: string | null },
+    requestUser: { id: string; rol: string; tenantId: string | null; esAdminGeneral?: boolean; parentId?: string | null },
     explicitTenantId?: string,
     permiteCambiarPrecio?: boolean,
+    esAdminGeneral?: boolean,
   ) {
-    // Validación de permisos: solo Super Admin puede crear Admins
-    if (rol === Rol.ROL_ADMIN && requestUser.rol !== 'ROL_SUPER_ADMIN') {
-      throw new UnauthorizedException('Solo un Super Admin puede crear administradores.');
+    // Permisos: Super Admin o Admin General (Dueño) pueden crear administradores
+    const isCallerAdminGeneral =
+      requestUser.rol === 'ROL_SUPER_ADMIN' ||
+      (requestUser.rol === 'ROL_ADMIN' && (requestUser.esAdminGeneral === true || !requestUser.parentId));
+
+    if (rol === Rol.ROL_ADMIN && !isCallerAdminGeneral) {
+      throw new UnauthorizedException('Solo un Administrador General o Super Admin puede crear administradores.');
     }
     if (rol === Rol.ROL_SUPER_ADMIN) {
       throw new UnauthorizedException('No se puede crear otro Super Admin.');
@@ -827,12 +834,15 @@ export class AuthService implements OnApplicationBootstrap {
       tenantId = requestUser.tenantId;
     }
 
+    const isGlobal = rol === Rol.ROL_ADMIN ? (esAdminGeneral ?? false) : false;
+
     const passwordHash = await bcrypt.hash(password, this.BCRYPT_ROUNDS);
     return this.prisma.user.create({
       data: {
         email,
         nombre,
         rol,
+        esAdminGeneral: isGlobal,
         passwordHash,
         activo: true,
         permiteCambiarPrecio: permiteCambiarPrecio ?? false,
@@ -844,6 +854,7 @@ export class AuthService implements OnApplicationBootstrap {
         email: true,
         nombre: true,
         rol: true,
+        esAdminGeneral: true,
         activo: true,
         permiteCambiarPrecio: true,
         tenantId: true,

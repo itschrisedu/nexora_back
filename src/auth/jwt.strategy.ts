@@ -74,14 +74,15 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       throw new UnauthorizedException('Tu sesión ha expirado o se ha iniciado sesión en otro dispositivo.');
     }
 
-    const isAllSucursales = req?.headers?.['x-sucursal-id'] === 'TODAS';
+    const isGlobalAdmin = user.rol === 'ROL_SUPER_ADMIN' || (user.rol === 'ROL_ADMIN' && (user.esAdminGeneral === true || !user.parentId));
+    const isAllSucursales = isGlobalAdmin && req?.headers?.['x-sucursal-id'] === 'TODAS';
     const targetSucursalId = req?.headers?.['x-sucursal-id'];
     let activeTenantId = isAllSucursales ? null : user.tenantId;
 
     if (
       targetSucursalId &&
       targetSucursalId !== 'TODAS' &&
-      (user.rol === 'ROL_ADMIN' || user.rol === 'ROL_SUPER_ADMIN')
+      isGlobalAdmin
     ) {
       if (user.tenantId) {
         if (targetSucursalId === user.tenantId) {
@@ -122,6 +123,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       sub: user.id,
       email: user.email,
       rol: user.rol,
+      esAdminGeneral: isGlobalAdmin,
       nombre: user.nombre,
       tenantId: activeTenantId,
       originalTenantId: user.tenantId,

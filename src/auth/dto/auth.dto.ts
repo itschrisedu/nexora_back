@@ -54,6 +54,10 @@ export class CrearUsuarioDto {
   @IsBoolean()
   @IsOptional()
   permiteCambiarPrecio?: boolean;
+
+  @IsBoolean()
+  @IsOptional()
+  esAdminGeneral?: boolean;
 }
 
 

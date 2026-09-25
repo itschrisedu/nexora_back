@@ -154,6 +154,7 @@ export class TenantService {
           email: data.adminEmail,
           nombre: data.adminNombre,
           rol: Rol.ROL_ADMIN,
+          esAdminGeneral: true,
           passwordHash,
           activo: true,
           tenantId: tenant.id,
@@ -163,6 +164,7 @@ export class TenantService {
           email: true,
           nombre: true,
           rol: true,
+          esAdminGeneral: true,
           activo: true,
         },
       });

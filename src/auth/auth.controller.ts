@@ -165,6 +165,7 @@ export class AuthController {
       req.user,
       dto.tenantId,
       dto.permiteCambiarPrecio,
+      dto.esAdminGeneral,
     );
     return { ok: true, user, message: 'Usuario registrado correctamente.' };
   }
