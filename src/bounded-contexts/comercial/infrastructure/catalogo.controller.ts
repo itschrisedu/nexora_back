@@ -104,4 +104,16 @@ export class CatalogoController {
   async registrarPedidoWhatsApp(@Body() dto: RegistrarPedidoWhatsAppDto) {
     return this.catalogoService.registrarPedidoWhatsApp(dto);
   }
+
+  /**
+   * Verificar si un cliente ya existe y tiene historial de compras en el negocio
+   */
+  @Get('verificar-cliente')
+  async verificarCliente(
+    @Query('tenantId') tenantId?: string,
+    @Query('telefono') telefono?: string,
+    @Query('cedula') cedula?: string,
+  ) {
+    return this.catalogoService.verificarCliente(tenantId, telefono, cedula);
+  }
 }

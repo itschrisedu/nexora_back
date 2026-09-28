@@ -8,7 +8,7 @@ export interface RegistrarPedidoWhatsAppDto {
   cliente: {
     nombre: string;
     apellido?: string;
-    identificacion: string;
+    identificacion?: string;
     telefono: string;
     direccion?: string;
     email?: string;
@@ -21,6 +21,11 @@ export interface RegistrarPedidoWhatsAppDto {
     precioUnitario: number;
     tipoVenta?: TipoVenta;
   }[];
+  tipoPago?: string;
+  numeroComprobante?: string;
+  montoAdelanto?: number;
+  metodoAdelanto?: string;
+  referenciaAdelanto?: string;
   notas?: string;
 }
 
@@ -436,7 +441,7 @@ export class CatalogoService {
     });
 
     if (!client) {
-      const encryptedRuc = this.encryption.encrypt(dto.cliente.identificacion);
+      const encryptedRuc = this.encryption.encrypt(dto.cliente.identificacion || '9999999999');
       client = await this.prisma.client.create({
         data: {
           tenantId: tenant.id,
@@ -467,6 +472,15 @@ export class CatalogoService {
       0,
     );
 
+    const montoAdelanto = dto.montoAdelanto !== undefined ? Number(dto.montoAdelanto) : (dto.numeroComprobante ? montoTotal : 0);
+    const refAdelanto = dto.numeroComprobante || dto.referenciaAdelanto || undefined;
+    const metAdelanto = dto.metodoAdelanto || (dto.numeroComprobante ? 'TRANSFERENCIA' : undefined);
+
+    let notasFinales = dto.notas || 'Pedido recibido desde Catálogo Digital Web';
+    if (refAdelanto) {
+      notasFinales += ` | Comprobante Depósito/Transf: ${refAdelanto}`;
+    }
+
     // 4. Crear el pedido en transacción
     const newOrder = await this.prisma.order.create({
       data: {
@@ -475,9 +489,13 @@ export class CatalogoService {
         userId: adminUser.id,
         estado: EstadoPedido.PENDIENTE,
         canal: CanalEntrada.WHATSAPP,
-        tipoPago: TipoPago.CONTADO,
+        tipoPago: dto.tipoPago === 'CREDITO' ? TipoPago.CREDITO : TipoPago.CONTADO,
         montoTotal,
-        notas: dto.notas || 'Pedido recibido desde Catálogo Digital WhatsApp',
+        adelanto: montoAdelanto,
+        metodoAdelanto: metAdelanto,
+        referenciaAdelanto: refAdelanto,
+        direccionEnvio: dto.cliente.direccion || undefined,
+        notas: notasFinales,
         lines: {
           create: dto.lineas.map((l) => ({
             productId: l.productId,
@@ -494,7 +512,7 @@ export class CatalogoService {
       },
     });
 
-    this.logger.log(`Pedido de WhatsApp registrado exitosamente: ${newOrder.id}`);
+    this.logger.log(`Pedido de WhatsApp registrado exitosamente: ${newOrder.id} - Ref: ${refAdelanto || 'N/A'}`);
     return newOrder;
   }
 
@@ -753,6 +771,73 @@ export class CatalogoService {
     }
 
     return registro.payload;
+  }
+
+  /**
+   * Verifica si un cliente ya está registrado en el negocio por teléfono o cédula/RUC.
+   * Permite determinar si es cliente recurrente (aplica confianza para pago contra entrega)
+   * o si es cliente nuevo (requiere seña/anticipo para asegurar confección y reserva).
+   */
+  async verificarCliente(tenantIdParam?: string, telefono?: string, cedula?: string) {
+    const tenant = await this.resolveTenant(tenantIdParam);
+    if (!telefono && !cedula) {
+      return { existe: false };
+    }
+
+    const telLimpio = telefono ? telefono.replace(/\D/g, '') : '';
+    
+    // Buscar por teléfono
+    let client = null;
+    if (telLimpio) {
+      client = await this.prisma.client.findFirst({
+        where: {
+          tenantId: tenant.id,
+          OR: [
+            { telefono: { contains: telLimpio } },
+            { telefono: telLimpio },
+          ],
+        },
+      });
+    }
+
+    // Si no lo encuentra y hay cédula, buscar por cédula
+    if (!client && cedula && cedula.trim().length >= 10) {
+      const clients = await this.prisma.client.findMany({
+        where: { tenantId: tenant.id },
+      });
+      client = clients.find((c) => {
+        if (!c.ruc) return false;
+        try {
+          const decRuc = this.encryption.decrypt(c.ruc);
+          return decRuc === cedula.trim();
+        } catch {
+          return c.ruc === cedula.trim();
+        }
+      }) || null;
+    }
+
+    if (client) {
+      const pedidosPrevios = await this.prisma.order.count({
+        where: {
+          tenantId: tenant.id,
+          clientId: client.id,
+        },
+      });
+
+      return {
+        existe: true,
+        clienteId: client.id,
+        nombre: client.nombre,
+        apellido: client.apellido,
+        telefono: client.telefono,
+        email: client.email,
+        direccion: client.direccion,
+        pedidosPrevios,
+        esClienteFrecuente: pedidosPrevios > 0,
+      };
+    }
+
+    return { existe: false };
   }
 
   /**
