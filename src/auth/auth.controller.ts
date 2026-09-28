@@ -41,8 +41,19 @@ export class AuthController {
    */
   @Post('login')
   @HttpCode(HttpStatus.OK)
-  async login(@Body() dto: LoginDto & { forceTransfer?: boolean }) {
-    return this.authService.login(dto.email, dto.password, dto.forceTransfer);
+  async login(
+    @Body() dto: LoginDto & { forceTransfer?: boolean },
+    @Req() req: any,
+  ) {
+    const ip = req.ip || req.headers['x-forwarded-for'] || '127.0.0.1';
+    const userAgent = req.headers['user-agent'] || 'Navegador Web';
+    return this.authService.login(
+      dto.email,
+      dto.password,
+      dto.forceTransfer,
+      String(ip),
+      String(userAgent),
+    );
   }
 
   /**
@@ -64,11 +75,16 @@ export class AuthController {
    */
   @Post('verify-session-otp')
   @HttpCode(HttpStatus.OK)
-  async verifySessionOtp(@Body() body: { email: string; otp: string }) {
+  async verifySessionOtp(
+    @Body() body: { email: string; otp: string },
+    @Req() req: any,
+  ) {
     if (!body?.email || !body?.otp) {
       throw new BadRequestException('El correo y el código de verificación son requeridos.');
     }
-    return this.authService.verifySessionOtp(body.email, body.otp);
+    const ip = req.ip || req.headers['x-forwarded-for'] || '127.0.0.1';
+    const userAgent = req.headers['user-agent'] || 'Navegador Web';
+    return this.authService.verifySessionOtp(body.email, body.otp, String(ip), String(userAgent));
   }
 
   /**
@@ -90,11 +106,22 @@ export class AuthController {
    */
   @Post('verify-unlock-otp')
   @HttpCode(HttpStatus.OK)
-  async verifyUnlockOtp(@Body() body: { email: string; otp: string; newPassword?: string }) {
+  async verifyUnlockOtp(
+    @Body() body: { email: string; otp: string; newPassword?: string },
+    @Req() req: any,
+  ) {
     if (!body?.email || !body?.otp) {
       throw new BadRequestException('El correo y el código de verificación son requeridos.');
     }
-    return this.authService.verifyUnlockOtp(body.email, body.otp, body.newPassword);
+    const ip = req.ip || req.headers['x-forwarded-for'] || '127.0.0.1';
+    const userAgent = req.headers['user-agent'] || 'Navegador Web';
+    return this.authService.verifyUnlockOtp(
+      body.email,
+      body.otp,
+      body.newPassword,
+      String(ip),
+      String(userAgent),
+    );
   }
 
   /**
@@ -117,8 +144,13 @@ export class AuthController {
    */
   @Post('logout')
   @HttpCode(HttpStatus.OK)
-  async logout(@Body() body: { refreshToken?: string; userId?: string }) {
-    await this.authService.logout(body?.refreshToken, body?.userId);
+  async logout(
+    @Body() body: { refreshToken?: string; userId?: string },
+    @Req() req: any,
+  ) {
+    const ip = req.ip || req.headers['x-forwarded-for'] || '127.0.0.1';
+    const userAgent = req.headers['user-agent'] || 'Navegador Web';
+    await this.authService.logout(body?.refreshToken, body?.userId, String(ip), String(userAgent));
     return { message: 'Sesión cerrada exitosamente' };
   }
 

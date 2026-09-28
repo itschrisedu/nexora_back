@@ -14,7 +14,7 @@ import { Resend } from 'resend';
 import { PrismaService } from '../shared/infrastructure/prisma/prisma.service';
 import { JwtPayload } from './jwt.strategy';
 import { ActiveSessionStore } from './active-session.store';
-import { Rol } from '@prisma/client';
+import { Rol, AccionAuditoria } from '@prisma/client';
 
 @Injectable()
 export class AuthService implements OnApplicationBootstrap {
@@ -233,7 +233,13 @@ export class AuthService implements OnApplicationBootstrap {
    * Login — Autentica al usuario y retorna access + refresh tokens.
    * Si ya existe una sesión activa en otro dispositivo y no se fuerza, retorna conflicto de sesión.
    */
-  async login(email: string, password: string, forceTransfer = false) {
+  async login(
+    email: string,
+    password: string,
+    forceTransfer = false,
+    ipAddress?: string,
+    userAgent?: string,
+  ) {
     const user = await this.prisma.user.findUnique({
       where: { email },
       include: { tenant: true },
@@ -303,13 +309,13 @@ export class AuthService implements OnApplicationBootstrap {
       };
     }
 
-    return this.createSessionResponse(user);
+    return this.createSessionResponse(user, ipAddress, userAgent);
   }
 
   /**
    * Genera los tokens JWT y registra la nueva sesión activa, invalidando la anterior.
    */
-  private async createSessionResponse(user: any) {
+  private async createSessionResponse(user: any, ipAddress?: string, userAgent?: string) {
     // Resetear contador de fallos
     await this.prisma.user.update({
       where: { id: user.id },
@@ -355,6 +361,34 @@ export class AuthService implements OnApplicationBootstrap {
         expiresAt,
       },
     });
+
+    // ── Registrar evento LOGIN en Bitácora de Auditoría ──
+    if (user.tenantId) {
+      try {
+        await this.prisma.auditLog.create({
+          data: {
+            tenantId: user.tenantId,
+            userId: user.id,
+            userEmail: user.email,
+            userRol: user.rol,
+            accion: AccionAuditoria.LOGIN,
+            entidad: 'AUTH',
+            entidadId: user.id,
+            detalles: {
+              resumenHumano: `Inicio de sesión seguro (${user.nombre || user.email})`,
+              email: user.email,
+              nombre: user.nombre || user.email,
+              rol: user.rol,
+              loginAt: new Date().toISOString(),
+            },
+            ipAddress: ipAddress || '127.0.0.1',
+            userAgent: userAgent || 'Navegador Web',
+          },
+        });
+      } catch (auditErr: any) {
+        this.logger.warn(`No se pudo registrar log de LOGIN para ${user.email}: ${auditErr.message}`);
+      }
+    }
 
     this.logger.log(`Sesión iniciada exitosamente para: ${user.email} (${user.rol})`);
 
@@ -431,8 +465,11 @@ export class AuthService implements OnApplicationBootstrap {
    * Valida el código OTP de transferencia de sesión de 4 dígitos.
    * Tras 3 intentos erróneos, bloquea la cuenta por 24 horas.
    */
-  async verifySessionOtp(email: string, otp: string) {
-    const user = await this.prisma.user.findUnique({ where: { email } });
+  async verifySessionOtp(email: string, otp: string, ipAddress?: string, userAgent?: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { email },
+      include: { tenant: true },
+    });
     if (!user) {
       throw new NotFoundException('Usuario no encontrado');
     }
@@ -480,7 +517,7 @@ export class AuthService implements OnApplicationBootstrap {
 
     // OTP Correcto: Iniciar sesión y cerrar la anterior
     this.logger.log(`✅ OTP de transferencia verificado con éxito para: ${email}`);
-    return this.createSessionResponse(user);
+    return this.createSessionResponse(user, ipAddress, userAgent);
   }
 
   /**
@@ -525,8 +562,11 @@ export class AuthService implements OnApplicationBootstrap {
   /**
    * Valida el código OTP de desbloqueo y restablece la cuenta de inmediato.
    */
-  async verifyUnlockOtp(email: string, otp: string, newPassword?: string) {
-    const user = await this.prisma.user.findUnique({ where: { email } });
+  async verifyUnlockOtp(email: string, otp: string, newPassword?: string, ipAddress?: string, userAgent?: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { email },
+      include: { tenant: true },
+    });
     if (!user) {
       throw new NotFoundException('Usuario no encontrado');
     }
@@ -574,10 +614,11 @@ export class AuthService implements OnApplicationBootstrap {
     const updatedUser = await this.prisma.user.update({
       where: { id: user.id },
       data: updateData,
+      include: { tenant: true },
     });
 
     this.logger.log(`🎉 Cuenta desbloqueada exitosamente para ${email} (${user.rol})`);
-    return this.createSessionResponse(updatedUser);
+    return this.createSessionResponse(updatedUser, ipAddress, userAgent);
   }
 
   /**
@@ -643,7 +684,7 @@ export class AuthService implements OnApplicationBootstrap {
   /**
    * Logout — Revoca el refresh token y libera la sesión activa del usuario.
    */
-  async logout(token?: string, userId?: string) {
+  async logout(token?: string, userId?: string, ipAddress?: string, userAgent?: string) {
     let resolvedUserId = userId;
 
     if (token) {
@@ -663,12 +704,43 @@ export class AuthService implements OnApplicationBootstrap {
 
     if (resolvedUserId) {
       ActiveSessionStore.invalidate(resolvedUserId);
-      await this.prisma.user
+      const user = await this.prisma.user
         .update({
           where: { id: resolvedUserId },
           data: { activeSessionId: null },
         })
-        .catch((e) => this.logger.warn(`Error limpiando activeSessionId: ${e.message}`));
+        .catch((e) => {
+          this.logger.warn(`Error limpiando activeSessionId: ${e.message}`);
+          return null;
+        });
+
+      if (user && user.tenantId) {
+        try {
+          await this.prisma.auditLog.create({
+            data: {
+              tenantId: user.tenantId,
+              userId: user.id,
+              userEmail: user.email,
+              userRol: user.rol,
+              accion: AccionAuditoria.LOGOUT,
+              entidad: 'AUTH',
+              entidadId: user.id,
+              detalles: {
+                resumenHumano: `Cierre de sesión de usuario (${user.nombre || user.email})`,
+                email: user.email,
+                nombre: user.nombre || user.email,
+                rol: user.rol,
+                logoutAt: new Date().toISOString(),
+              },
+              ipAddress: ipAddress || '127.0.0.1',
+              userAgent: userAgent || 'Navegador Web',
+            },
+          });
+        } catch (auditErr: any) {
+          this.logger.warn(`No se pudo registrar log de LOGOUT: ${auditErr.message}`);
+        }
+      }
+
       this.logger.log(`Sesión cerrada y liberada en BD para userId: ${resolvedUserId}`);
     }
   }
