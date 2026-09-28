@@ -82,6 +82,22 @@ export class CatalogoController {
   }
 
   /**
+   * Guardar un comprobante y obtener un token ultra-corto para enlace público
+   */
+  @Post('comprobante')
+  async guardarComprobante(@Body() body: { tipo: string; payload: any }) {
+    return this.catalogoService.guardarComprobantePublico(body.tipo, body.payload);
+  }
+
+  /**
+   * Obtener datos de un comprobante público por su token ultra-corto
+   */
+  @Get('comprobante/:token')
+  async obtenerComprobante(@Param('token') token: string) {
+    return this.catalogoService.obtenerComprobantePublico(token);
+  }
+
+  /**
    * Registrar un pedido generado desde el catálogo público de WhatsApp
    */
   @Post('pedido-whatsapp')

@@ -700,6 +700,62 @@ export class CatalogoService {
   }
 
   /**
+   * Genera un token alfanumérico corto y seguro de 8 caracteres.
+   * Se utiliza un alfabeto sin caracteres ambiguos (0/O, 1/l/I) para evitar confusión visual.
+   */
+  private generarTokenCorto(longitud = 8): string {
+    const alfabeto = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
+    let token = '';
+    const bytes = new Uint8Array(longitud);
+    require('crypto').randomFillSync(bytes);
+    for (let i = 0; i < longitud; i++) {
+      token += alfabeto[bytes[i] % alfabeto.length];
+    }
+    return token;
+  }
+
+  /**
+   * Guarda los datos de un comprobante en la base de datos y retorna un token ultra-corto
+   * para generar enlaces de acceso publico reducidos.
+   */
+  async guardarComprobantePublico(tipo: string, payload: any): Promise<{ token: string }> {
+    // Intentar hasta 3 veces por si hay colision de token (extremadamente raro)
+    for (let intento = 0; intento < 3; intento++) {
+      const token = this.generarTokenCorto();
+      try {
+        await this.prisma.comprobantePublico.create({
+          data: { token, tipo, payload },
+        });
+        return { token };
+      } catch (e: any) {
+        // Si fue error de unicidad, reintentar con otro token
+        if (e?.code === 'P2002') continue;
+        throw e;
+      }
+    }
+    throw new Error('No se pudo generar un token unico para el comprobante');
+  }
+
+  /**
+   * Obtiene los datos de un comprobante publico por su token corto.
+   */
+  async obtenerComprobantePublico(token: string) {
+    if (!token || token.length < 4) {
+      throw new NotFoundException('Token de comprobante invalido');
+    }
+
+    const registro = await this.prisma.comprobantePublico.findUnique({
+      where: { token: token.trim() },
+    });
+
+    if (!registro) {
+      throw new NotFoundException('Comprobante no encontrado');
+    }
+
+    return registro.payload;
+  }
+
+  /**
    * Resuelve el tenant activo (por id o primer tenant existente)
    */
   private async resolveTenant(tenantIdParam?: string) {

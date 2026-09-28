@@ -1133,3 +1133,17 @@ model MovimientoFinanciero {
 
   @@map("movimientos_financieros")
 }
+
+// ──────────────────────────────────────────
+// COMPROBANTES PÚBLICOS — Token corto para enlaces ultra-cortos
+// ──────────────────────────────────────────
+
+model ComprobantePublico {
+  id        String   @id @default(uuid())
+  token     String   @unique   // Token aleatorio de 8 caracteres (alfanumérico seguro)
+  tipo      String              // ABONO | PEDIDO | ORDEN | FACTURA | ENTREGA
+  payload   Json                // Datos completos del comprobante en JSON
+  createdAt DateTime @default(now())
+
+  @@map("comprobantes_publicos")
+}
