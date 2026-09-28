@@ -457,6 +457,177 @@ export class ReportesService {
     }
   }
 
+  // ══════════════════════════════════════════════════════════════
+  // 4. REPORTE DE COBRANZAS — CLIENTES QUE DEBEN
+  // ══════════════════════════════════════════════════════════════
+  async obtenerReporteCobranzas(tenantIds: string[], filtros: FiltrosReporteDto) {
+    const { inicio, fin } = this.calcularRangoFechas(filtros);
+    const tenantFilter = tenantIds.length === 1 ? tenantIds[0] : { in: tenantIds };
+
+    // 1. Obtener todos los cobros con saldo pendiente > 0
+    const cobros = await this.prisma.cobro.findMany({
+      where: {
+        tenantId: tenantFilter,
+        saldoPendiente: { gt: 0 },
+      },
+      include: {
+        saleNote: { select: { numero: true, total: true, createdAt: true } },
+        abonos: { orderBy: { createdAt: 'desc' }, take: 1 },
+      },
+      orderBy: { saldoPendiente: 'desc' },
+    });
+
+    // 2. Obtener los clientes involucrados
+    const clientIds = [...new Set(cobros.map((c) => c.clientId))];
+    const clientes = await this.prisma.client.findMany({
+      where: { id: { in: clientIds } },
+    });
+    const clientMap = new Map<string, any>();
+    clientes.forEach((c) => {
+      const plainCedula = c.cedula ? this.encryptionService.decrypt(c.cedula) : '';
+      clientMap.set(c.id, { ...c, cedulaPlain: plainCedula });
+    });
+
+    // 3. Abonos recaudados en el periodo seleccionado
+    const abonosEnPeriodo = await this.prisma.cobroAbono.findMany({
+      where: {
+        createdAt: { gte: inicio, lte: fin },
+        cobro: { tenantId: tenantFilter },
+      },
+    });
+    const totalRecaudado = abonosEnPeriodo.reduce((s, a) => s + Number(a.monto), 0);
+
+    // 4. Agrupar cobros por cliente
+    const clienteDeudas = new Map<string, {
+      clienteId: string;
+      nombre: string;
+      cedula: string;
+      telefono: string;
+      email: string;
+      nivelCredito: string;
+      totalDeuda: number;
+      notasPendientes: number;
+      deudaMasAntigua: string | null;
+      ultimoAbono: string | null;
+      ultimoAbonoMonto: number;
+      detalleNotas: { numero: string; montoTotal: number; saldoPendiente: number; fecha: string }[];
+    }>();
+
+    for (const cobro of cobros) {
+      const cli = clientMap.get(cobro.clientId);
+      if (!cli) continue;
+
+      const existing = clienteDeudas.get(cobro.clientId);
+      const saldoPendiente = Number(cobro.saldoPendiente);
+      const montoTotal = Number(cobro.montoTotal);
+      const ultimoAbono = cobro.abonos?.[0];
+      const notaDetalle = {
+        numero: `NV-${cobro.saleNote?.numero || '?'}`,
+        montoTotal,
+        saldoPendiente,
+        fecha: cobro.createdAt.toISOString(),
+      };
+
+      if (existing) {
+        existing.totalDeuda += saldoPendiente;
+        existing.notasPendientes += 1;
+        existing.detalleNotas.push(notaDetalle);
+        if (cobro.createdAt.toISOString() < (existing.deudaMasAntigua || '')) {
+          existing.deudaMasAntigua = cobro.createdAt.toISOString();
+        }
+        if (ultimoAbono && (!existing.ultimoAbono || ultimoAbono.createdAt.toISOString() > existing.ultimoAbono)) {
+          existing.ultimoAbono = ultimoAbono.createdAt.toISOString();
+          existing.ultimoAbonoMonto = Number(ultimoAbono.monto);
+        }
+      } else {
+        clienteDeudas.set(cobro.clientId, {
+          clienteId: cobro.clientId,
+          nombre: `${cli.nombre} ${cli.apellido}`.trim(),
+          cedula: cli.cedulaPlain || '',
+          telefono: cli.telefono || '',
+          email: cli.email || '',
+          nivelCredito: cli.nivelCredito || 'SIN_CREDITO',
+          totalDeuda: saldoPendiente,
+          notasPendientes: 1,
+          deudaMasAntigua: cobro.createdAt.toISOString(),
+          ultimoAbono: ultimoAbono ? ultimoAbono.createdAt.toISOString() : null,
+          ultimoAbonoMonto: ultimoAbono ? Number(ultimoAbono.monto) : 0,
+          detalleNotas: [notaDetalle],
+        });
+      }
+    }
+
+    const clientesDeudores = [...clienteDeudas.values()].sort((a, b) => b.totalDeuda - a.totalDeuda);
+    const totalCartera = clientesDeudores.reduce((s, c) => s + c.totalDeuda, 0);
+
+    return {
+      totalCartera,
+      totalClientes: clientesDeudores.length,
+      totalRecaudado,
+      clientes: clientesDeudores,
+    };
+  }
+
+  // ══════════════════════════════════════════════════════════════
+  // 5. REPORTE DE CAMPANAS PROMOCIONALES
+  // ══════════════════════════════════════════════════════════════
+  async obtenerReporteCampanas(tenantIds: string[]) {
+    const tenantFilter = tenantIds.length === 1 ? tenantIds[0] : { in: tenantIds };
+
+    const campanas = await this.prisma.campanaPromocion.findMany({
+      where: { tenantId: tenantFilter },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    // Para cada campaña, calcular las métricas de rendimiento
+    // basadas en canjesUsados y el valor de descuento configurado.
+    const campanasConMetricas = campanas.map((c) => {
+      const tasaConversion = c.maximoCanjes > 0 ? (c.canjesUsados / c.maximoCanjes) * 100 : 0;
+      const valorDesc = Number(c.valorDescuento);
+
+      // Estimación de descuento otorgado según tipo
+      let descuentoEstimado = 0;
+      if (c.tipoDescuento === 'MONTO_FIJO') {
+        descuentoEstimado = valorDesc * c.canjesUsados;
+      } else if (c.tipoDescuento === 'DESCUENTO_POR_PAR') {
+        descuentoEstimado = valorDesc * c.canjesUsados * c.minimoPares;
+      } else {
+        // PORCENTAJE: estimamos un ticket promedio de $45 por canje
+        descuentoEstimado = (valorDesc / 100) * 45 * c.canjesUsados;
+      }
+
+      return {
+        id: c.id,
+        codigo: c.codigo,
+        titulo: c.titulo,
+        descripcion: c.descripcion,
+        tipoDescuento: c.tipoDescuento,
+        valorDescuento: valorDesc,
+        minimoPares: c.minimoPares,
+        maximoCanjes: c.maximoCanjes,
+        canjesUsados: c.canjesUsados,
+        aplicaPara: c.aplicaPara,
+        fechaInicio: c.fechaInicio.toISOString(),
+        fechaFin: c.fechaFin?.toISOString() || null,
+        activo: c.activo,
+        montoTotalGenerado: 0,
+        paresVendidos: 0,
+        descuentoTotalOtorgado: Math.round(descuentoEstimado * 100) / 100,
+        clientesAlcanzados: c.canjesUsados,
+        tasaConversion: Math.round(tasaConversion * 10) / 10,
+      };
+    });
+
+    return {
+      totalCampanas: campanasConMetricas.length,
+      campanasActivas: campanasConMetricas.filter((c) => c.activo).length,
+      totalVentasGeneradas: campanasConMetricas.reduce((s, c) => s + c.montoTotalGenerado, 0),
+      totalDescuentosOtorgados: campanasConMetricas.reduce((s, c) => s + c.descuentoTotalOtorgado, 0),
+      totalCanjes: campanasConMetricas.reduce((s, c) => s + c.canjesUsados, 0),
+      campanas: campanasConMetricas,
+    };
+  }
+
   // ── Helper: Cálculo de Rango de Fechas ────────────────────────
   private calcularRangoFechas(filtros: FiltrosReporteDto): { inicio: Date; fin: Date } {
     const ahora = new Date();

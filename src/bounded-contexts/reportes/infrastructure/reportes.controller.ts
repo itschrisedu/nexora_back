@@ -83,6 +83,42 @@ export class ReportesController {
   }
 
   /**
+   * GET /reportes/cobranzas
+   * Reporte de clientes que deben con detalle de notas pendientes
+   */
+  @Get('cobranzas')
+  @Roles(Rol.ROL_ADMIN, Rol.ROL_SUPER_ADMIN)
+  async obtenerReporteCobranzas(
+    @Req() req: any,
+    @Query('periodo') periodo?: 'HOY' | 'SEMANAL' | 'MENSUAL' | 'TRIMESTRAL' | 'ANUAL' | 'PERSONALIZADO',
+    @Query('fechaDesde') fechaDesde?: string,
+    @Query('fechaHasta') fechaHasta?: string,
+    @Query('sucursalId') sucursalId?: string,
+  ) {
+    const filtros: FiltrosReporteDto = { periodo, fechaDesde, fechaHasta };
+    const tenantIds = sucursalId
+      ? await this.resolverTenantIds(req.user.tenantId, sucursalId)
+      : [req.user.tenantId];
+    return this.reportesService.obtenerReporteCobranzas(tenantIds, filtros);
+  }
+
+  /**
+   * GET /reportes/campanas
+   * Reporte de rendimiento de campañas promocionales
+   */
+  @Get('campanas')
+  @Roles(Rol.ROL_ADMIN, Rol.ROL_SUPER_ADMIN)
+  async obtenerReporteCampanas(
+    @Req() req: any,
+    @Query('sucursalId') sucursalId?: string,
+  ) {
+    const tenantIds = sucursalId
+      ? await this.resolverTenantIds(req.user.tenantId, sucursalId)
+      : [req.user.tenantId];
+    return this.reportesService.obtenerReporteCampanas(tenantIds);
+  }
+
+  /**
    * Resuelve los tenantIds según la selección del Admin.
    * - "TODAS" o vacío → todas las sucursales de la empresa (mismo RUC).
    * - Un ID específico → solo ese tenantId.
