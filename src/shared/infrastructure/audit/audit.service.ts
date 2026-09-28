@@ -21,6 +21,7 @@ export interface AuditFilterDto {
   tenantId?: string;
   tenantIds?: string[];
   userId?: string;
+  userEmail?: string;
   accion?: AccionAuditoria;
   entidad?: string;
   segmento?: AuditSegmento;
@@ -96,14 +97,26 @@ export class AuditService {
       where.tenantId = filter.tenantId;
     }
 
-    if (filter.userId) where.userId = filter.userId;
-    if (filter.accion) where.accion = filter.accion;
-    if (filter.entidad) where.entidad = { contains: filter.entidad, mode: 'insensitive' };
+    if (filter.userId && filter.userId !== 'TODOS') where.userId = filter.userId;
+    if (filter.userEmail && filter.userEmail.trim()) {
+      where.userEmail = { contains: filter.userEmail.trim(), mode: 'insensitive' };
+    }
+    if (filter.accion && (filter.accion as any) !== 'TODAS') where.accion = filter.accion;
+    if (filter.entidad && filter.entidad.trim()) where.entidad = { contains: filter.entidad.trim(), mode: 'insensitive' };
 
     if (filter.fechaInicio || filter.fechaFin) {
       where.createdAt = {};
-      if (filter.fechaInicio) where.createdAt.gte = new Date(filter.fechaInicio);
-      if (filter.fechaFin) where.createdAt.lte = new Date(filter.fechaFin);
+      if (filter.fechaInicio) {
+        const d = new Date(filter.fechaInicio);
+        where.createdAt.gte = d;
+      }
+      if (filter.fechaFin) {
+        const d = new Date(filter.fechaFin);
+        if (filter.fechaFin.length === 10) {
+          d.setHours(23, 59, 59, 999);
+        }
+        where.createdAt.lte = d;
+      }
     }
 
     // Aplicar filtro por segmento

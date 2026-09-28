@@ -52,6 +52,7 @@ export class AuditController {
   async obtenerLogs(
     @Request() req: any,
     @Query('userId') userId?: string,
+    @Query('userEmail') userEmail?: string,
     @Query('accion') accion?: AccionAuditoria,
     @Query('entidad') entidad?: string,
     @Query('segmento') segmento?: AuditSegmento,
@@ -65,6 +66,7 @@ export class AuditController {
       tenantId,
       tenantIds,
       userId,
+      userEmail,
       accion,
       entidad,
       segmento,
