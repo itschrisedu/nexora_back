@@ -74,6 +74,14 @@ export class CatalogoController {
   }
 
   /**
+   * Obtener detalle público de comprobante de abono de cliente
+   */
+  @Get('abono-publico/:numeroOrId')
+  async obtenerAbonoPublico(@Param('numeroOrId') numeroOrId: string) {
+    return this.catalogoService.obtenerAbonoPublico(numeroOrId);
+  }
+
+  /**
    * Registrar un pedido generado desde el catálogo público de WhatsApp
    */
   @Post('pedido-whatsapp')

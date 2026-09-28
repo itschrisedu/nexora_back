@@ -642,6 +642,64 @@ export class CatalogoService {
   }
 
   /**
+   * Obtener detalle público de un abono de cliente para visualización de comprobante corto
+   */
+  async obtenerAbonoPublico(numeroOrId: string) {
+    if (!numeroOrId) {
+      throw new NotFoundException('Identificador de abono requerido');
+    }
+
+    const cleanNum = numeroOrId.trim();
+
+    const abono = await this.prisma.cobroAbono.findFirst({
+      where: {
+        OR: [
+          { id: cleanNum },
+          { comprobante: cleanNum },
+          { notas: { contains: cleanNum } },
+        ],
+      },
+      include: {
+        cobro: {
+          include: {
+            client: true,
+            saleNote: true,
+            tenant: true,
+          },
+        },
+      },
+    });
+
+    if (!abono) {
+      throw new NotFoundException('Comprobante de abono no encontrado');
+    }
+
+    const client = abono.cobro?.client;
+    const tenant = abono.cobro?.tenant;
+
+    return {
+      t: 'ABONO',
+      num: abono.comprobante || `REC-${abono.id.slice(0, 6).toUpperCase()}`,
+      f: new Date(abono.createdAt).toLocaleDateString('es-EC'),
+      h: new Date(abono.createdAt).toLocaleTimeString('es-EC', { hour: '2-digit', minute: '2-digit' }),
+      fp: abono.metodo || 'EFECTIVO',
+      ref: abono.banco || '',
+      c_nom: client ? `${client.nombre} ${client.apellido || ''}`.trim() : 'Cliente',
+      c_id: client?.cedula || '',
+      c_tel: client?.telefono || '',
+      c_dir: client?.direccion || '',
+      m_ant: Number(abono.cobro?.montoTotal || 0),
+      m_abo: Number(abono.monto || 0),
+      m_res: Number(abono.cobro?.saldoPendiente || 0),
+      e_nom: tenant?.name || 'NEXORA',
+      e_ruc: tenant?.ruc || '',
+      e_dir: tenant?.direccion || '',
+      e_tel: tenant?.telefono || '',
+      not: abono.notas || '',
+    };
+  }
+
+  /**
    * Resuelve el tenant activo (por id o primer tenant existente)
    */
   private async resolveTenant(tenantIdParam?: string) {
