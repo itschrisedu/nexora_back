@@ -715,6 +715,7 @@ export class NotificacionesQueryService {
 
     let finalHtml = cuerpoHtml;
     if (!finalHtml) {
+      const urlComprobante = detalles?.urlComprobante || '';
       finalHtml = `
         <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 540px; margin: 0 auto; background: #07080a; color: #eef2f7; border-radius: 20px; padding: 32px 24px; border: 1px solid rgba(255,255,255,0.08);">
           <div style="text-align: center; margin-bottom: 24px;">
@@ -730,7 +731,18 @@ export class NotificacionesQueryService {
           </div>
 
           <div style="background: #14161a; border-radius: 16px; padding: 20px; border: 1px solid rgba(255,255,255,0.06); margin-bottom: 20px;">
-            ${detalles?.mensaje ? `<p style="font-size: 13px; line-height: 1.6; color: #cbd5e1; white-space: pre-line; margin: 0;">${detalles.mensaje}</p>` : `<p style="font-size: 13px; color: #cbd5e1;">Estimado/a cliente, adjuntamos la información de su transacción realizada en NEXORA.</p>`}
+            ${detalles?.mensaje ? `<p style="font-size: 13px; line-height: 1.6; color: #cbd5e1; white-space: pre-line; margin: 0 0 16px 0;">${detalles.mensaje}</p>` : `<p style="font-size: 13px; color: #cbd5e1; margin: 0 0 16px 0;">Estimado/a cliente, adjuntamos la información de su transacción realizada en NEXORA.</p>`}
+            
+            ${urlComprobante ? `
+              <div style="text-align: center; margin: 24px 0 8px;">
+                <a href="${urlComprobante}" target="_blank" rel="noopener noreferrer" style="display: inline-block; background: #10b981; color: #ffffff; font-weight: 800; font-size: 14px; text-decoration: none; padding: 14px 28px; border-radius: 12px; box-shadow: 0 4px 14px rgba(16,185,129,0.35); letter-spacing: 0.02em;">
+                  📥 Descargar Comprobante Digital (PDF)
+                </a>
+                <p style="font-size: 11px; color: rgba(238,242,247,0.5); margin: 8px 0 0;">
+                  Acceso público directo disponible las 24 horas
+                </p>
+              </div>
+            ` : ''}
           </div>
 
           <p style="text-align: center; font-size: 11px; color: rgba(238,242,247,0.4); margin: 20px 0 0;">
