@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, ConflictException } from '@nestjs/common';
 import { PrismaService } from '../../../../shared/infrastructure/prisma/prisma.service';
 import { EncryptionService } from '../../../../shared/infrastructure/encryption/encryption.service';
 import { NivelCredito as PrismaNivelCredito } from '@prisma/client';
@@ -266,12 +266,32 @@ export class ClientesQueryService {
   }
 
   async crearPromocion(tenantId: string, dto: any) {
-    const codigoClean = (dto.codigo || '').toUpperCase().trim();
-    if (!codigoClean) {
-      throw new NotFoundException('El código del cupón o promoción es obligatorio.');
+    const tituloClean = (dto.titulo || '').trim();
+    if (!tituloClean) {
+      throw new BadRequestException('El título de la campaña es obligatorio.');
     }
 
-    const existe = await this.prisma.campanaPromocion.findUnique({
+    // Validar que no exista otra campaña activa con el mismo título en el negocio
+    const existeTitulo = await this.prisma.campanaPromocion.findFirst({
+      where: {
+        tenantId,
+        titulo: { equals: tituloClean, mode: 'insensitive' },
+        activo: true,
+      },
+    });
+
+    if (existeTitulo) {
+      throw new ConflictException(
+        `Ya existe una campaña activa registrada con el nombre "${tituloClean}". Por favor utiliza un título diferente o desactiva la campaña anterior.`
+      );
+    }
+
+    const codigoClean = (dto.codigo || '').toUpperCase().trim();
+    if (!codigoClean) {
+      throw new BadRequestException('El código de validación de la campaña es obligatorio.');
+    }
+
+    const existeCodigo = await this.prisma.campanaPromocion.findUnique({
       where: {
         tenantId_codigo: {
           tenantId,
@@ -280,23 +300,40 @@ export class ClientesQueryService {
       },
     });
 
-    if (existe) {
-      throw new NotFoundException(`El código "${codigoClean}" ya existe para este negocio.`);
+    if (existeCodigo) {
+      throw new ConflictException(
+        `El código de validación "${codigoClean}" ya está en uso. Por favor genera un nuevo código.`
+      );
+    }
+
+    // Validar fecha obligatoria y no pasada
+    if (!dto.fechaFin) {
+      throw new BadRequestException('La fecha de vigencia de la campaña es obligatoria.');
+    }
+
+    const fechaFinDate = new Date(dto.fechaFin);
+    const hoy = new Date();
+    hoy.setHours(0, 0, 0, 0);
+
+    // Si la fecha es string YYYY-MM-DD
+    const fechaFinNormalizada = new Date(dto.fechaFin.includes('T') ? dto.fechaFin : `${dto.fechaFin}T23:59:59`);
+    if (fechaFinNormalizada < hoy) {
+      throw new BadRequestException('La fecha de vigencia no puede ser una fecha pasada o menor a la fecha actual.');
     }
 
     return this.prisma.campanaPromocion.create({
       data: {
         tenantId,
         codigo: codigoClean,
-        titulo: dto.titulo?.trim() || `Promoción ${codigoClean}`,
+        titulo: tituloClean,
         descripcion: dto.descripcion?.trim() || null,
         tipoDescuento: dto.tipoDescuento || 'PORCENTAJE',
         valorDescuento: Number(dto.valorDescuento) || 10,
         minimoPares: Number(dto.minimoPares) || 1,
-        maximoCanjes: Number(dto.maximoCanjes) || 10, // ej. primeras 10 personas
+        maximoCanjes: Number(dto.maximoCanjes) || 10,
         canjesUsados: 0,
         aplicaPara: (dto.aplicaPara as any) || 'AMBAS',
-        fechaFin: dto.fechaFin ? new Date(dto.fechaFin) : null,
+        fechaFin: fechaFinNormalizada,
         activo: true,
         mensajePlantilla: dto.mensajePlantilla?.trim() || null,
       },
