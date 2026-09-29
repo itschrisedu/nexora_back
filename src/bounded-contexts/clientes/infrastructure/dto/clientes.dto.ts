@@ -89,6 +89,10 @@ export class BuscarClientesDto {
   @IsOptional()
   q?: string;
 
+  @IsString()
+  @IsOptional()
+  busqueda?: string;
+
   @IsEnum(NivelCredito)
   @IsOptional()
   nivelCredito?: NivelCredito;

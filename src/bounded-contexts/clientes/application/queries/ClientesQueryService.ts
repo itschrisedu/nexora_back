@@ -24,26 +24,14 @@ export class ClientesQueryService {
   }
 
   async buscarClientes(
-    filtros: { q?: string; nivelCredito?: PrismaNivelCredito; activo?: boolean },
+    filtros: { q?: string; busqueda?: string; nivelCredito?: PrismaNivelCredito; activo?: boolean },
     tenantId?: string | null,
   ) {
+    const searchTerm = (filtros.q || filtros.busqueda || '').trim();
     const where: any = {};
 
     if (tenantId) {
       where.tenantId = tenantId;
-    }
-
-    if (filtros.q && filtros.q.trim()) {
-      const terminos = filtros.q.trim().split(/\s+/).filter(Boolean);
-      where.AND = terminos.map((term) => ({
-        OR: [
-          { nombre: { contains: term, mode: 'insensitive' } },
-          { apellido: { contains: term, mode: 'insensitive' } },
-          { telefono: { contains: term, mode: 'insensitive' } },
-          { email: { contains: term, mode: 'insensitive' } },
-          { direccion: { contains: term, mode: 'insensitive' } },
-        ],
-      }));
     }
 
     if (filtros.nivelCredito) {
@@ -60,7 +48,32 @@ export class ClientesQueryService {
       orderBy: [{ apellido: 'asc' }, { nombre: 'asc' }],
     });
 
-    return clients.map((c) => this.formatCliente(c));
+    const formatted = clients.map((c) => this.formatCliente(c));
+
+    if (!searchTerm) {
+      return formatted;
+    }
+
+    const termLower = searchTerm.toLowerCase();
+    const termCleanDigits = searchTerm.replace(/\D/g, '');
+
+    return formatted.filter((c) => {
+      const nombreCompleto = `${c.nombre || ''} ${c.apellido || ''}`.toLowerCase();
+      const cedula = (c.cedula || '').toLowerCase();
+      const ruc = (c.ruc || '').toLowerCase();
+      const telefono = (c.telefono || '').toLowerCase();
+      const email = (c.email || '').toLowerCase();
+      const direccion = (c.direccion || '').toLowerCase();
+
+      return (
+        nombreCompleto.includes(termLower) ||
+        (cedula && (cedula.includes(termLower) || (termCleanDigits.length >= 3 && cedula.includes(termCleanDigits)))) ||
+        (ruc && (ruc.includes(termLower) || (termCleanDigits.length >= 3 && ruc.includes(termCleanDigits)))) ||
+        (telefono && (telefono.includes(termLower) || (termCleanDigits.length >= 3 && telefono.includes(termCleanDigits)))) ||
+        email.includes(termLower) ||
+        direccion.includes(termLower)
+      );
+    });
   }
 
   async obtenerHistorialCambiosNivel(clienteId: string) {

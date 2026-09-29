@@ -183,36 +183,68 @@ export class PosService {
     }
 
     // 1. Obtener o asignar Cliente según Tipo de Comprobante (Factura o Consumidor Final)
-    let clienteId = dto.clienteId;
+    let clienteId: string = dto.clienteId || '';
 
     if (dto.tipoComprobante === 'FACTURA' && dto.clienteData) {
       const { cedula, ruc, nombre, apellido, email, telefono, direccion } = dto.clienteData;
       const ident = (cedula || ruc || '').trim();
 
-      let clienteExistente = null;
-      if (ident && ident !== '9999999999') {
-        const encryptedIdent = this.encryption.encrypt(ident);
-        clienteExistente = await this.prisma.client.findFirst({
-          where: {
-            tenantId: tid,
-            OR: [
-              { cedula: encryptedIdent },
-              { ruc: encryptedIdent },
-              { cedula: ident },
-              { ruc: ident },
-            ],
-          },
+      // Buscar si el cliente ya existe en el tenant
+      const clientesDelTenant = await this.prisma.client.findMany({
+        where: { tenantId: tid },
+      });
+
+      let clienteExistente: any = null;
+
+      if (dto.clienteId) {
+        clienteExistente = clientesDelTenant.find((c) => c.id === dto.clienteId);
+      }
+
+      if (!clienteExistente && ident && ident !== '9999999999') {
+        clienteExistente = clientesDelTenant.find((c) => {
+          let cCedula = c.cedula;
+          let cRuc = c.ruc;
+          try { if (c.cedula) cCedula = this.encryption.decrypt(c.cedula); } catch {}
+          try { if (c.ruc) cRuc = this.encryption.decrypt(c.ruc); } catch {}
+          return cCedula === ident || cRuc === ident || c.cedula === ident || c.ruc === ident;
         });
       }
 
-      if (!clienteExistente) {
+      if (!clienteExistente && nombre && nombre.trim()) {
+        const busquedaNom = `${nombre.trim()} ${(apellido || '').trim()}`.toLowerCase();
+        clienteExistente = clientesDelTenant.find((c) => {
+          const nomComp = `${c.nombre || ''} ${c.apellido || ''}`.trim().toLowerCase();
+          return nomComp.length > 3 && nomComp === busquedaNom;
+        });
+      }
+
+      if (clienteExistente) {
+        // Actualizar datos del cliente existente si fueron modificados en mostrador
+        clienteExistente = await this.prisma.client.update({
+          where: { id: clienteExistente.id },
+          data: {
+            nombre: nombre?.trim() || clienteExistente.nombre,
+            apellido: apellido !== undefined ? apellido.trim() : clienteExistente.apellido,
+            telefono: telefono?.trim() || clienteExistente.telefono,
+            email: email?.trim() || clienteExistente.email,
+            direccion: direccion?.trim() || clienteExistente.direccion,
+            ...(ident && ident !== '9999999999' && !clienteExistente.cedula && !clienteExistente.ruc
+              ? {
+                  cedula: ident.length === 10 ? this.encryption.encrypt(ident) : undefined,
+                  ruc: ident.length === 13 ? this.encryption.encrypt(ident) : undefined,
+                }
+              : {}),
+          },
+        });
+      } else {
+        // Registrar nuevo cliente para que quede guardado para próximas compras
         clienteExistente = await this.prisma.client.create({
           data: {
             nombre: nombre?.trim() || 'Cliente Mostrador',
-            apellido: (apellido || '').trim() || 'Factura',
+            apellido: (apellido || '').trim(),
             telefono: telefono?.trim() || '0000000000',
             email: email?.trim() || undefined,
-            cedula: ident.length === 10 ? this.encryption.encrypt(ident) : undefined,
+            cedula: ident.length === 10 ? this.encryption.encrypt(ident) : (ident && ident !== '9999999999' && ident.length !== 13 ? this.encryption.encrypt(ident) : undefined),
             ruc: ident.length === 13 ? this.encryption.encrypt(ident) : undefined,
             direccion: direccion?.trim() || undefined,
             nivelCredito: 'SIN_CREDITO',
