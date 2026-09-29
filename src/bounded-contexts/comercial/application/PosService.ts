@@ -468,4 +468,415 @@ export class PosService {
       diferencia,
     };
   }
+
+  /**
+   * Obtiene la lista de vendedores/usuarios habilitados para filtros en POS
+   */
+  async obtenerVendedoresPOS(
+    tenantId: string | null | undefined,
+    requestingUserId: string,
+    userRole: string,
+    esAdminGeneral?: boolean,
+  ) {
+    const tid = await this.resolveTenantId(tenantId);
+    const isAdmin = userRole === 'ROL_ADMIN' || userRole === 'ROL_SUPER_ADMIN' || !!esAdminGeneral;
+
+    if (!isAdmin) {
+      const u = await this.prisma.user.findUnique({
+        where: { id: requestingUserId },
+        select: { id: true, nombre: true, email: true, rol: true },
+      });
+      return u ? [u] : [];
+    }
+
+    const users = await this.prisma.user.findMany({
+      where: {
+        OR: [
+          { tenantId: tid },
+          { id: requestingUserId },
+        ],
+        activo: true,
+      },
+      select: { id: true, nombre: true, email: true, rol: true },
+      orderBy: { nombre: 'asc' },
+    });
+
+    return users;
+  }
+
+  /**
+   * Historial analítico de ventas realizadas por POS con filtros por período, rol y empleado
+   */
+  async obtenerHistorialVentasPOS(
+    tenantId: string | null | undefined,
+    requestingUserId: string,
+    userRole: string,
+    esAdminGeneral: boolean | undefined,
+    filtros: {
+      periodo?: string;
+      fechaInicio?: string;
+      fechaFin?: string;
+      userId?: string;
+      metodoPago?: string;
+      busqueda?: string;
+    },
+  ) {
+    const tid = await this.resolveTenantId(tenantId);
+    const isAdmin = userRole === 'ROL_ADMIN' || userRole === 'ROL_SUPER_ADMIN' || !!esAdminGeneral;
+
+    // Restricción estricta de seguridad por Rol: Si no es admin, solo consulta sus propias ventas
+    let targetUserId: string | undefined = undefined;
+    if (!isAdmin) {
+      targetUserId = requestingUserId;
+    } else if (filtros.userId && filtros.userId !== 'TODOS') {
+      targetUserId = filtros.userId;
+    }
+
+    // Cálculo dinámico de fechas según período
+    const now = new Date();
+    let start: Date;
+    let end: Date = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+
+    const periodo = filtros.periodo || 'dia';
+
+    switch (periodo) {
+      case 'dia':
+      default:
+        start = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
+        break;
+      case 'semana': {
+        const dayOfWeek = (now.getDay() + 6) % 7; // Lunes = 0
+        start = new Date(now.getFullYear(), now.getMonth(), now.getDate() - dayOfWeek, 0, 0, 0, 0);
+        break;
+      }
+      case 'mes':
+        start = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0);
+        break;
+      case 'trimestre': {
+        const quarterMonth = Math.floor(now.getMonth() / 3) * 3;
+        start = new Date(now.getFullYear(), quarterMonth, 1, 0, 0, 0, 0);
+        break;
+      }
+      case 'anio':
+        start = new Date(now.getFullYear(), 0, 1, 0, 0, 0, 0);
+        break;
+      case 'custom':
+        if (filtros.fechaInicio) {
+          const parts = filtros.fechaInicio.split('-').map(Number);
+          start = new Date(parts[0], parts[1] - 1, parts[2], 0, 0, 0, 0);
+        } else {
+          start = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
+        }
+        if (filtros.fechaFin) {
+          const parts = filtros.fechaFin.split('-').map(Number);
+          end = new Date(parts[0], parts[1] - 1, parts[2], 23, 59, 59, 999);
+        }
+        break;
+      case 'todos':
+        start = new Date(2020, 0, 1, 0, 0, 0, 0);
+        break;
+    }
+
+    // Consulta de pedidos registrados vía mostrador (Canal MANUAL)
+    const whereClause: any = {
+      tenantId: tid,
+      canal: CanalEntrada.MANUAL,
+      createdAt: {
+        gte: start,
+        lte: end,
+      },
+    };
+
+    if (targetUserId) {
+      whereClause.userId = targetUserId;
+    }
+
+    const orders = await this.prisma.order.findMany({
+      where: whereClause,
+      include: {
+        lines: true,
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    const orderIds = orders.map((o) => o.id);
+    const clientIds = Array.from(new Set(orders.map((o) => o.clientId)));
+    const userIds = Array.from(new Set(orders.map((o) => o.userId)));
+
+    // Obtener notas de entrega/venta relacionadas
+    const saleNotes = await this.prisma.saleNote.findMany({
+      where: { orderId: { in: orderIds } },
+      include: {
+        lines: true,
+        cobro: {
+          include: {
+            abonos: true,
+          },
+        },
+      },
+    });
+    const saleNoteMap = new Map(saleNotes.map((sn) => [sn.orderId, sn]));
+
+    // Obtener clientes
+    const clients = await this.prisma.client.findMany({
+      where: { id: { in: clientIds } },
+    });
+    const clientMap = new Map(clients.map((c) => [c.id, c]));
+
+    // Obtener usuarios/vendedores
+    const users = await this.prisma.user.findMany({
+      where: { id: { in: userIds } },
+      select: { id: true, nombre: true, email: true, rol: true },
+    });
+    const userMap = new Map(users.map((u) => [u.id, u]));
+
+    // Obtener productos para imágenes y detalles adicionales
+    const productIds = Array.from(
+      new Set(orders.flatMap((o) => o.lines.map((l) => l.productId))),
+    );
+    const products = await this.prisma.product.findMany({
+      where: { id: { in: productIds } },
+      include: {
+        model: true,
+        serie: true,
+      },
+    });
+    const productMap = new Map(products.map((p) => [p.id, p]));
+
+    // Transformación y armado de datos
+    let ventas = orders.map((order) => {
+      const sn = saleNoteMap.get(order.id);
+      const client = clientMap.get(order.clientId);
+      const user = userMap.get(order.userId);
+
+      // Desencriptar datos del cliente
+      let cedula = '';
+      if (client?.cedula) {
+        try {
+          cedula = this.encryption.decrypt(client.cedula);
+        } catch {
+          cedula = client.cedula;
+        }
+      } else if (client?.ruc) {
+        try {
+          cedula = this.encryption.decrypt(client.ruc);
+        } catch {
+          cedula = client.ruc;
+        }
+      }
+
+      const nombreCliente = client
+        ? `${client.nombre} ${client.apellido || ''}`.trim()
+        : 'Consumidor Final';
+
+      // Método de pago principal del cobro
+      const abono = sn?.cobro?.abonos?.[0];
+      let metodoPago = 'EFECTIVO';
+      let detallePago = '';
+
+      if (abono?.metodo) {
+        metodoPago = abono.metodo;
+        detallePago = abono.notas || '';
+      } else if (order.notas?.includes('TARJETA')) {
+        metodoPago = 'TARJETA';
+        detallePago = order.notas;
+      } else if (order.notas?.includes('TRANSFERENCIA')) {
+        metodoPago = 'TRANSFERENCIA';
+        detallePago = order.notas;
+      }
+
+      // Detalle de líneas
+      const lineas = (sn?.lines && sn.lines.length > 0)
+        ? sn.lines.map((sl) => {
+            const prod = productMap.get(sl.productId);
+            return {
+              productId: sl.productId,
+              nombre: sl.nombre,
+              serie: sl.serie,
+              talla: sl.talla,
+              cantidad: sl.cantidad,
+              precioUnitario: Number(sl.precioUnitario),
+              subtotal: Number(sl.subtotal),
+              color: prod?.color || '',
+              modelName: prod?.model?.name || sl.nombre,
+              baseCode: prod?.model?.baseCode || prod?.code || '',
+              imageUrl: prod?.imageUrl || undefined,
+            };
+          })
+        : order.lines.map((ol) => {
+            const prod = productMap.get(ol.productId);
+            const modelName = prod?.model?.name || 'Calzado Mostrador';
+            const color = prod?.color || '';
+            const serie = prod?.serie?.nombre || 'General';
+            return {
+              productId: ol.productId,
+              nombre: `${modelName} (${color})`,
+              serie,
+              talla: '38',
+              cantidad: ol.cantidad,
+              precioUnitario: Number(ol.precioUnitario),
+              subtotal: ol.cantidad * Number(ol.precioUnitario),
+              color,
+              modelName,
+              baseCode: prod?.model?.baseCode || prod?.code || '',
+              imageUrl: prod?.imageUrl || undefined,
+            };
+          });
+
+      const totalPares = lineas.reduce((acc, l) => acc + l.cantidad, 0);
+
+      return {
+        id: order.id,
+        saleNoteId: sn?.id,
+        numeroNota: sn?.numero ? `#${String(sn.numero).padStart(6, '0')}` : `#${order.id.slice(0, 8)}`,
+        fecha: order.createdAt,
+        total: Number(order.montoTotal),
+        subtotal: Number(sn?.subtotal || order.montoTotal),
+        descuento: Number(sn?.descuento || 0),
+        metodoPago,
+        detallePago,
+        vendedor: {
+          id: user?.id || order.userId,
+          nombre: user?.nombre || 'Vendedor POS',
+          email: user?.email || '',
+          rol: user?.rol || 'ROL_VENDEDOR',
+        },
+        cliente: {
+          id: client?.id || order.clientId,
+          nombre: nombreCliente,
+          cedula: cedula || '9999999999',
+          telefono: client?.telefono || '',
+          email: client?.email || '',
+          direccion: client?.direccion || '',
+        },
+        totalPares,
+        lineas,
+        notas: order.notas || '',
+      };
+    });
+
+    // Filtro por método de pago si se solicita
+    if (filtros.metodoPago && filtros.metodoPago !== 'TODOS') {
+      ventas = ventas.filter((v) => v.metodoPago.toUpperCase() === filtros.metodoPago?.toUpperCase());
+    }
+
+    // Filtro por búsqueda textual (comprobante, cliente, modelo, código)
+    if (filtros.busqueda && filtros.busqueda.trim()) {
+      const q = filtros.busqueda.trim().toLowerCase();
+      ventas = ventas.filter((v) => {
+        const matchesNumero = v.numeroNota.toLowerCase().includes(q);
+        const matchesCliente = v.cliente.nombre.toLowerCase().includes(q) || v.cliente.cedula.includes(q);
+        const matchesVendedor = v.vendedor.nombre.toLowerCase().includes(q);
+        const matchesItems = v.lineas.some((l) =>
+          l.nombre.toLowerCase().includes(q) ||
+          l.modelName.toLowerCase().includes(q) ||
+          l.color.toLowerCase().includes(q) ||
+          l.baseCode.toLowerCase().includes(q),
+        );
+        return matchesNumero || matchesCliente || matchesVendedor || matchesItems;
+      });
+    }
+
+    // Cálculo de Métricas Resumen (KPIs)
+    const totalRecaudado = ventas.reduce((sum, v) => sum + v.total, 0);
+    const cantidadVentas = ventas.length;
+    const cantidadPares = ventas.reduce((sum, v) => sum + v.totalPares, 0);
+    const ticketPromedio = cantidadVentas > 0 ? totalRecaudado / cantidadVentas : 0;
+
+    // Desglose por Método de Pago
+    const desgloseMetodosPago = {
+      efectivo: { total: 0, cantidad: 0 },
+      tarjeta: { total: 0, cantidad: 0 },
+      transferencia: { total: 0, cantidad: 0 },
+    };
+
+    ventas.forEach((v) => {
+      const m = v.metodoPago.toUpperCase();
+      if (m === 'EFECTIVO') {
+        desgloseMetodosPago.efectivo.total += v.total;
+        desgloseMetodosPago.efectivo.cantidad += 1;
+      } else if (m === 'TARJETA') {
+        desgloseMetodosPago.tarjeta.total += v.total;
+        desgloseMetodosPago.tarjeta.cantidad += 1;
+      } else if (m === 'TRANSFERENCIA') {
+        desgloseMetodosPago.transferencia.total += v.total;
+        desgloseMetodosPago.transferencia.cantidad += 1;
+      }
+    });
+
+    // Desglose por Vendedor (para admin)
+    const vendedorMap = new Map<string, { userId: string; nombre: string; email: string; total: number; ventas: number; pares: number }>();
+    ventas.forEach((v) => {
+      const vid = v.vendedor.id;
+      const exist = vendedorMap.get(vid);
+      if (exist) {
+        exist.total += v.total;
+        exist.ventas += 1;
+        exist.pares += v.totalPares;
+      } else {
+        vendedorMap.set(vid, {
+          userId: vid,
+          nombre: v.vendedor.nombre,
+          email: v.vendedor.email,
+          total: v.total,
+          ventas: 1,
+          pares: v.totalPares,
+        });
+      }
+    });
+    const desgloseVendedores = Array.from(vendedorMap.values()).sort((a, b) => b.total - a.total);
+
+    // Top Modelos Vendidos en el Período
+    const modeloStatsMap = new Map<string, { nombre: string; pares: number; total: number }>();
+    ventas.forEach((v) => {
+      v.lineas.forEach((l) => {
+        const key = l.modelName || l.nombre;
+        const cur = modeloStatsMap.get(key);
+        if (cur) {
+          cur.pares += l.cantidad;
+          cur.total += l.subtotal;
+        } else {
+          modeloStatsMap.set(key, {
+            nombre: key,
+            pares: l.cantidad,
+            total: l.subtotal,
+          });
+        }
+      });
+    });
+    const topModelos = Array.from(modeloStatsMap.values())
+      .sort((a, b) => b.pares - a.pares)
+      .slice(0, 5);
+
+    return {
+      periodo,
+      rangoFechas: {
+        desde: start.toISOString(),
+        hasta: end.toISOString(),
+      },
+      metricas: {
+        totalRecaudado: Number(totalRecaudado.toFixed(2)),
+        cantidadVentas,
+        cantidadPares,
+        ticketPromedio: Number(ticketPromedio.toFixed(2)),
+        desgloseMetodosPago: {
+          efectivo: {
+            total: Number(desgloseMetodosPago.efectivo.total.toFixed(2)),
+            cantidad: desgloseMetodosPago.efectivo.cantidad,
+          },
+          tarjeta: {
+            total: Number(desgloseMetodosPago.tarjeta.total.toFixed(2)),
+            cantidad: desgloseMetodosPago.tarjeta.cantidad,
+          },
+          transferencia: {
+            total: Number(desgloseMetodosPago.transferencia.total.toFixed(2)),
+            cantidad: desgloseMetodosPago.transferencia.cantidad,
+          },
+        },
+        desgloseVendedores,
+        topModelos,
+      },
+      ventas,
+    };
+  }
 }

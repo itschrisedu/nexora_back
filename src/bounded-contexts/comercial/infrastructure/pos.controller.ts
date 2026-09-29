@@ -1,4 +1,4 @@
-import { Controller, Post, Get, Body, UseGuards, Req } from '@nestjs/common';
+import { Controller, Post, Get, Body, Query, UseGuards, Req } from '@nestjs/common';
 import { JwtAuthGuard } from '../../../auth/jwt-auth.guard';
 import { RolesGuard } from '../../../shared/guards/roles.guard';
 import { Roles } from '../../../shared/guards/roles.decorator';
@@ -7,8 +7,8 @@ import { PosService } from '../application/PosService';
 import type { AbrirCajaDto, RegistrarVentaPosDto, CerrarCajaDto } from '../application/PosService';
 
 /**
- * PosController — Endpoints REST para la Venta al Detalle (POS Mostrador)
- * y el Arqueo / Cierre de Caja y Período.
+ * PosController — Endpoints REST para la Venta al Detalle (POS Mostrador),
+ * Historial y Analítica de Ventas por Período y Vendedor, y Arqueo de Caja.
  */
 @Controller('pos')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -67,4 +67,49 @@ export class PosController {
       body,
     );
   }
+
+  /**
+   * Obtener lista de vendedores / empleados para filtros de ventas POS
+   */
+  @Get('vendedores')
+  @Roles(Rol.ROL_ADMIN, Rol.ROL_VENDEDOR, Rol.ROL_SUPER_ADMIN, Rol.ROL_BODEGUERO)
+  async obtenerVendedoresPOS(@Req() req: any) {
+    return this.posService.obtenerVendedoresPOS(
+      req.user.tenantId,
+      req.user.sub,
+      req.user.rol,
+      req.user.esAdminGeneral,
+    );
+  }
+
+  /**
+   * Obtener historial analítico de ventas POS con filtros por período, rol y empleado
+   */
+  @Get('ventas')
+  @Roles(Rol.ROL_ADMIN, Rol.ROL_VENDEDOR, Rol.ROL_SUPER_ADMIN, Rol.ROL_BODEGUERO)
+  async obtenerHistorialVentasPOS(
+    @Req() req: any,
+    @Query('periodo') periodo?: string,
+    @Query('fechaInicio') fechaInicio?: string,
+    @Query('fechaFin') fechaFin?: string,
+    @Query('userId') userId?: string,
+    @Query('metodoPago') metodoPago?: string,
+    @Query('busqueda') busqueda?: string,
+  ) {
+    return this.posService.obtenerHistorialVentasPOS(
+      req.user.tenantId,
+      req.user.sub,
+      req.user.rol,
+      req.user.esAdminGeneral,
+      {
+        periodo,
+        fechaInicio,
+        fechaFin,
+        userId,
+        metodoPago,
+        busqueda,
+      },
+    );
+  }
 }
+
