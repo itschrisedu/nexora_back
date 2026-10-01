@@ -41,6 +41,9 @@ export class TenantService {
   async listTenants() {
     const tenants = await this.prisma.tenant.findMany({
       include: {
+        businessConfig: {
+          select: { logoUrl: true },
+        },
         _count: {
           select: {
             users: true,
@@ -79,6 +82,7 @@ export class TenantService {
         precioMensualPlan: Number(t.precioMensualPlan),
         diasRestantes,
         createdAt: t.createdAt,
+        logoUrl: t.businessConfig?.logoUrl || null,
         stats: {
           users: t._count.users,
           models: t._count.productModels,
