@@ -669,7 +669,18 @@ export class TenantService {
     }
 
     await this.prisma.$transaction(async (tx) => {
-      await tx.user.deleteMany({ where: { tenantId } });
+      // NUNCA eliminar cuentas de Super Admin, solo usuarios del negocio
+      await tx.user.deleteMany({
+        where: {
+          tenantId,
+          rol: { not: Rol.ROL_SUPER_ADMIN },
+        },
+      });
+      // Si por alguna razón un Super Admin tenía este tenantId, desvincularlo
+      await tx.user.updateMany({
+        where: { tenantId, rol: Rol.ROL_SUPER_ADMIN },
+        data: { tenantId: null },
+      });
       await tx.businessConfig.deleteMany({ where: { tenantId } });
       await tx.productModel.deleteMany({ where: { tenantId } });
       await tx.client.deleteMany({ where: { tenantId } });
