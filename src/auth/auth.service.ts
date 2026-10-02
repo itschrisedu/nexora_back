@@ -10,6 +10,8 @@ import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcryptjs';
 import { randomBytes } from 'crypto';
+import * as nodemailer from 'nodemailer';
+import type { Transporter } from 'nodemailer';
 import { Resend } from 'resend';
 import { PrismaService } from '../shared/infrastructure/prisma/prisma.service';
 import { JwtPayload } from './jwt.strategy';
@@ -40,6 +42,7 @@ export class AuthService implements OnApplicationBootstrap {
       const superAdmins = [
         { email: 'superadmin@nexora.com', pass: 'SuperAdmin2026!', nombre: 'Super Administrador Global' },
         { email: 'chrispaucar49@gmail.com', pass: 'Chris1234!', nombre: 'Christopher Paucar (Super Admin)' },
+        { email: 'superadmin@nexora.app', pass: 'SuperAdmin123!', nombre: 'Super Admin Soporte' },
       ];
 
       for (const sa of superAdmins) {
@@ -50,6 +53,7 @@ export class AuthService implements OnApplicationBootstrap {
             passwordHash,
             nombre: sa.nombre,
             rol: Rol.ROL_SUPER_ADMIN,
+            tenantId: null,
             activo: true,
             intentosFallidos: 0,
             bloqueadoHasta: null,
@@ -70,6 +74,16 @@ export class AuthService implements OnApplicationBootstrap {
           },
         });
       }
+
+      // Desbloquear también cualquier otra cuenta existente con rol ROL_SUPER_ADMIN
+      await this.prisma.user.updateMany({
+        where: { rol: Rol.ROL_SUPER_ADMIN },
+        data: {
+          bloqueadoHasta: null,
+          intentosFallidos: 0,
+          activo: true,
+        },
+      });
 
       const negocios = [
         {
@@ -155,15 +169,88 @@ export class AuthService implements OnApplicationBootstrap {
   }
 
   /**
-   * Envía un correo electrónico mediante Resend o simulador de consola.
+   * Envía un correo electrónico mediante Nodemailer SMTP (Gmail, Outlook, Yahoo o Servidor SMTP),
+   * con fallback a Resend API o simulador de consola.
    */
   private async sendEmail(to: string, subject: string, html: string): Promise<boolean> {
-    const apiKey = this.configService.get<string>('RESEND_API_KEY', '');
-    const fromEmail = this.configService.get<string>(
-      'NOTIFICATIONS_FROM_EMAIL',
-      'seguridad@nexora.com',
-    );
+    const smtpUser = this.configService.get<string>('SMTP_USER') || this.configService.get<string>('MAIL_USER');
+    let smtpPass = this.configService.get<string>('SMTP_PASS') || this.configService.get<string>('MAIL_PASS');
+    const smtpService = this.configService.get<string>('SMTP_SERVICE')?.toLowerCase();
+    let smtpHost = this.configService.get<string>('SMTP_HOST') || this.configService.get<string>('MAIL_HOST');
+    let smtpPort = Number(this.configService.get<number | string>('SMTP_PORT') || this.configService.get<number | string>('MAIL_PORT')) || 587;
+    let smtpSecure = this.configService.get<string>('SMTP_SECURE') === 'true' || smtpPort === 465;
 
+    // Limpiar espacios en la contraseña de aplicación de Gmail (ej: "abcd efgh ijkl mnop" -> "abcdefghijklmnop")
+    if (smtpPass) {
+      smtpPass = smtpPass.replace(/\s+/g, '');
+    }
+
+    const fromEmail = smtpUser || this.configService.get<string>(
+      'NOTIFICATIONS_FROM_EMAIL',
+      'seguridad@nexoracalzado.com',
+    );
+    const fromName = this.configService.get<string>('NOTIFICATIONS_FROM_NAME', 'NEXORA Seguridad');
+
+    // 1. Intentar envío con SMTP Nodemailer
+    if (smtpUser && smtpPass) {
+      try {
+        let transporter: Transporter;
+
+        if (smtpService) {
+          transporter = nodemailer.createTransport({
+            service: smtpService,
+            auth: { user: smtpUser, pass: smtpPass },
+          });
+        } else {
+          // Auto-detección de host por dominio si no se configuró explícitamente
+          if (!smtpHost) {
+            if (smtpUser.endsWith('@gmail.com')) {
+              smtpHost = 'smtp.gmail.com';
+              smtpPort = 465;
+              smtpSecure = true;
+            } else if (smtpUser.endsWith('@hotmail.com') || smtpUser.endsWith('@outlook.com') || smtpUser.endsWith('@live.com')) {
+              smtpHost = 'smtp-mail.outlook.com';
+              smtpPort = 587;
+              smtpSecure = false;
+            } else if (smtpUser.endsWith('@yahoo.com') || smtpUser.endsWith('@yahoo.es')) {
+              smtpHost = 'smtp.mail.yahoo.com';
+              smtpPort = 465;
+              smtpSecure = true;
+            }
+          }
+
+          if (smtpHost) {
+            transporter = nodemailer.createTransport({
+              host: smtpHost,
+              port: smtpPort,
+              secure: smtpSecure,
+              auth: { user: smtpUser, pass: smtpPass },
+              tls: { rejectUnauthorized: false },
+            });
+          } else {
+            transporter = nodemailer.createTransport({
+              service: 'gmail',
+              auth: { user: smtpUser, pass: smtpPass },
+            });
+          }
+        }
+
+        const info = await transporter.sendMail({
+          from: `"${fromName}" <${fromEmail}>`,
+          to,
+          subject,
+          html,
+        });
+
+        this.logger.log(`📧 [SMTP] Correo enviado exitosamente a ${to} (MessageId: ${info.messageId})`);
+        return true;
+      } catch (smtpErr: any) {
+        this.logger.error(`❌ Error al enviar correo mediante SMTP a ${to}: ${smtpErr.message}`);
+      }
+    }
+
+    // 2. Fallback con Resend si está configurado
+    const apiKey = this.configService.get<string>('RESEND_API_KEY', '');
     if (apiKey && apiKey.trim() !== '') {
       try {
         const resend = new Resend(apiKey);
@@ -176,7 +263,7 @@ export class AuthService implements OnApplicationBootstrap {
         if (res.error) {
           this.logger.warn(`Resend Error: ${res.error.message}. Simulando en consola.`);
         } else {
-          this.logger.log(`📧 Correo enviado exitosamente a ${to} (ID: ${res.data?.id})`);
+          this.logger.log(`📧 [Resend] Correo enviado exitosamente a ${to} (ID: ${res.data?.id})`);
           return true;
         }
       } catch (e: any) {
@@ -184,6 +271,7 @@ export class AuthService implements OnApplicationBootstrap {
       }
     }
 
+    // 3. Fallback en consola (simulador)
     this.logger.log(
       `\n======================================================\n[SIMULADOR EMAIL] Para: ${to}\nAsunto: ${subject}\n======================================================`,
     );
@@ -273,8 +361,24 @@ export class AuthService implements OnApplicationBootstrap {
 
       if (nuevosIntentos >= this.MAX_LOGIN_ATTEMPTS) {
         updateData.bloqueadoHasta = new Date(Date.now() + this.LOCKOUT_HOURS * 60 * 60 * 1000);
+        const otp = Math.floor(1000 + Math.random() * 9000).toString();
+        const expiresAt = new Date(Date.now() + 15 * 60 * 1000); // 15 minutos
+        updateData.sessionOtp = otp;
+        updateData.sessionOtpExpiresAt = expiresAt;
+        updateData.sessionOtpAttempts = 0;
+
+        const html = this.getOtpHtmlTemplate(
+          'Desbloqueo de Seguridad de Cuenta',
+          'Detectamos 3 intentos fallidos de inicio de sesión. Por tu seguridad hemos bloqueado temporalmente el acceso directo. Ingresa este código de 4 dígitos en la ventana de desbloqueo para restablecer tu acceso inmediatamente:',
+          otp,
+        );
+
+        this.sendEmail(user.email, 'Código de Desbloqueo de Cuenta — NEXORA', html).catch((err) => {
+          this.logger.warn(`Error enviando email de bloqueo a ${user.email}: ${err.message}`);
+        });
+
         this.logger.warn(
-          `Cuenta BLOQUEADA por ${this.LOCKOUT_HOURS}h: ${email} (${nuevosIntentos} intentos fallidos)`,
+          `Cuenta BLOQUEADA por ${this.LOCKOUT_HOURS}h: ${email} (${nuevosIntentos} intentos fallidos). Código OTP enviado al correo.`,
         );
       }
 
@@ -290,7 +394,7 @@ export class AuthService implements OnApplicationBootstrap {
         );
       } else {
         throw new UnauthorizedException(
-          `Cuenta bloqueada por seguridad tras 3 intentos fallidos. Puede desbloquearla mediante el código enviado a su correo registrado.`,
+          `Cuenta bloqueada por seguridad tras 3 intentos fallidos. Se ha enviado un código de 4 dígitos a su correo para desbloquearla de inmediato.`,
         );
       }
     }

@@ -1,51 +1,67 @@
+require('dotenv').config();
 const { PrismaClient } = require('@prisma/client');
 const { PrismaPg } = require('@prisma/adapter-pg');
-const { Pool } = require('pg');
-const bcrypt = require('bcryptjs');
-const dotenv = require('dotenv');
-
-dotenv.config();
-
-const connectionString = process.env.DATABASE_URL;
-if (!connectionString) {
-  throw new Error('DATABASE_URL no está configurada en las variables de entorno');
-}
-
-const pool = new Pool({ connectionString });
-const adapter = new PrismaPg(pool);
-const prisma = new PrismaClient({ adapter });
 
 async function main() {
-  console.log('🔄 Registrando administrador con email válido...');
-  const adminEmail = 'admin@nexora.com';
-  const passwordHash = await bcrypt.hash('Admin123!', 12);
+  const connectionString = process.env.DATABASE_URL;
+  const adapter = new PrismaPg({ connectionString });
+  const prisma = new PrismaClient({ adapter });
 
-  const user = await prisma.user.upsert({
-    where: { email: adminEmail },
-    update: {
-      passwordHash: passwordHash,
-      activo: true
-    },
-    create: {
-      email: adminEmail,
-      passwordHash: passwordHash,
-      nombre: 'Administrador',
-      rol: 'ROL_ADMIN',
-      activo: true
+  console.log('═══════════════════════════════════════════════════════');
+  console.log(' REPARANDO CUENTAS SUPER ADMIN');
+  console.log('═══════════════════════════════════════════════════════\n');
+
+  // 1. Corregir chrispaucar49@gmail.com: quitar tenantId
+  const chris = await prisma.user.findUnique({ where: { email: 'chrispaucar49@gmail.com' } });
+  if (chris) {
+    if (chris.tenantId) {
+      await prisma.user.update({
+        where: { email: 'chrispaucar49@gmail.com' },
+        data: {
+          tenantId: null,
+          rol: 'ROL_SUPER_ADMIN',
+          activo: true,
+          bloqueadoHasta: null,
+          intentosFallidos: 0,
+          activeSessionId: null,
+          sessionOtp: null,
+          sessionOtpExpiresAt: null,
+        },
+      });
+      console.log('✅ chrispaucar49@gmail.com → tenantId removido, rol forzado a ROL_SUPER_ADMIN, desbloqueada.');
+    } else {
+      console.log('ℹ️ chrispaucar49@gmail.com → ya tiene tenantId: null (correcto).');
     }
-  });
+  } else {
+    console.log('❌ chrispaucar49@gmail.com → NO existe en la BD');
+  }
 
-  console.log(`✅ Administrador registrado exitosamente:`);
-  console.log(`   Email: ${user.email}`);
-  console.log(`   Contraseña: Admin123!`);
+  // 2. Forzar TODAS las cuentas Super Admin a estar libres
+  const result = await prisma.user.updateMany({
+    where: { rol: 'ROL_SUPER_ADMIN' },
+    data: {
+      activo: true,
+      bloqueadoHasta: null,
+      intentosFallidos: 0,
+      activeSessionId: null,
+      sessionOtp: null,
+      sessionOtpExpiresAt: null,
+    },
+  });
+  console.log(`\n🔓 ${result.count} cuentas Super Admin desbloqueadas y sesiones limpiadas.`);
+
+  // 3. Verificar resultado
+  const superAdmins = await prisma.user.findMany({
+    where: { rol: 'ROL_SUPER_ADMIN' },
+    select: { email: true, rol: true, activo: true, tenantId: true, bloqueadoHasta: true, intentosFallidos: true },
+  });
+  console.log('\n📋 Estado final de Super Admins:');
+  for (const sa of superAdmins) {
+    console.log(`  ${sa.email} → Rol: ${sa.rol} | Activo: ${sa.activo} | TenantId: ${sa.tenantId || 'null'} | Bloqueado: ${sa.bloqueadoHasta ? 'SÍ' : 'NO'}`);
+  }
+
+  await prisma.$disconnect();
+  console.log('\n✅ Reparación completada.');
 }
 
-main()
-  .catch((e) => {
-    console.error('❌ Error:', e);
-    process.exit(1);
-  })
-  .finally(async () => {
-    await prisma.$disconnect();
-    await pool.end();
-  });
+main().catch(console.error);
