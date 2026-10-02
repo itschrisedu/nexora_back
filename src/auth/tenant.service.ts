@@ -631,6 +631,60 @@ export class TenantService {
   }
 
   /**
+   * Renueva o extiende el período de prueba gratuita de un tenant por los días solicitados (ej. 30, 90, 365 días / 1 año).
+   */
+  async renewTrial(
+    tenantId: string,
+    diasExtension: number = 365,
+    reiniciarDesdeHoy: boolean = false,
+  ) {
+    const tenant = await this.prisma.tenant.findUnique({
+      where: { id: tenantId },
+    });
+    if (!tenant) {
+      throw new NotFoundException(`Tenant con ID "${tenantId}" no encontrado.`);
+    }
+
+    const now = new Date();
+    let baseDate = now;
+    // Si no se pide reiniciar desde hoy y la fecha de vencimiento actual aún está en el futuro, sumar desde allí
+    if (!reiniciarDesdeHoy && tenant.fechaVencimientoPlan && new Date(tenant.fechaVencimientoPlan) > now) {
+      baseDate = new Date(tenant.fechaVencimientoPlan);
+    }
+
+    const extensionNum = Number(diasExtension) || 365;
+    const nuevaFechaVencimiento = new Date(baseDate);
+    nuevaFechaVencimiento.setDate(nuevaFechaVencimiento.getDate() + extensionNum);
+
+    const updated = await this.prisma.tenant.update({
+      where: { id: tenantId },
+      data: {
+        estadoSuscripcion: EstadoSuscripcion.EN_PRUEBA,
+        active: true,
+        diasPruebaGratis: extensionNum,
+        fechaVencimientoPlan: nuevaFechaVencimiento,
+      },
+    });
+
+    this.logger.log(
+      `Prueba gratuita renovada para Tenant "${tenant.name}": +${extensionNum} días. Nueva vigencia hasta ${nuevaFechaVencimiento.toISOString().split('T')[0]}`,
+    );
+
+    return {
+      tenant: {
+        id: updated.id,
+        name: updated.name,
+        plan: updated.plan,
+        estadoSuscripcion: updated.estadoSuscripcion,
+        diasPruebaGratis: updated.diasPruebaGratis,
+        fechaVencimientoPlan: updated.fechaVencimientoPlan,
+        active: updated.active,
+      },
+      message: `Prueba gratuita extendida exitosamente por ${extensionNum} días (Vigente hasta ${nuevaFechaVencimiento.toLocaleDateString('es-EC')}).`,
+    };
+  }
+
+  /**
    * Listar historial de pagos de suscripción de un tenant.
    */
   async listSubscriptionPayments(tenantId: string) {

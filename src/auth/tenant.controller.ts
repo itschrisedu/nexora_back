@@ -213,6 +213,24 @@ export class TenantController {
   }
 
   /**
+   * POST /tenants/:id/renew-trial
+   * Renovar o extender período de prueba gratuita de un tenant (hasta 365 días / 1 año o personalizado).
+   */
+  @Post(':id/renew-trial')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Rol.ROL_SUPER_ADMIN)
+  async renewTrial(
+    @Param('id') id: string,
+    @Body()
+    dto: {
+      diasExtension?: number;
+      reiniciarDesdeHoy?: boolean;
+    },
+  ) {
+    return this.tenantService.renewTrial(id, dto.diasExtension ?? 365, dto.reiniciarDesdeHoy ?? false);
+  }
+
+  /**
    * GET /tenants/:id/subscription-payments
    * Listar historial de pagos de suscripción de un tenant.
    */
