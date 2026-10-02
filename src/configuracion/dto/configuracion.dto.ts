@@ -170,6 +170,18 @@ export class UpdateBusinessConfigDto {
   @IsBoolean()
   @IsOptional()
   mostrarStockPublico?: boolean;
+
+  @IsOptional()
+  precioPlanBasico?: number;
+
+  @IsOptional()
+  precioPlanComercial?: number;
+
+  @IsOptional()
+  precioPlanMayorista?: number;
+
+  @IsOptional()
+  tenantId?: string;
 }
 
 export class RegistrarUbicacionDto {
