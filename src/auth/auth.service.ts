@@ -82,16 +82,24 @@ export class AuthService implements OnApplicationBootstrap {
       try {
         let transporter: Transporter;
 
+        const timeoutOptions = {
+          connectionTimeout: 5000,
+          greetingTimeout: 5000,
+          socketTimeout: 8000,
+        };
+
         if (smtpService) {
           transporter = nodemailer.createTransport({
             service: smtpService,
             auth: { user: smtpUser, pass: smtpPass },
+            ...timeoutOptions,
           });
         } else if (smtpUser.toLowerCase().endsWith('@gmail.com')) {
-          // Transporte nativo optimizado para Gmail (no requiere configurar puertos/SSL manuales)
+          // Transporte nativo optimizado para Gmail con timeout rápido
           transporter = nodemailer.createTransport({
             service: 'gmail',
             auth: { user: smtpUser, pass: smtpPass },
+            ...timeoutOptions,
           });
         } else {
           // Auto-detección de host por dominio si no se configuró explícitamente
@@ -114,11 +122,13 @@ export class AuthService implements OnApplicationBootstrap {
               secure: smtpSecure,
               auth: { user: smtpUser, pass: smtpPass },
               tls: { rejectUnauthorized: false },
+              ...timeoutOptions,
             });
           } else {
             transporter = nodemailer.createTransport({
               service: 'gmail',
               auth: { user: smtpUser, pass: smtpPass },
+              ...timeoutOptions,
             });
           }
         }
