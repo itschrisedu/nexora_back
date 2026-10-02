@@ -403,13 +403,37 @@ export class AuthService implements OnApplicationBootstrap {
     const inMemorySession = ActiveSessionStore.get(user.id);
     const currentActiveSession = inMemorySession || user.activeSessionId;
     if (currentActiveSession && !forceTransfer) {
-      this.logger.warn(`Conflicto de sesión única detectado para: ${email}`);
+      // Generar y enviar automáticamente el OTP de transferencia de sesión de 4 dígitos
+      const otp = Math.floor(1000 + Math.random() * 9000).toString();
+      const expiresAt = new Date(Date.now() + 5 * 60 * 1000); // 5 minutos
+
+      await this.prisma.user.update({
+        where: { id: user.id },
+        data: {
+          sessionOtp: otp,
+          sessionOtpExpiresAt: expiresAt,
+          sessionOtpAttempts: 0,
+        },
+      });
+
+      const html = this.getOtpHtmlTemplate(
+        'Autorización de Transferencia de Sesión',
+        'Detectamos un intento de inicio de sesión desde un nuevo dispositivo o navegador mientras tienes una sesión abierta en otro lugar. Ingresa este código de 4 dígitos para autorizar el cambio de dispositivo:',
+        otp,
+      );
+
+      this.sendEmail(user.email, 'Código de Confirmación de Sesión — NEXORA', html).catch((err) => {
+        this.logger.warn(`Error enviando email de transferencia de sesión a ${user.email}: ${err.message}`);
+      });
+
+      this.logger.warn(`Conflicto de sesión única detectado para: ${email}. Código OTP enviado al correo.`);
       return {
         sessionConflict: true,
+        requiresOtp: true,
         email: user.email,
         maskedEmail: this.maskEmail(user.email),
         message:
-          'Ya existe una sesión abierta para este usuario en otro dispositivo. ¿Desea cerrar la sesión anterior y continuar con la actual?',
+          'Ya existe una sesión abierta para este usuario en otro dispositivo. Por tu seguridad, hemos enviado un código de 4 dígitos a tu correo para autorizar el traslado de sesión a este dispositivo.',
       };
     }
 
