@@ -628,6 +628,499 @@ export class ReportesService {
     };
   }
 
+  // ══════════════════════════════════════════════════════════════
+  // 6. REPORTE DEL PUNTO DE VENTA (POS / MOSTRADOR) MULTI-SUCURSAL
+  // ══════════════════════════════════════════════════════════════
+  async obtenerReportePos(tenantIds: string[], filtros: any) {
+    const { inicio, fin } = this.calcularRangoFechas(filtros);
+    const tenantFilter = tenantIds.length === 1 ? tenantIds[0] : { in: tenantIds };
+
+    const whereOrder: any = {
+      tenantId: tenantFilter,
+      estado: { not: 'CANCELADO' },
+      canal: 'MANUAL',
+      createdAt: { gte: inicio, lte: fin },
+    };
+
+    if (filtros.vendedorId && filtros.vendedorId !== 'TODOS') {
+      whereOrder.userId = filtros.vendedorId;
+    }
+
+    const orders = await this.prisma.order.findMany({
+      where: whereOrder,
+      include: {
+        lines: true,
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    const orderIds = orders.map((o) => o.id);
+    const saleNotes = await this.prisma.saleNote.findMany({
+      where: { orderId: { in: orderIds } },
+      include: {
+        lines: true,
+        cobro: {
+          include: {
+            abonos: true,
+          },
+        },
+      },
+    });
+    const saleNotesByOrderId = new Map<string, any>();
+    saleNotes.forEach((sn) => {
+      if (sn.orderId) saleNotesByOrderId.set(sn.orderId, sn);
+    });
+
+    // Tenants para asociar el nombre de la sucursal
+    const tenants = await this.prisma.tenant.findMany({
+      where: { id: { in: tenantIds } },
+      select: { id: true, name: true },
+    });
+    const tenantMap = new Map(tenants.map((t) => [t.id, t.name]));
+
+    // Clientes
+    const clientIds = Array.from(new Set(orders.map((o) => o.clientId).filter(Boolean)));
+    const clients = await this.prisma.client.findMany({
+      where: { id: { in: clientIds as string[] } },
+    });
+    const clientMap = new Map(clients.map((c) => [c.id, c]));
+
+    // Usuarios
+    const userIds = Array.from(new Set(orders.map((o) => o.userId).filter(Boolean)));
+    const users = await this.prisma.user.findMany({
+      where: { id: { in: userIds as string[] } },
+      select: { id: true, nombre: true, email: true, rol: true },
+    });
+    const userMap = new Map(users.map((u) => [u.id, u]));
+
+    // Productos
+    const allProductIds = new Set<string>();
+    orders.forEach((o) => o.lines.forEach((l) => allProductIds.add(l.productId)));
+    saleNotes.forEach((sn) => sn.lines.forEach((l) => allProductIds.add(l.productId)));
+
+    const products = await this.prisma.product.findMany({
+      where: { id: { in: Array.from(allProductIds) } },
+      include: { model: true, serie: true },
+    });
+    const productMap = new Map(products.map((p) => [p.id, p]));
+
+    let ventas = orders.map((order) => {
+      const sn = saleNotesByOrderId.get(order.id);
+      const client = order.clientId ? clientMap.get(order.clientId) : null;
+      const user = order.userId ? userMap.get(order.userId) : null;
+
+      let cedula = '';
+      if (client?.cedula) {
+        try { cedula = this.encryptionService.decrypt(client.cedula); } catch { cedula = client.cedula; }
+      }
+
+      const nombreCliente = client
+        ? `${client.nombre} ${client.apellido || ''}`.trim()
+        : 'Consumidor Final';
+
+      const abono = sn?.cobro?.abonos?.[0];
+      let metodoPago = 'EFECTIVO';
+      let detallePago = '';
+
+      if (abono?.metodo) {
+        metodoPago = abono.metodo;
+        detallePago = abono.notas || '';
+      } else if (order.notas?.includes('TARJETA')) {
+        metodoPago = 'TARJETA';
+        detallePago = order.notas;
+      } else if (order.notas?.includes('TRANSFERENCIA')) {
+        metodoPago = 'TRANSFERENCIA';
+        detallePago = order.notas;
+      }
+
+      const lineas: any[] = (sn?.lines && sn.lines.length > 0)
+        ? sn.lines.map((sl: any) => {
+            const prod = productMap.get(sl.productId);
+            return {
+              productId: sl.productId,
+              nombre: sl.nombre,
+              serie: sl.serie,
+              talla: sl.talla,
+              cantidad: sl.cantidad,
+              precioUnitario: Number(sl.precioUnitario),
+              subtotal: Number(sl.subtotal),
+              color: prod?.color || '',
+              modelName: prod?.model?.name || sl.nombre,
+              baseCode: prod?.model?.baseCode || prod?.code || '',
+              imageUrl: prod?.imageUrl || undefined,
+            };
+          })
+        : order.lines.map((ol: any) => {
+            const prod = productMap.get(ol.productId);
+            const modelName = prod?.model?.name || 'Calzado Mostrador';
+            const color = prod?.color || '';
+            const serie = prod?.serie?.nombre || 'General';
+            return {
+              productId: ol.productId,
+              nombre: `${modelName} (${color})`,
+              serie,
+              talla: '38',
+              cantidad: ol.cantidad,
+              precioUnitario: Number(ol.precioUnitario),
+              subtotal: ol.cantidad * Number(ol.precioUnitario),
+              color,
+              modelName,
+              baseCode: prod?.model?.baseCode || prod?.code || '',
+              imageUrl: prod?.imageUrl || undefined,
+            };
+          });
+
+      const totalPares = lineas.reduce((acc: number, l: any) => acc + (l.cantidad || 0), 0);
+
+      return {
+        id: order.id,
+        sucursalId: order.tenantId,
+        sucursalNombre: tenantMap.get(order.tenantId) || 'Sucursal',
+        saleNoteId: sn?.id,
+        numeroNota: sn?.numero ? `#${String(sn.numero).padStart(6, '0')}` : `#${order.id.slice(0, 8)}`,
+        fecha: order.createdAt,
+        total: Number(order.montoTotal),
+        subtotal: Number(sn?.subtotal || order.montoTotal),
+        descuento: Number(sn?.descuento || 0),
+        metodoPago,
+        detallePago,
+        vendedor: {
+          id: user?.id || order.userId,
+          nombre: user?.nombre || 'Vendedor POS',
+          email: user?.email || '',
+          rol: user?.rol || 'ROL_VENDEDOR',
+        },
+        cliente: {
+          id: client?.id || order.clientId,
+          nombre: nombreCliente,
+          cedula: cedula || '9999999999',
+          telefono: client?.telefono || '',
+          email: client?.email || '',
+          direccion: client?.direccion || '',
+        },
+        totalPares,
+        lineas,
+        notas: order.notas || '',
+      };
+    });
+
+    if (filtros.metodoPago && filtros.metodoPago !== 'TODOS') {
+      ventas = ventas.filter((v: any) => v.metodoPago.toUpperCase() === filtros.metodoPago?.toUpperCase());
+    }
+
+    if (filtros.modelo && filtros.modelo !== 'TODOS') {
+      const targetModelo = filtros.modelo.trim().toLowerCase();
+      ventas = ventas.filter((v: any) =>
+        v.lineas.some((l: any) =>
+          l.modelName.toLowerCase() === targetModelo ||
+          l.nombre.toLowerCase().includes(targetModelo) ||
+          l.productId === filtros.modelo ||
+          l.baseCode.toLowerCase() === targetModelo
+        )
+      );
+    }
+
+    if (filtros.busqueda && filtros.busqueda.trim()) {
+      const q = filtros.busqueda.trim().toLowerCase();
+      ventas = ventas.filter((v: any) => {
+        const matchesNumero = v.numeroNota.toLowerCase().includes(q);
+        const matchesCliente = v.cliente.nombre.toLowerCase().includes(q) || v.cliente.cedula.includes(q);
+        const matchesVendedor = v.vendedor.nombre.toLowerCase().includes(q);
+        const matchesSucursal = v.sucursalNombre.toLowerCase().includes(q);
+        const matchesItems = v.lineas.some((l: any) =>
+          l.nombre.toLowerCase().includes(q) ||
+          l.modelName.toLowerCase().includes(q) ||
+          l.color.toLowerCase().includes(q) ||
+          l.baseCode.toLowerCase() === q,
+        );
+        return matchesNumero || matchesCliente || matchesVendedor || matchesSucursal || matchesItems;
+      });
+    }
+
+    const totalRecaudado = ventas.reduce((sum: number, v: any) => sum + v.total, 0);
+    const cantidadVentas = ventas.length;
+    const cantidadPares = ventas.reduce((sum: number, v: any) => sum + v.totalPares, 0);
+    const ticketPromedio = cantidadVentas > 0 ? totalRecaudado / cantidadVentas : 0;
+
+    const desgloseMetodosPago = {
+      efectivo: { total: 0, cantidad: 0 },
+      tarjeta: { total: 0, cantidad: 0 },
+      transferencia: { total: 0, cantidad: 0 },
+    };
+
+    ventas.forEach((v: any) => {
+      const m = v.metodoPago.toUpperCase();
+      if (m === 'EFECTIVO') {
+        desgloseMetodosPago.efectivo.total += v.total;
+        desgloseMetodosPago.efectivo.cantidad += 1;
+      } else if (m === 'TARJETA') {
+        desgloseMetodosPago.tarjeta.total += v.total;
+        desgloseMetodosPago.tarjeta.cantidad += 1;
+      } else if (m === 'TRANSFERENCIA') {
+        desgloseMetodosPago.transferencia.total += v.total;
+        desgloseMetodosPago.transferencia.cantidad += 1;
+      }
+    });
+
+    const vendedorStatsMap = new Map<string, { userId: string; nombre: string; email: string; total: number; ventas: number; pares: number }>();
+    ventas.forEach((v: any) => {
+      const vid = v.vendedor.id;
+      const exist = vendedorStatsMap.get(vid);
+      if (exist) {
+        exist.total += v.total;
+        exist.ventas += 1;
+        exist.pares += v.totalPares;
+      } else {
+        vendedorStatsMap.set(vid, {
+          userId: vid,
+          nombre: v.vendedor.nombre,
+          email: v.vendedor.email,
+          total: v.total,
+          ventas: 1,
+          pares: v.totalPares,
+        });
+      }
+    });
+    const desgloseVendedores = Array.from(vendedorStatsMap.values()).sort((a, b) => b.total - a.total);
+
+    const modeloStatsMap = new Map<string, { nombre: string; color: string; pares: number; total: number; imageUrl?: string }>();
+    ventas.forEach((v: any) => {
+      v.lineas.forEach((l: any) => {
+        const key = `${l.modelName || l.nombre} - ${l.color || ''}`;
+        const cur = modeloStatsMap.get(key);
+        if (cur) {
+          cur.pares += l.cantidad;
+          cur.total += l.subtotal;
+        } else {
+          modeloStatsMap.set(key, {
+            nombre: l.modelName || l.nombre,
+            color: l.color || '',
+            pares: l.cantidad,
+            total: l.subtotal,
+            imageUrl: l.imageUrl,
+          });
+        }
+      });
+    });
+    const topModelos = Array.from(modeloStatsMap.values())
+      .sort((a, b) => b.pares - a.pares)
+      .slice(0, 10);
+
+    return {
+      periodo: filtros.periodo || 'MENSUAL',
+      rangoFechas: {
+        desde: inicio.toISOString(),
+        hasta: fin.toISOString(),
+      },
+      metricas: {
+        totalRecaudado: Number(totalRecaudado.toFixed(2)),
+        cantidadVentas,
+        cantidadPares,
+        ticketPromedio: Number(ticketPromedio.toFixed(2)),
+        desgloseMetodosPago: {
+          efectivo: {
+            total: Number(desgloseMetodosPago.efectivo.total.toFixed(2)),
+            cantidad: desgloseMetodosPago.efectivo.cantidad,
+          },
+          tarjeta: {
+            total: Number(desgloseMetodosPago.tarjeta.total.toFixed(2)),
+            cantidad: desgloseMetodosPago.tarjeta.cantidad,
+          },
+          transferencia: {
+            total: Number(desgloseMetodosPago.transferencia.total.toFixed(2)),
+            cantidad: desgloseMetodosPago.transferencia.cantidad,
+          },
+        },
+        desgloseVendedores,
+        topModelos,
+      },
+      ventas,
+    };
+  }
+
+  // ══════════════════════════════════════════════════════════════
+  // 7. REPORTE DE RENDIMIENTO POR SUCURSAL & VENTAS POR MODELO
+  // ══════════════════════════════════════════════════════════════
+  async obtenerReporteRendimientoSucursales(
+    allTenantIds: string[],
+    targetSucursalId: string | undefined,
+    filtros: any,
+  ) {
+    const { inicio, fin } = this.calcularRangoFechas(filtros);
+
+    const sucursales = await this.prisma.tenant.findMany({
+      where: { id: { in: allTenantIds }, active: true },
+      include: {
+        businessConfig: {
+          select: {
+            nombre: true,
+            direccion: true,
+            telefono: true,
+            email: true,
+          },
+        },
+      },
+      orderBy: { createdAt: 'asc' },
+    });
+
+    const ordersAll = await this.prisma.order.findMany({
+      where: {
+        tenantId: { in: allTenantIds },
+        estado: { not: 'CANCELADO' },
+        createdAt: { gte: inicio, lte: fin },
+      },
+      include: {
+        lines: true,
+      },
+      orderBy: { createdAt: 'asc' },
+    });
+
+    const totalIngresosEmpresa = ordersAll.reduce((sum, o) => sum + Number(o.montoTotal || 0), 0);
+    const totalParesEmpresa = ordersAll.reduce((sum, o) => sum + o.lines.reduce((s, l) => s + l.cantidad, 0), 0);
+
+    const sucursalesResumen = sucursales.map((suc) => {
+      const ordersSuc = ordersAll.filter((o) => o.tenantId === suc.id);
+      const totalVentas = ordersSuc.reduce((sum, o) => sum + Number(o.montoTotal || 0), 0);
+      const totalPares = ordersSuc.reduce((sum, o) => sum + o.lines.reduce((s, l) => s + l.cantidad, 0), 0);
+      const totalPedidos = ordersSuc.length;
+      const ticketPromedio = totalPedidos > 0 ? totalVentas / totalPedidos : 0;
+      const porcentaje = totalIngresosEmpresa > 0 ? (totalVentas / totalIngresosEmpresa) * 100 : 0;
+
+      return {
+        sucursalId: suc.id,
+        nombre: suc.name,
+        direccion: suc.businessConfig?.direccion || 'Sin dirección',
+        telefono: suc.businessConfig?.telefono || '',
+        totalVentas: Number(totalVentas.toFixed(2)),
+        totalPares,
+        totalPedidos,
+        ticketPromedio: Number(ticketPromedio.toFixed(2)),
+        porcentajeEmpresa: Math.round(porcentaje * 10) / 10,
+      };
+    });
+
+    const activeTenantFilter = targetSucursalId ? [targetSucursalId] : allTenantIds;
+    const targetSucursalNombre = targetSucursalId
+      ? sucursales.find((s) => s.id === targetSucursalId)?.name || 'Sucursal Seleccionada'
+      : 'Todas las Sucursales Consolidadas';
+
+    const targetOrders = ordersAll.filter((o) => activeTenantFilter.includes(o.tenantId));
+    const targetTotalVentas = targetOrders.reduce((sum, o) => sum + Number(o.montoTotal || 0), 0);
+    const targetTotalPares = targetOrders.reduce((sum, o) => sum + o.lines.reduce((s, l) => s + l.cantidad, 0), 0);
+
+    const productIds = new Set<string>();
+    targetOrders.forEach((o) => o.lines.forEach((l) => productIds.add(l.productId)));
+
+    const products = await this.prisma.product.findMany({
+      where: { id: { in: Array.from(productIds) } },
+      include: {
+        model: true,
+        serie: true,
+        stockByTalla: {
+          include: { talla: true },
+        },
+      },
+    });
+    const productMap = new Map(products.map((p) => [p.id, p]));
+
+    const modeloStatsMap = new Map<string, {
+      modelId: string;
+      modelName: string;
+      baseCode: string;
+      color: string;
+      serieNombre: string;
+      imageUrl?: string;
+      paresVendidos: number;
+      montoTotal: number;
+      pedidosCount: number;
+      stockActual: number;
+    }>();
+
+    targetOrders.forEach((order) => {
+      order.lines.forEach((line) => {
+        const prod = productMap.get(line.productId);
+        const modelId = prod?.modelId || prod?.id || line.productId;
+        const modelName = prod?.model?.name || 'Calzado Mostrador';
+        const color = prod?.color || 'Estándar';
+        const serieNombre = prod?.serie?.nombre || 'General';
+        const baseCode = prod?.model?.baseCode || prod?.code || '';
+        const imageUrl = prod?.imageUrl || undefined;
+
+        const stockActual = prod?.stockByTalla
+          ? prod.stockByTalla.reduce((acc: number, s: any) => acc + (s.quantity || 0), 0)
+          : 0;
+
+        const key = `${modelId}_${color}`;
+        const subtotal = line.cantidad * Number(line.precioUnitario);
+
+        const cur = modeloStatsMap.get(key);
+        if (cur) {
+          cur.paresVendidos += line.cantidad;
+          cur.montoTotal += subtotal;
+          cur.pedidosCount += 1;
+        } else {
+          modeloStatsMap.set(key, {
+            modelId,
+            modelName,
+            baseCode,
+            color,
+            serieNombre,
+            imageUrl,
+            paresVendidos: line.cantidad,
+            montoTotal: subtotal,
+            pedidosCount: 1,
+            stockActual,
+          });
+        }
+      });
+    });
+
+    const modelosArray = Array.from(modeloStatsMap.values())
+      .map((m) => {
+        const precioPromedio = m.paresVendidos > 0 ? m.montoTotal / m.paresVendidos : 0;
+        const porcentaje = targetTotalVentas > 0 ? (m.montoTotal / targetTotalVentas) * 100 : 0;
+        return {
+          ...m,
+          montoTotal: Number(m.montoTotal.toFixed(2)),
+          precioPromedio: Number(precioPromedio.toFixed(2)),
+          porcentajeSucursal: Math.round(porcentaje * 10) / 10,
+        };
+      })
+      .sort((a, b) => b.montoTotal - a.montoTotal);
+
+    const modelosRanking = modelosArray.map((m, idx) => ({
+      ...m,
+      ranking: idx + 1,
+    }));
+
+    return {
+      periodo: filtros.periodo || 'MENSUAL',
+      rangoFechas: {
+        desde: inicio.toISOString(),
+        hasta: fin.toISOString(),
+      },
+      sucursalSeleccionada: {
+        id: targetSucursalId || 'TODAS',
+        nombre: targetSucursalNombre,
+      },
+      totalesEmpresa: {
+        ingresos: Number(totalIngresosEmpresa.toFixed(2)),
+        pares: totalParesEmpresa,
+        pedidos: ordersAll.length,
+      },
+      totalesSucursalSeleccionada: {
+        ingresos: Number(targetTotalVentas.toFixed(2)),
+        pares: targetTotalPares,
+        pedidos: targetOrders.length,
+        ticketPromedio: targetOrders.length > 0 ? Number((targetTotalVentas / targetOrders.length).toFixed(2)) : 0,
+        totalModelosVendidos: modelosRanking.length,
+      },
+      sucursales: sucursalesResumen,
+      modelosVendidos: modelosRanking,
+      top5Modelos: modelosRanking.slice(0, 5),
+    };
+  }
+
   // ── Helper: Cálculo de Rango de Fechas ────────────────────────
   private calcularRangoFechas(filtros: FiltrosReporteDto): { inicio: Date; fin: Date } {
     const ahora = new Date();

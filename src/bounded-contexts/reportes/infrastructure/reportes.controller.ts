@@ -119,6 +119,49 @@ export class ReportesController {
   }
 
   /**
+   * GET /reportes/pos
+   * Reporte detallado del Punto de Venta (POS / Mostrador) con filtros por fecha, sucursal, vendedor y método de pago
+   */
+  @Get('pos')
+  @Roles(Rol.ROL_ADMIN, Rol.ROL_SUPER_ADMIN, Rol.ROL_VENDEDOR, Rol.ROL_BODEGUERO)
+  async obtenerReportePos(
+    @Req() req: any,
+    @Query('periodo') periodo?: 'HOY' | 'SEMANAL' | 'MENSUAL' | 'TRIMESTRAL' | 'ANUAL' | 'PERSONALIZADO',
+    @Query('fechaDesde') fechaDesde?: string,
+    @Query('fechaHasta') fechaHasta?: string,
+    @Query('vendedorId') vendedorId?: string,
+    @Query('metodoPago') metodoPago?: string,
+    @Query('modelo') modelo?: string,
+    @Query('busqueda') busqueda?: string,
+    @Query('sucursalId') sucursalId?: string,
+  ) {
+    const filtros = { periodo, fechaDesde, fechaHasta, vendedorId, metodoPago, modelo, busqueda };
+    const tenantIds = sucursalId
+      ? await this.resolverTenantIds(req.user.tenantId, sucursalId)
+      : [req.user.tenantId];
+    return this.reportesService.obtenerReportePos(tenantIds, filtros);
+  }
+
+  /**
+   * GET /reportes/rendimiento-sucursales
+   * Reporte de rendimiento por sucursal y desglose de ventas de modelos por sucursal
+   */
+  @Get('rendimiento-sucursales')
+  @Roles(Rol.ROL_ADMIN, Rol.ROL_SUPER_ADMIN)
+  async obtenerReporteRendimientoSucursales(
+    @Req() req: any,
+    @Query('periodo') periodo?: 'HOY' | 'SEMANAL' | 'MENSUAL' | 'TRIMESTRAL' | 'ANUAL' | 'PERSONALIZADO',
+    @Query('fechaDesde') fechaDesde?: string,
+    @Query('fechaHasta') fechaHasta?: string,
+    @Query('sucursalId') sucursalId?: string,
+  ) {
+    const filtros = { periodo, fechaDesde, fechaHasta };
+    const allTenantIds = await this.resolverTenantIds(req.user.tenantId, 'TODAS');
+    const targetSucursalId = sucursalId && sucursalId !== 'TODAS' ? sucursalId : undefined;
+    return this.reportesService.obtenerReporteRendimientoSucursales(allTenantIds, targetSucursalId, filtros);
+  }
+
+  /**
    * Resuelve los tenantIds según la selección del Admin.
    * - "TODAS" o vacío → todas las sucursales de la empresa (mismo RUC).
    * - Un ID específico → solo ese tenantId.
