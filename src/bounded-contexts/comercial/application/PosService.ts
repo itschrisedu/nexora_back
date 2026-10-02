@@ -550,6 +550,7 @@ export class PosService {
       fechaFin?: string;
       userId?: string;
       metodoPago?: string;
+      modelo?: string;
       busqueda?: string;
     },
   ) {
@@ -790,6 +791,19 @@ export class PosService {
     // Filtro por método de pago si se solicita
     if (filtros.metodoPago && filtros.metodoPago !== 'TODOS') {
       ventas = ventas.filter((v) => v.metodoPago.toUpperCase() === filtros.metodoPago?.toUpperCase());
+    }
+
+    // Filtro por modelo de calzado específico si se solicita
+    if (filtros.modelo && filtros.modelo !== 'TODOS') {
+      const targetModelo = filtros.modelo.trim().toLowerCase();
+      ventas = ventas.filter((v) =>
+        v.lineas.some((l) =>
+          l.modelName.toLowerCase() === targetModelo ||
+          l.nombre.toLowerCase().includes(targetModelo) ||
+          l.productId === filtros.modelo ||
+          l.baseCode.toLowerCase() === targetModelo
+        )
+      );
     }
 
     // Filtro por búsqueda textual (comprobante, cliente, modelo, código)

@@ -94,6 +94,7 @@ export class PosController {
     @Query('fechaFin') fechaFin?: string,
     @Query('userId') userId?: string,
     @Query('metodoPago') metodoPago?: string,
+    @Query('modelo') modelo?: string,
     @Query('busqueda') busqueda?: string,
   ) {
     return this.posService.obtenerHistorialVentasPOS(
@@ -107,6 +108,7 @@ export class PosController {
         fechaFin,
         userId,
         metodoPago,
+        modelo,
         busqueda,
       },
     );
