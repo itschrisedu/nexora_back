@@ -87,14 +87,16 @@ export class AuthService implements OnApplicationBootstrap {
             service: smtpService,
             auth: { user: smtpUser, pass: smtpPass },
           });
+        } else if (smtpUser.toLowerCase().endsWith('@gmail.com')) {
+          // Transporte nativo optimizado para Gmail (no requiere configurar puertos/SSL manuales)
+          transporter = nodemailer.createTransport({
+            service: 'gmail',
+            auth: { user: smtpUser, pass: smtpPass },
+          });
         } else {
           // Auto-detección de host por dominio si no se configuró explícitamente
           if (!smtpHost) {
-            if (smtpUser.endsWith('@gmail.com')) {
-              smtpHost = 'smtp.gmail.com';
-              smtpPort = 465;
-              smtpSecure = true;
-            } else if (smtpUser.endsWith('@hotmail.com') || smtpUser.endsWith('@outlook.com') || smtpUser.endsWith('@live.com')) {
+            if (smtpUser.endsWith('@hotmail.com') || smtpUser.endsWith('@outlook.com') || smtpUser.endsWith('@live.com')) {
               smtpHost = 'smtp-mail.outlook.com';
               smtpPort = 587;
               smtpSecure = false;
