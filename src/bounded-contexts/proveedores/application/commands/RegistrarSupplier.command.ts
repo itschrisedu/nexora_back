@@ -1,6 +1,6 @@
 export class RegistrarSupplierCommand {
   constructor(
-    public readonly ruc: string,
+    public readonly ruc: string | undefined,
     public readonly razonSocial: string,
     public readonly tenantId: string,
     public readonly contacto?: string,

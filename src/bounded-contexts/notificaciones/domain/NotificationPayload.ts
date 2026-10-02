@@ -9,4 +9,7 @@ export interface NotificationPayload {
   readonly asunto: string;
   readonly cuerpoHtml: string;
   readonly eventoOrigen: string;
+  readonly replyTo?: string;
+  readonly fromName?: string;
 }
+

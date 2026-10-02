@@ -565,48 +565,65 @@ export class PosService {
       targetUserId = filtros.userId;
     }
 
-    // Cálculo dinámico de fechas según período
-    const now = new Date();
+    // Cálculo dinámico de fechas según período usando hora local ecuatoriana (America/Guayaquil, UTC-5)
+    // para evitar desfases de zona horaria cuando el servidor opera en UTC.
+    const ahoraEcuador = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Guayaquil' }));
+    const anio = ahoraEcuador.getFullYear();
+    const mes = ahoraEcuador.getMonth();
+    const dia = ahoraEcuador.getDate();
+
+    const finLocalStr = `${anio}-${String(mes + 1).padStart(2, '0')}-${String(dia).padStart(2, '0')}T23:59:59.999-05:00`;
+    let end: Date = new Date(finLocalStr);
     let start: Date;
-    let end: Date = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
 
     const periodo = filtros.periodo || 'dia';
 
     switch (periodo) {
       case 'dia':
-      default:
-        start = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
+      default: {
+        const startStr = `${anio}-${String(mes + 1).padStart(2, '0')}-${String(dia).padStart(2, '0')}T00:00:00.000-05:00`;
+        start = new Date(startStr);
         break;
+      }
       case 'semana': {
-        const dayOfWeek = (now.getDay() + 6) % 7; // Lunes = 0
-        start = new Date(now.getFullYear(), now.getMonth(), now.getDate() - dayOfWeek, 0, 0, 0, 0);
+        const dayOfWeek = (ahoraEcuador.getDay() + 6) % 7; // Lunes = 0
+        const haceDias = new Date(ahoraEcuador.getTime() - dayOfWeek * 24 * 60 * 60 * 1000);
+        const sAnio = haceDias.getFullYear();
+        const sMes = haceDias.getMonth();
+        const sDia = haceDias.getDate();
+        const startStr = `${sAnio}-${String(sMes + 1).padStart(2, '0')}-${String(sDia).padStart(2, '0')}T00:00:00.000-05:00`;
+        start = new Date(startStr);
         break;
       }
-      case 'mes':
-        start = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0);
+      case 'mes': {
+        const startStr = `${anio}-${String(mes + 1).padStart(2, '0')}-01T00:00:00.000-05:00`;
+        start = new Date(startStr);
         break;
+      }
       case 'trimestre': {
-        const quarterMonth = Math.floor(now.getMonth() / 3) * 3;
-        start = new Date(now.getFullYear(), quarterMonth, 1, 0, 0, 0, 0);
+        const quarterMonth = Math.floor(mes / 3) * 3;
+        const startStr = `${anio}-${String(quarterMonth + 1).padStart(2, '0')}-01T00:00:00.000-05:00`;
+        start = new Date(startStr);
         break;
       }
-      case 'anio':
-        start = new Date(now.getFullYear(), 0, 1, 0, 0, 0, 0);
+      case 'anio': {
+        const startStr = `${anio}-01-01T00:00:00.000-05:00`;
+        start = new Date(startStr);
         break;
-      case 'custom':
+      }
+      case 'custom': {
         if (filtros.fechaInicio) {
-          const parts = filtros.fechaInicio.split('-').map(Number);
-          start = new Date(parts[0], parts[1] - 1, parts[2], 0, 0, 0, 0);
+          start = new Date(`${filtros.fechaInicio}T00:00:00.000-05:00`);
         } else {
-          start = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
+          start = new Date(`${anio}-${String(mes + 1).padStart(2, '0')}-${String(dia).padStart(2, '0')}T00:00:00.000-05:00`);
         }
         if (filtros.fechaFin) {
-          const parts = filtros.fechaFin.split('-').map(Number);
-          end = new Date(parts[0], parts[1] - 1, parts[2], 23, 59, 59, 999);
+          end = new Date(`${filtros.fechaFin}T23:59:59.999-05:00`);
         }
         break;
+      }
       case 'todos':
-        start = new Date(2020, 0, 1, 0, 0, 0, 0);
+        start = new Date('2020-01-01T00:00:00.000-05:00');
         break;
     }
 

@@ -15,18 +15,27 @@ export class RegistrarSupplierHandler {
   ) {}
 
   async execute(command: RegistrarSupplierCommand): Promise<string> {
-    // 1. Validar que el RUC en claro tenga 13 dígitos numéricos
-    if (!/^\d{13}$/.test(command.ruc)) {
-      throw new BadRequestException(`El RUC "${command.ruc}" no es válido. Debe tener exactamente 13 dígitos numéricos.`);
-    }
+    let rucCifrado: string;
 
-    // 2. Cifrar el RUC para persistencia e invariante de unicidad
-    const rucCifrado = this.encryptionService.encrypt(command.ruc);
+    if (command.ruc && command.ruc.trim() !== '') {
+      const rucLimpio = command.ruc.trim();
+      // 1. Validar que el RUC/Cédula en claro tenga 10 o 13 dígitos numéricos
+      if (!/^\d{10}(\d{3})?$/.test(rucLimpio)) {
+        throw new BadRequestException(`El documento "${command.ruc}" no es válido. Debe tener 10 dígitos (cédula) o 13 dígitos (RUC).`);
+      }
 
-    // 3. Validar duplicado por RUC (cifrado)
-    const existe = await this.supplierRepository.findByRuc(rucCifrado);
-    if (existe) {
-      throw new ConflictException(`Ya existe un proveedor registrado con el RUC "${command.ruc}"`);
+      // 2. Cifrar el RUC para persistencia e invariante de unicidad
+      rucCifrado = this.encryptionService.encrypt(rucLimpio);
+
+      // 3. Validar duplicado por RUC (cifrado)
+      const existe = await this.supplierRepository.findByRuc(rucCifrado);
+      if (existe) {
+        throw new ConflictException(`Ya existe un proveedor registrado con el RUC/Cédula "${command.ruc}"`);
+      }
+    } else {
+      // Si no se proporciona RUC, generamos un identificador único seguro cifrado para cumplir la restricción única de BD
+      const placeholder = `PROV-${crypto.randomUUID().slice(0, 8)}`;
+      rucCifrado = this.encryptionService.encrypt(placeholder);
     }
 
     const supplierId = crypto.randomUUID();

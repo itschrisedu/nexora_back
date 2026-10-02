@@ -2,9 +2,9 @@ import { IsNotEmpty, IsString, IsOptional, IsEmail, IsArray, ValidateNested, IsN
 import { Type } from 'class-transformer';
 
 export class RegistrarSupplierDto {
-  @IsNotEmpty({ message: 'El RUC es obligatorio.' })
+  @IsOptional()
   @IsString()
-  ruc: string;
+  ruc?: string;
 
   @IsOptional()
   @IsString()
@@ -14,17 +14,17 @@ export class RegistrarSupplierDto {
   @IsString()
   nombreComercial?: string;
 
-  @IsOptional()
+  @IsNotEmpty({ message: 'El nombre del proveedor es obligatorio.' })
   @IsString()
-  nombres?: string;
+  nombres: string;
 
-  @IsOptional()
+  @IsNotEmpty({ message: 'El apellido del proveedor es obligatorio.' })
   @IsString()
-  apellidos?: string;
+  apellidos: string;
 
-  @IsOptional()
+  @IsNotEmpty({ message: 'El número de teléfono del proveedor es obligatorio.' })
   @IsString()
-  contacto?: string;
+  contacto: string;
 
   @IsOptional()
   @IsString()

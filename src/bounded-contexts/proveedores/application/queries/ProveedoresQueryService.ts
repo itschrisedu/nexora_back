@@ -589,6 +589,9 @@ export class ProveedoresQueryService {
     } catch (e) {
       // Fallback
     }
+    if (rucDescifrado && rucDescifrado.startsWith('PROV-')) {
+      rucDescifrado = '';
+    }
     return {
       id: raw.id,
       tenantId: raw.tenantId,

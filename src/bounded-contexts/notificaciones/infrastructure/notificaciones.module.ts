@@ -9,7 +9,7 @@ import { NotificacionesQueryService } from '../application/queries/Notificacione
 import { NotificacionesController } from './notificaciones.controller';
 
 // Infrastructure — Senders
-import { ResendEmailSender } from './senders/ResendEmailSender';
+import { SmtpEmailSender } from './senders/SmtpEmailSender';
 import { WhatsAppSenderStub } from './senders/WhatsAppSenderStub';
 
 // Infrastructure — Listeners
@@ -27,7 +27,7 @@ import { CobrosVencimientoCron } from './cron/cobros-vencimiento.cron';
     // Senders (inyectados por token)
     {
       provide: 'IEmailSender',
-      useClass: ResendEmailSender,
+      useClass: SmtpEmailSender,
     },
     {
       provide: 'IWhatsAppSender',

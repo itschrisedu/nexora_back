@@ -1122,45 +1122,70 @@ export class ReportesService {
   }
 
   // ── Helper: Cálculo de Rango de Fechas ────────────────────────
+  // IMPORTANTE: Se usa hora local ecuatoriana (America/Guayaquil, UTC-5)
+  // para evitar desfases cuando el servidor opera en UTC.
   private calcularRangoFechas(filtros: FiltrosReporteDto): { inicio: Date; fin: Date } {
-    const ahora = new Date();
-    const fin = new Date(ahora.getFullYear(), ahora.getMonth(), ahora.getDate(), 23, 59, 59, 999);
+    // Obtener la fecha/hora actual en zona horaria de Ecuador
+    const ahoraEcuador = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Guayaquil' }));
+    const anio = ahoraEcuador.getFullYear();
+    const mes = ahoraEcuador.getMonth();
+    const dia = ahoraEcuador.getDate();
+
+    // Fin del día actual en hora local ecuatoriana, convertido a UTC para la query
+    const finLocalStr = `${anio}-${String(mes + 1).padStart(2, '0')}-${String(dia).padStart(2, '0')}T23:59:59.999`;
+    const fin = new Date(finLocalStr + '-05:00'); // UTC-5 Ecuador
 
     if (filtros.fechaDesde && filtros.fechaHasta) {
-      const inicioCustom = new Date(filtros.fechaDesde);
-      inicioCustom.setHours(0, 0, 0, 0);
-      const finCustom = new Date(filtros.fechaHasta);
-      finCustom.setHours(23, 59, 59, 999);
+      const inicioCustom = new Date(filtros.fechaDesde + 'T00:00:00.000-05:00');
+      const finCustom = new Date(filtros.fechaHasta + 'T23:59:59.999-05:00');
       return { inicio: inicioCustom, fin: finCustom };
     }
 
     const periodo = filtros.periodo || 'MENSUAL';
-    let inicio = new Date();
+    let inicio: Date;
 
     switch (periodo) {
-      case 'HOY':
-        inicio = new Date(ahora.getFullYear(), ahora.getMonth(), ahora.getDate(), 0, 0, 0, 0);
+      case 'HOY': {
+        const inicioStr = `${anio}-${String(mes + 1).padStart(2, '0')}-${String(dia).padStart(2, '0')}T00:00:00.000`;
+        inicio = new Date(inicioStr + '-05:00');
         break;
-      case 'SEMANAL':
-        // Últimos 7 días
-        inicio = new Date(ahora.getTime() - 7 * 24 * 60 * 60 * 1000);
-        inicio.setHours(0, 0, 0, 0);
+      }
+      case 'SEMANAL': {
+        // Últimos 7 días desde hoy en hora ecuatoriana
+        const hace7 = new Date(ahoraEcuador.getTime() - 7 * 24 * 60 * 60 * 1000);
+        const sAnio = hace7.getFullYear();
+        const sMes = hace7.getMonth();
+        const sDia = hace7.getDate();
+        const inicioStr = `${sAnio}-${String(sMes + 1).padStart(2, '0')}-${String(sDia).padStart(2, '0')}T00:00:00.000`;
+        inicio = new Date(inicioStr + '-05:00');
         break;
-      case 'MENSUAL':
+      }
+      case 'MENSUAL': {
         // Inicio del mes actual
-        inicio = new Date(ahora.getFullYear(), ahora.getMonth(), 1, 0, 0, 0, 0);
+        const inicioStr = `${anio}-${String(mes + 1).padStart(2, '0')}-01T00:00:00.000`;
+        inicio = new Date(inicioStr + '-05:00');
         break;
-      case 'TRIMESTRAL':
+      }
+      case 'TRIMESTRAL': {
         // Últimos 90 días
-        inicio = new Date(ahora.getTime() - 90 * 24 * 60 * 60 * 1000);
-        inicio.setHours(0, 0, 0, 0);
+        const hace90 = new Date(ahoraEcuador.getTime() - 90 * 24 * 60 * 60 * 1000);
+        const tAnio = hace90.getFullYear();
+        const tMes = hace90.getMonth();
+        const tDia = hace90.getDate();
+        const inicioStr = `${tAnio}-${String(tMes + 1).padStart(2, '0')}-${String(tDia).padStart(2, '0')}T00:00:00.000`;
+        inicio = new Date(inicioStr + '-05:00');
         break;
-      case 'ANUAL':
+      }
+      case 'ANUAL': {
         // Inicio del año actual
-        inicio = new Date(ahora.getFullYear(), 0, 1, 0, 0, 0, 0);
+        const inicioStr = `${anio}-01-01T00:00:00.000`;
+        inicio = new Date(inicioStr + '-05:00');
         break;
-      default:
-        inicio = new Date(ahora.getFullYear(), ahora.getMonth(), 1, 0, 0, 0, 0);
+      }
+      default: {
+        const inicioStr = `${anio}-${String(mes + 1).padStart(2, '0')}-01T00:00:00.000`;
+        inicio = new Date(inicioStr + '-05:00');
+      }
     }
 
     return { inicio, fin };
