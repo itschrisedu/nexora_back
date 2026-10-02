@@ -46,6 +46,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
           nombre: true,
           tenantId: true,
           permiteCambiarPrecio: true,
+          activeSessionId: true,
         },
       });
     } catch (dbError: any) {
@@ -69,9 +70,15 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       throw new UnauthorizedException('Usuario no encontrado o desactivado');
     }
 
-    const currentActiveSession = ActiveSessionStore.get(user.id);
-    if (payload.sessionId && currentActiveSession && currentActiveSession !== payload.sessionId) {
+    // Validar unicidad de sesión: primero en memoria, luego en base de datos como respaldo persistente
+    const inMemorySession = ActiveSessionStore.get(user.id);
+    const activeSessionId = inMemorySession || user.activeSessionId;
+    if (payload.sessionId && activeSessionId && activeSessionId !== payload.sessionId) {
       throw new UnauthorizedException('Tu sesión ha expirado o se ha iniciado sesión en otro dispositivo.');
+    }
+    // Sincronizar el store en memoria si estaba vacío pero la BD tiene una sesión activa
+    if (!inMemorySession && user.activeSessionId) {
+      ActiveSessionStore.set(user.id, user.activeSessionId);
     }
 
     const isGlobalAdmin = user.rol === 'ROL_SUPER_ADMIN' || (user.rol === 'ROL_ADMIN' && (user.esAdminGeneral === true || !user.parentId));

@@ -313,6 +313,9 @@ export class AuthService implements OnApplicationBootstrap {
       });
 
       this.logger.warn(`Conflicto de sesión única detectado para: ${email}. Código OTP enviado al correo.`);
+      if (process.env.NODE_ENV !== 'production') {
+        this.logger.warn(`🔐 [DEV] OTP de transferencia de sesión para ${email}: ${otp}`);
+      }
       return {
         sessionConflict: true,
         requiresOtp: true,
@@ -320,7 +323,9 @@ export class AuthService implements OnApplicationBootstrap {
         maskedEmail: this.maskEmail(user.email),
         message:
           'Ya existe una sesión abierta para este usuario en otro dispositivo. Por tu seguridad, hemos enviado un código de 4 dígitos a tu correo para autorizar el traslado de sesión a este dispositivo.',
+        debugCode: process.env.NODE_ENV !== 'production' ? otp : undefined,
       };
+
     }
 
     return this.createSessionResponse(user, ipAddress, userAgent);
