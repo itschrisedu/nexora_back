@@ -288,8 +288,31 @@ export class AuthService implements OnApplicationBootstrap {
     // ── Verificar si ya existe una sesión activa concurrente ──
     const inMemorySession = ActiveSessionStore.get(user.id);
     const currentActiveSession = inMemorySession || user.activeSessionId;
+
     if (currentActiveSession && !forceTransfer) {
-      // Generar y enviar automáticamente el OTP de transferencia de sesión de 4 dígitos
+      // Verificar si la sesión anterior sigue vigente mediante un refresh token activo en BD.
+      // Esto evita falsos positivos cuando el servidor se reinicia y pierde el store en memoria
+      // pero el usuario es el único utilizando la cuenta.
+      const hasActiveRefreshToken = await this.prisma.refreshToken.findFirst({
+        where: {
+          userId: user.id,
+          revoked: false,
+          expiresAt: { gt: new Date() },
+        },
+      });
+
+      if (!hasActiveRefreshToken) {
+        // La sesión anterior realmente expiró: limpiar y permitir login directo
+        await this.prisma.user.update({
+          where: { id: user.id },
+          data: { activeSessionId: null },
+        });
+        ActiveSessionStore.invalidate(user.id);
+        this.logger.log(`Sesión anterior expirada para ${email}. Permitiendo login directo.`);
+        return this.createSessionResponse(user, ipAddress, userAgent);
+      }
+
+      // Hay una sesión realmente activa en otro dispositivo → pedir OTP
       const otp = Math.floor(1000 + Math.random() * 9000).toString();
       const expiresAt = new Date(Date.now() + 5 * 60 * 1000); // 5 minutos
 
@@ -325,7 +348,6 @@ export class AuthService implements OnApplicationBootstrap {
           'Ya existe una sesión abierta para este usuario en otro dispositivo. Por tu seguridad, hemos enviado un código de 4 dígitos a tu correo para autorizar el traslado de sesión a este dispositivo.',
         debugCode: process.env.NODE_ENV !== 'production' ? otp : undefined,
       };
-
     }
 
     return this.createSessionResponse(user, ipAddress, userAgent);
