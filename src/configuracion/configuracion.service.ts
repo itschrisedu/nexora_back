@@ -829,6 +829,25 @@ export class ConfiguracionService {
             parentId: mainAdmin?.id || null,
           },
         });
+      } else if (mainAdmin) {
+        // 4b. Sin admin explícito: crear usuario-vínculo del admin principal
+        // para que getSucursales detecte esta sucursal via parentId
+        const passwordHash = await bcrypt.hash(
+          `link_${childTenant.id}_${Date.now()}`,
+          12,
+        );
+        await tx.user.create({
+          data: {
+            email: `admin_${childTenant.id.slice(0, 8)}@sucursal.internal`,
+            nombre: `Admin ${data.name.trim()}`,
+            rol: Rol.ROL_ADMIN,
+            esAdminGeneral: false,
+            passwordHash,
+            activo: true,
+            tenantId: childTenant.id,
+            parentId: mainAdmin.id,
+          },
+        });
       }
 
       return childTenant;
