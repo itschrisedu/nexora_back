@@ -223,13 +223,22 @@ export class AuthService implements OnApplicationBootstrap {
   }
 
   /**
+   * Registra el latido de actividad periódica del cliente autenticado.
+   */
+  async registerHeartbeat(userId: string, sessionId?: string) {
+    if (!userId) return { ok: false };
+    ActiveSessionStore.touch(userId, sessionId);
+    return { ok: true, timestamp: Date.now() };
+  }
+
+  /**
    * Login — Autentica al usuario y retorna access + refresh tokens.
-   * Si ya existe una sesión activa en otro dispositivo y no se fuerza, retorna conflicto de sesión.
+   * Si ya existe una sesión activa y está ONLINE concurrentemente en otro dispositivo, solicita código OTP.
+   * Si el dispositivo anterior se apagó o cerró (sin latido en >90s), permite login directo.
    */
   async login(
     email: string,
     password: string,
-    forceTransfer = false,
     ipAddress?: string,
     userAgent?: string,
   ) {
@@ -304,34 +313,13 @@ export class AuthService implements OnApplicationBootstrap {
       }
     }
 
-    // ── Verificar si ya existe una sesión activa concurrente ──
-    const inMemorySession = ActiveSessionStore.get(user.id);
-    const currentActiveSession = inMemorySession || user.activeSessionId;
+    // ── Verificar si ya existe una sesión activa concurrente ONLINE ──
+    // Un usuario solo tiene conflicto si su sesión anterior ha enviado un latido en los últimos 90 segundos
+    const isOnlineNow = ActiveSessionStore.isSessionOnline(user.id, 90_000);
+    const hasExistingSession = Boolean(ActiveSessionStore.get(user.id) || user.activeSessionId);
 
-    if (currentActiveSession && !forceTransfer) {
-      // Verificar si la sesión anterior sigue vigente mediante un refresh token activo en BD.
-      // Esto evita falsos positivos cuando el servidor se reinicia y pierde el store en memoria
-      // pero el usuario es el único utilizando la cuenta.
-      const hasActiveRefreshToken = await this.prisma.refreshToken.findFirst({
-        where: {
-          userId: user.id,
-          revoked: false,
-          expiresAt: { gt: new Date() },
-        },
-      });
-
-      if (!hasActiveRefreshToken) {
-        // La sesión anterior realmente expiró: limpiar y permitir login directo
-        await this.prisma.user.update({
-          where: { id: user.id },
-          data: { activeSessionId: null },
-        });
-        ActiveSessionStore.invalidate(user.id);
-        this.logger.log(`Sesión anterior expirada para ${email}. Permitiendo login directo.`);
-        return this.createSessionResponse(user, ipAddress, userAgent);
-      }
-
-      // Hay una sesión realmente activa en otro dispositivo → pedir OTP
+    if (hasExistingSession && isOnlineNow) {
+      // Hay una sesión realmente activa y conectada en este instante en otro dispositivo → pedir OTP obligatorio
       const otp = Math.floor(1000 + Math.random() * 9000).toString();
       const expiresAt = new Date(Date.now() + 5 * 60 * 1000); // 5 minutos
 
@@ -369,6 +357,11 @@ export class AuthService implements OnApplicationBootstrap {
       };
     }
 
+    // Si la sesión anterior ya no está online (dispositivo apagado, pestaña cerrada o inactiva por >90s):
+    if (hasExistingSession && !isOnlineNow) {
+      this.logger.log(`Sesión previa de ${email} inactiva o fuera de línea. Permitiendo login directo y cerrando sesión previa.`);
+    }
+
     return this.createSessionResponse(user, ipAddress, userAgent);
   }
 
@@ -387,6 +380,16 @@ export class AuthService implements OnApplicationBootstrap {
         sessionOtpAttempts: 0,
       },
     });
+
+    // Invalida todos los refresh tokens previos del usuario para que el otro dispositivo quede completamente desconectado
+    try {
+      await this.prisma.refreshToken.updateMany({
+        where: { userId: user.id, revoked: false },
+        data: { revoked: true },
+      });
+    } catch (tokenErr: any) {
+      this.logger.warn(`Error al revocar refresh tokens previos: ${tokenErr.message}`);
+    }
 
     const sessionId = randomBytes(16).toString('hex');
     ActiveSessionStore.set(user.id, sessionId);

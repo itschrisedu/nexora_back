@@ -79,6 +79,9 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     // Sincronizar el store en memoria si estaba vacío pero la BD tiene una sesión activa
     if (!inMemorySession && user.activeSessionId) {
       ActiveSessionStore.set(user.id, user.activeSessionId);
+    } else {
+      // Registrar latido de actividad reciente
+      ActiveSessionStore.touch(user.id, payload.sessionId || user.activeSessionId);
     }
 
     const isGlobalAdmin = user.rol === 'ROL_SUPER_ADMIN' || (user.rol === 'ROL_ADMIN' && (user.esAdminGeneral === true || !user.parentId));

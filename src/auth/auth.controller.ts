@@ -35,14 +35,25 @@ export class AuthController {
   }
 
   /**
+   * POST /auth/heartbeat
+   * Registra el latido de actividad periódica del cliente autenticado.
+   */
+  @Post('heartbeat')
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(HttpStatus.OK)
+  async heartbeat(@Req() req: any) {
+    return this.authService.registerHeartbeat(req.user?.id, req.user?.sessionId);
+  }
+
+  /**
    * POST /auth/login
    * Autentica al usuario y retorna access + refresh tokens.
-   * Si existe sesión previa activa y no se fuerza, retorna status de conflicto de sesión.
+   * Si existe sesión previa activa ONLINE en otro dispositivo, emite OTP de confirmación.
    */
   @Post('login')
   @HttpCode(HttpStatus.OK)
   async login(
-    @Body() dto: LoginDto & { forceTransfer?: boolean },
+    @Body() dto: LoginDto,
     @Req() req: any,
   ) {
     const ip = req.ip || req.headers['x-forwarded-for'] || '127.0.0.1';
@@ -50,7 +61,6 @@ export class AuthController {
     return this.authService.login(
       dto.email,
       dto.password,
-      dto.forceTransfer,
       String(ip),
       String(userAgent),
     );
