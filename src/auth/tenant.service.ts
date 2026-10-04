@@ -36,13 +36,33 @@ export class TenantService {
   ) {}
 
   /**
-   * Listar todos los tenants con estadísticas y estado de suscripción.
+   * Helper para descifrar de manera segura el RUC de un negocio.
+   */
+  private safeDecryptRuc(encrypted?: string | null): string {
+    if (!encrypted) return '';
+    try {
+      return this.encryption.decrypt(encrypted) || '';
+    } catch {
+      return encrypted;
+    }
+  }
+
+  /**
+   * Listar todas las empresas matrices con sus sucursales agrupadas, estadísticas y estado de suscripción.
+   * Las sucursales creadas por el admin de una empresa no se listan como negocios SaaS independientes,
+   * sino que aparecen anidadas dentro de su respectiva empresa matriz.
    */
   async listTenants() {
-    const tenants = await this.prisma.tenant.findMany({
+    const allTenants = await this.prisma.tenant.findMany({
       include: {
         businessConfig: {
-          select: { logoUrl: true },
+          select: {
+            logoUrl: true,
+            ruc: true,
+            direccion: true,
+            telefono: true,
+            email: true,
+          },
         },
         _count: {
           select: {
@@ -50,24 +70,129 @@ export class TenantService {
             productModels: true,
             clients: true,
             orders: true,
+            suppliers: true,
+            saleNotes: true,
           },
         },
         users: {
-          where: { rol: Rol.ROL_ADMIN },
-          select: { id: true, email: true, nombre: true, activo: true },
-          take: 5,
+          select: {
+            id: true,
+            email: true,
+            nombre: true,
+            rol: true,
+            esAdminGeneral: true,
+            parentId: true,
+            activo: true,
+            createdAt: true,
+          },
+          orderBy: { createdAt: 'asc' },
         },
       },
       orderBy: { createdAt: 'desc' },
     });
 
-    return tenants.map((t) => {
+    // 1. Mapeo de cada usuario a su tenantId
+    const userToTenantMap = new Map<string, string>();
+    for (const t of allTenants) {
+      for (const u of t.users) {
+        userToTenantMap.set(u.id, t.id);
+      }
+    }
+
+    // 2. Clasificar qué tenants son matrices principales y cuáles son sucursales hijas
+    // MatrizId -> lista de sucursales
+    const sucursalesPorMatriz = new Map<string, typeof allTenants>();
+    const esSucursalSet = new Set<string>();
+
+    for (const t of allTenants) {
+      // Caso A: Si algún usuario tiene parentId que apunta a otro tenant
+      let matrizIdPadre: string | null = null;
+      for (const u of t.users) {
+        if (u.parentId && userToTenantMap.has(u.parentId)) {
+          const parentTenant = userToTenantMap.get(u.parentId)!;
+          if (parentTenant !== t.id) {
+            matrizIdPadre = parentTenant;
+            break;
+          }
+        }
+      }
+
+      // Caso B: Si no tiene parentId explícito pero no tiene esAdminGeneral y comparte RUC con otra matriz
+      if (!matrizIdPadre) {
+        const tieneAdminGeneral = t.users.some((u) => u.esAdminGeneral);
+        if (!tieneAdminGeneral && t.businessConfig?.ruc) {
+          const tenantRuc = this.safeDecryptRuc(t.businessConfig.ruc);
+          if (tenantRuc && tenantRuc !== '0000000000001') {
+            const possibleMatriz = allTenants.find(
+              (other) =>
+                other.id !== t.id &&
+                other.users.some((u) => u.esAdminGeneral) &&
+                this.safeDecryptRuc(other.businessConfig?.ruc) === tenantRuc,
+            );
+            if (possibleMatriz) {
+              matrizIdPadre = possibleMatriz.id;
+            }
+          }
+        }
+      }
+
+      if (matrizIdPadre) {
+        esSucursalSet.add(t.id);
+        const list = sucursalesPorMatriz.get(matrizIdPadre) || [];
+        list.push(t);
+        sucursalesPorMatriz.set(matrizIdPadre, list);
+      }
+    }
+
+    // 3. Filtrar únicamente las empresas matrices independientes
+    const matrices = allTenants.filter((t) => !esSucursalSet.has(t.id));
+
+    return matrices.map((t) => {
       const now = new Date();
       let diasRestantes = 0;
       if (t.fechaVencimientoPlan) {
         const diffMs = new Date(t.fechaVencimientoPlan).getTime() - now.getTime();
         diasRestantes = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
       }
+
+      const rawSucursales = sucursalesPorMatriz.get(t.id) || [];
+      const sucursales = rawSucursales.map((s) => ({
+        id: s.id,
+        name: s.name,
+        active: s.active,
+        createdAt: s.createdAt,
+        logoUrl: s.businessConfig?.logoUrl || t.businessConfig?.logoUrl || null,
+        direccion: s.businessConfig?.direccion || '',
+        telefono: s.businessConfig?.telefono || '',
+        email: s.businessConfig?.email || '',
+        stats: {
+          users: s._count.users,
+          models: s._count.productModels,
+          clients: s._count.clients,
+          orders: s._count.orders,
+          suppliers: s._count.suppliers,
+          saleNotes: s._count.saleNotes,
+        },
+        admins: s.users
+          .filter((u) => u.rol === Rol.ROL_ADMIN)
+          .map((u) => ({
+            id: u.id,
+            email: u.email,
+            nombre: u.nombre,
+            rol: u.rol,
+            activo: u.activo,
+          })),
+      }));
+
+      const adminsMatriz = t.users
+        .filter((u) => u.rol === Rol.ROL_ADMIN)
+        .map((u) => ({
+          id: u.id,
+          email: u.email,
+          nombre: u.nombre,
+          rol: u.rol,
+          activo: u.activo,
+        }));
 
       return {
         id: t.id,
@@ -88,8 +213,11 @@ export class TenantService {
           models: t._count.productModels,
           clients: t._count.clients,
           orders: t._count.orders,
+          suppliers: t._count.suppliers,
+          saleNotes: t._count.saleNotes,
         },
-        admins: t.users,
+        admins: adminsMatriz,
+        sucursales,
       };
     });
   }
@@ -312,6 +440,85 @@ export class TenantService {
       diasRestantes = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
     }
 
+    // Buscar sucursales hijas asociadas a esta empresa
+    const allOtherTenants = await this.prisma.tenant.findMany({
+      where: { id: { not: tenantId } },
+      include: {
+        businessConfig: {
+          select: {
+            nombre: true,
+            ruc: true,
+            direccion: true,
+            telefono: true,
+            email: true,
+            logoUrl: true,
+          },
+        },
+        _count: {
+          select: {
+            users: true,
+            productModels: true,
+            clients: true,
+            orders: true,
+            suppliers: true,
+            saleNotes: true,
+          },
+        },
+        users: {
+          select: {
+            id: true,
+            email: true,
+            nombre: true,
+            rol: true,
+            activo: true,
+            parentId: true,
+            createdAt: true,
+          },
+        },
+      },
+      orderBy: { createdAt: 'asc' },
+    });
+
+    const tenantUserIds = new Set(tenant.users.map((u) => u.id));
+    const tenantRuc = businessConfig?.ruc;
+
+    const sucursales = allOtherTenants
+      .filter((other) => {
+        if (other.users.some((u) => u.parentId && tenantUserIds.has(u.parentId))) {
+          return true;
+        }
+        if (
+          tenantRuc &&
+          tenantRuc !== '0000000000001' &&
+          other.businessConfig?.ruc &&
+          this.safeDecryptRuc(other.businessConfig.ruc) === tenantRuc
+        ) {
+          return true;
+        }
+        return false;
+      })
+      .map((s) => ({
+        id: s.id,
+        name: s.name,
+        active: s.active,
+        createdAt: s.createdAt,
+        businessConfig: s.businessConfig
+          ? {
+              ...s.businessConfig,
+              ruc: this.safeDecryptRuc(s.businessConfig.ruc),
+            }
+          : null,
+        stats: {
+          users: s._count.users,
+          models: s._count.productModels,
+          clients: s._count.clients,
+          orders: s._count.orders,
+          suppliers: s._count.suppliers,
+          saleNotes: s._count.saleNotes,
+        },
+        users: s.users,
+      }));
+
     return {
       id: tenant.id,
       name: tenant.name,
@@ -335,6 +542,7 @@ export class TenantService {
       },
       users: tenant.users,
       businessConfig,
+      sucursales,
       subscriptionPayments: tenant.subscriptionPayments.map((p) => ({
         id: p.id,
         monto: Number(p.monto),
