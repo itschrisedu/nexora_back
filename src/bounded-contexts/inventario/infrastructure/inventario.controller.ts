@@ -106,6 +106,12 @@ export class InventarioController {
     return this.queryService.obtenerMovimientos(id);
   }
 
+  @Get('modelos/matriz')
+  @Roles(Rol.ROL_ADMIN, Rol.ROL_VENDEDOR, Rol.ROL_BODEGUERO)
+  async obtenerModelosMatriz(@Req() req: any) {
+    return this.queryService.obtenerModelosMatriz(req.user.tenantId, req.user.id);
+  }
+
   @Get('modelos')
   @Roles(Rol.ROL_ADMIN, Rol.ROL_VENDEDOR, Rol.ROL_BODEGUERO)
   async listarModelos(@Req() req: any) {

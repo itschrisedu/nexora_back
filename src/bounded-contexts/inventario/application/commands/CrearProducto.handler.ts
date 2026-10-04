@@ -18,12 +18,24 @@ export class CrearProductoHandler {
   ) {}
 
   async execute(command: CrearModeloCommand): Promise<{ modelId: string; productIds: string[] }> {
-    // 1. Verificar si el baseCode ya existe
+    // 1. Verificar si el baseCode ya existe y resolver conflicto automáticamente si pertenece a otro tenant
+    let finalBaseCode = command.baseCode.trim().toUpperCase();
     const existeModelo = await this.prisma.productModel.findUnique({
-      where: { baseCode: command.baseCode },
+      where: { baseCode: finalBaseCode },
     });
     if (existeModelo) {
-      throw new ConflictException(`El modelo con código base "${command.baseCode}" ya existe`);
+      if (existeModelo.tenantId === command.tenantId) {
+        throw new ConflictException(`El modelo con código base "${finalBaseCode}" ya existe en este local comercial`);
+      } else {
+        // Generar secuencial o sufijo único para la sucursal (ej: MOD-001-2)
+        let counter = 2;
+        let candidate = `${finalBaseCode}-${counter}`;
+        while (await this.prisma.productModel.findUnique({ where: { baseCode: candidate } })) {
+          counter++;
+          candidate = `${finalBaseCode}-${counter}`;
+        }
+        finalBaseCode = candidate;
+      }
     }
 
     // Recolectar todos los supplierIds involucrados
@@ -57,7 +69,7 @@ export class CrearProductoHandler {
     await this.prisma.productModel.create({
       data: {
         id: modelId,
-        baseCode: command.baseCode,
+        baseCode: finalBaseCode,
         name: command.name,
         brand: command.brand,
         material: command.material,

@@ -470,4 +470,173 @@ export class InventarioQueryService {
       })),
     };
   }
+
+  /**
+   * Obtiene los modelos creados en la Matriz para que las sucursales puedan adoptarlos como plantilla base.
+   */
+  async obtenerModelosMatriz(currentTenantId?: string | null, userId?: string) {
+    if (!currentTenantId) return { isMatriz: true, modelosMatriz: [] };
+
+    // 1. Obtener datos del tenant actual y del usuario
+    const [currentTenant, currentUser] = await Promise.all([
+      this.prisma.tenant.findUnique({
+        where: { id: currentTenantId },
+        include: { businessConfig: true },
+      }),
+      userId
+        ? this.prisma.user.findUnique({
+            where: { id: userId },
+            include: { parent: true },
+          })
+        : null,
+    ]);
+
+    let matrizTenantId: string | null = null;
+    let matrizName = 'Matriz Principal';
+
+    // A. Si el usuario tiene parentId, la matriz es el tenantId del parent
+    if (currentUser?.parent?.tenantId && currentUser.parent.tenantId !== currentTenantId) {
+      matrizTenantId = currentUser.parent.tenantId;
+    }
+
+    // B. Si no, buscar por coincidencia de RUC de la empresa
+    if (!matrizTenantId && currentTenant?.businessConfig?.ruc) {
+      const currentRuc = currentTenant.businessConfig.ruc;
+      const matchingTenants = await this.prisma.tenant.findMany({
+        where: {
+          active: true,
+          businessConfig: { isNot: null },
+        },
+        include: { businessConfig: true },
+        orderBy: { createdAt: 'asc' },
+      });
+
+      const sameRucTenants = matchingTenants.filter((t) => {
+        if (!t.businessConfig?.ruc) return false;
+        try {
+          const r1 = this.encryptionService.decrypt(t.businessConfig.ruc);
+          const r2 = this.encryptionService.decrypt(currentRuc);
+          return r1 && r2 && r1 === r2;
+        } catch {
+          return t.businessConfig.ruc === currentRuc;
+        }
+      });
+
+      if (sameRucTenants.length > 0) {
+        const first = sameRucTenants[0];
+        if (first.id !== currentTenantId) {
+          matrizTenantId = first.id;
+          matrizName = first.name;
+        }
+      }
+    }
+
+    // C. Si el tenant actual es la Matriz (o no se encontró matriz distinta)
+    if (!matrizTenantId || matrizTenantId === currentTenantId) {
+      return {
+        isMatriz: true,
+        matrizName: currentTenant?.name || 'Matriz',
+        modelosMatriz: [],
+      };
+    }
+
+    // 2. Obtener modelos activos de la Matriz y los existentes en la sucursal
+    const [modelosMatrizRaw, modelosSucursalActual] = await Promise.all([
+      this.prisma.productModel.findMany({
+        where: {
+          tenantId: matrizTenantId,
+          active: true,
+        },
+        include: {
+          products: {
+            where: { active: true },
+            include: {
+              serie: {
+                include: {
+                  tallas: { orderBy: { numero: 'asc' } },
+                },
+              },
+              stockByTalla: {
+                include: { talla: true },
+                orderBy: { talla: { numero: 'asc' } },
+              },
+            },
+            orderBy: { code: 'asc' },
+          },
+        },
+        orderBy: { name: 'asc' },
+      }),
+      this.prisma.productModel.findMany({
+        where: { tenantId: currentTenantId },
+        select: { name: true, baseCode: true },
+      }),
+    ]);
+
+    const nombresExistentes = new Set(
+      modelosSucursalActual.map((m) => m.name.trim().toUpperCase()),
+    );
+
+    const modelosMatriz = modelosMatrizRaw.map((m: any) => {
+      const colorMap = new Map<string, { color: string; fotoUrl: string | null }>();
+      const seriesMap = new Map<
+        string,
+        { id: string; nombre: string; tallas: number[]; costPrice: number; salePrice: number }
+      >();
+
+      for (const prod of m.products) {
+        const cKey = prod.color.trim().toUpperCase();
+        if (!colorMap.has(cKey)) {
+          colorMap.set(cKey, {
+            color: prod.color,
+            fotoUrl: prod.imageUrl || null,
+          });
+        }
+
+        if (prod.serie && !seriesMap.has(prod.serie.id)) {
+          const tallasNums = prod.serie.tallas
+            ? prod.serie.tallas.map((t: any) => t.numero)
+            : [];
+          seriesMap.set(prod.serie.id, {
+            id: prod.serie.id,
+            nombre: prod.serie.nombre,
+            tallas: tallasNums,
+            costPrice: Number(prod.costPrice) || 0,
+            salePrice: Number(prod.salePrice) || 0,
+          });
+        }
+      }
+
+      const yaImportado = nombresExistentes.has(m.name.trim().toUpperCase());
+      const minCosto =
+        m.products.length > 0
+          ? Math.min(...m.products.map((p: any) => Number(p.costPrice) || 0))
+          : 0;
+      const minVenta =
+        m.products.length > 0
+          ? Math.min(...m.products.map((p: any) => Number(p.salePrice) || 0))
+          : 0;
+
+      return {
+        id: m.id,
+        baseCode: m.baseCode,
+        name: m.name,
+        brand: m.brand,
+        material: m.material || '',
+        yaImportado,
+        colores: Array.from(colorMap.values()),
+        series: Array.from(seriesMap.values()),
+        precioCostoReferencial: minCosto,
+        precioVentaReferencial: minVenta,
+        fotoPrincipal:
+          Array.from(colorMap.values()).find((c) => c.fotoUrl)?.fotoUrl || null,
+      };
+    });
+
+    return {
+      isMatriz: false,
+      matrizTenantId,
+      matrizName,
+      modelosMatriz,
+    };
+  }
 }
