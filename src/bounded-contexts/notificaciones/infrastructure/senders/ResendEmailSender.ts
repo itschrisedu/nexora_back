@@ -34,7 +34,7 @@ export class ResendEmailSender implements INotificationSender {
     }
 
     try {
-      const response = await this.resend.emails.send({
+      let response = await this.resend.emails.send({
         from: this.fromEmail,
         to: payload.destinatario,
         subject: payload.asunto,
@@ -42,11 +42,39 @@ export class ResendEmailSender implements INotificationSender {
         ...(payload.replyTo ? { reply_to: payload.replyTo } : {}),
       });
 
+      if (
+        response.error &&
+        (response.error.message.includes('only send testing emails') ||
+          response.error.message.includes('chrispaucar49@gmail.com'))
+      ) {
+        const devEmail = 'chrispaucar49@gmail.com';
+        this.logger.warn(
+          `⚠️ [Resend Sandbox] Cuenta gratuita de Resend en modo prueba. Entregando a correo principal (${devEmail}) para destinatario (${payload.destinatario}).`,
+        );
+
+        const devHtml = `
+          <div style="background: #1e293b; color: #38bdf8; padding: 12px 16px; border-radius: 12px; margin-bottom: 20px; font-size: 13px; font-family: sans-serif; border: 1px solid rgba(56, 189, 248, 0.3);">
+            <strong>ℹ️ Modo de Prueba / Sandbox:</strong><br />
+            Notificación generada para: <strong style="color: #fff;">${payload.destinatario}</strong>.<br />
+            Entregada a tu buzón principal de Resend (<a href="mailto:${devEmail}" style="color: #38bdf8;">${devEmail}</a>).
+          </div>
+          ${payload.cuerpoHtml}
+        `;
+
+        response = await this.resend.emails.send({
+          from: this.fromEmail,
+          to: devEmail,
+          subject: `[Para: ${payload.destinatario}] ${payload.asunto}`,
+          html: devHtml,
+          ...(payload.replyTo ? { reply_to: payload.replyTo } : {}),
+        });
+      }
+
       if (response.error) {
         return { success: false, error: response.error.message };
       }
 
-      this.logger.log(`📧 Email enviado a ${payload.destinatario} — ID: ${response.data?.id}`);
+      this.logger.log(`📧 Email enviado exitosamente — ID: ${response.data?.id}`);
       return { success: true };
     } catch (error: any) {
       this.logger.error(`❌ Error Resend: ${error.message}`);

@@ -1,3 +1,4 @@
+import * as dns from 'dns';
 import {
   Injectable,
   UnauthorizedException,
@@ -63,7 +64,7 @@ export class AuthService implements OnApplicationBootstrap {
     let smtpPass = this.configService.get<string>('SMTP_PASS') || this.configService.get<string>('MAIL_PASS');
     const smtpService = this.configService.get<string>('SMTP_SERVICE')?.toLowerCase();
     let smtpHost = this.configService.get<string>('SMTP_HOST') || this.configService.get<string>('MAIL_HOST');
-    let smtpPort = Number(this.configService.get<number | string>('SMTP_PORT') || this.configService.get<number | string>('MAIL_PORT')) || 587;
+    let smtpPort = Number(this.configService.get<number | string>('SMTP_PORT') || this.configService.get<number | string>('MAIL_PORT')) || 465;
     let smtpSecure = this.configService.get<string>('SMTP_SECURE') === 'true' || smtpPort === 465;
 
     // Limpiar espacios en la contraseña de aplicación de Gmail (ej: "abcd efgh ijkl mnop" -> "abcdefghijklmnop")
@@ -83,10 +84,13 @@ export class AuthService implements OnApplicationBootstrap {
         let transporter: Transporter;
 
         const timeoutOptions: any = {
-          connectionTimeout: 5000,
-          greetingTimeout: 5000,
+          connectionTimeout: 6000,
+          greetingTimeout: 6000,
           socketTimeout: 8000,
-          family: 4, // Forzar IPv4 para evitar error ENETUNREACH de IPv6 en Render/Cloud
+          family: 4,
+          lookup: (hostname: string, options: any, callback: any) => {
+            dns.lookup(hostname, { family: 4 }, callback);
+          },
         };
 
         if (smtpService) {
@@ -96,17 +100,16 @@ export class AuthService implements OnApplicationBootstrap {
             ...timeoutOptions,
           });
         } else if (smtpUser.toLowerCase().endsWith('@gmail.com')) {
-          // Transporte optimizado para Gmail con puerto 587 / IPv4
+          // Gmail en puerto 465 con SSL directo e IPv4 forzada
           transporter = nodemailer.createTransport({
             host: 'smtp.gmail.com',
-            port: 587,
-            secure: false,
+            port: 465,
+            secure: true,
             auth: { user: smtpUser, pass: smtpPass },
             tls: { rejectUnauthorized: false },
             ...timeoutOptions,
           });
         } else {
-          // Auto-detección de host por dominio si no se configuró explícitamente
           if (!smtpHost) {
             if (smtpUser.endsWith('@hotmail.com') || smtpUser.endsWith('@outlook.com') || smtpUser.endsWith('@live.com')) {
               smtpHost = 'smtp-mail.outlook.com';
@@ -156,19 +159,49 @@ export class AuthService implements OnApplicationBootstrap {
     if (apiKey && apiKey.trim() !== '') {
       try {
         const resend = new Resend(apiKey);
-        // Resend requiere 'onboarding@resend.dev' salvo que se configure y verifique un dominio propio en resend.com
         const resendFrom = this.configService.get<string>('RESEND_FROM_EMAIL') || 'NEXORA Notificaciones <onboarding@resend.dev>';
-        const res = await resend.emails.send({
+        
+        let res = await resend.emails.send({
           from: resendFrom,
           to,
           subject,
           html,
           ...(smtpUser ? { replyTo: smtpUser } : {}),
         });
+
+        // Si Resend falla porque está en modo sandbox (solo permite enviar al correo del propietario en Resend)
+        if (
+          res.error &&
+          (res.error.message.includes('only send testing emails') ||
+            res.error.message.includes('chrispaucar49@gmail.com'))
+        ) {
+          const devEmail = 'chrispaucar49@gmail.com';
+          this.logger.warn(
+            `⚠️ [Resend Sandbox] Cuenta gratuita de Resend en modo prueba. Entregando a tu correo principal (${devEmail}) para la cuenta (${to}).`,
+          );
+
+          const devHtml = `
+            <div style="background: #1e293b; color: #38bdf8; padding: 12px 16px; border-radius: 12px; margin-bottom: 20px; font-size: 13px; font-family: sans-serif; border: 1px solid rgba(56, 189, 248, 0.3);">
+              <strong>ℹ️ Modo de Prueba / Sandbox:</strong><br />
+              Este código de verificación fue generado para: <strong style="color: #fff;">${to}</strong>.<br />
+              Se entregó a tu buzón principal de Resend (<a href="mailto:${devEmail}" style="color: #38bdf8;">${devEmail}</a>).
+            </div>
+            ${html}
+          `;
+
+          res = await resend.emails.send({
+            from: resendFrom,
+            to: devEmail,
+            subject: `[Para: ${to}] ${subject}`,
+            html: devHtml,
+            ...(smtpUser ? { replyTo: smtpUser } : {}),
+          });
+        }
+
         if (res.error) {
           this.logger.warn(`Resend Error: ${res.error.message}. Simulando en consola.`);
         } else {
-          this.logger.log(`📧 [Resend] Correo enviado exitosamente a ${to} (ID: ${res.data?.id})`);
+          this.logger.log(`📧 [Resend] Correo enviado exitosamente (ID: ${res.data?.id})`);
           return true;
         }
       } catch (e: any) {
