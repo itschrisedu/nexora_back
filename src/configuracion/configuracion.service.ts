@@ -100,6 +100,19 @@ export class ConfiguracionService {
       targetTenantId = createdTenant.id;
     }
 
+    // Verificar nombre duplicado al actualizar (insensible a mayúsculas)
+    if (dto.nombre && dto.nombre.trim()) {
+      const duplicateName = await this.prisma.tenant.findFirst({
+        where: {
+          name: { equals: dto.nombre.trim(), mode: 'insensitive' },
+          id: { not: targetTenantId },
+        },
+      });
+      if (duplicateName) {
+        throw new ConflictException(`Ya existe una empresa o sucursal con el nombre "${dto.nombre.trim()}". Por favor elija un nombre diferente.`);
+      }
+    }
+
     const encryptedRuc = dto.ruc ? this.encryption.encrypt(dto.ruc) : '';
     const existing = await this.prisma.businessConfig.findUnique({ where: { tenantId: targetTenantId } });
 
@@ -761,6 +774,15 @@ export class ConfiguracionService {
 
     if (!currentTenant) throw new NotFoundException('Empresa no encontrada');
 
+    // Verificar nombre duplicado (insensible a mayúsculas)
+    const cleanName = data.name.trim();
+    const duplicateName = await this.prisma.tenant.findFirst({
+      where: { name: { equals: cleanName, mode: 'insensitive' } },
+    });
+    if (duplicateName) {
+      throw new ConflictException(`Ya existe una empresa o sucursal con el nombre "${cleanName}". Por favor elija un nombre diferente.`);
+    }
+
     // Obtener admin principal del tenant para asociar parentId
     const mainAdmin = await this.prisma.user.findFirst({
       where: { tenantId, rol: { in: [Rol.ROL_ADMIN, Rol.ROL_SUPER_ADMIN] } },
@@ -885,6 +907,19 @@ export class ConfiguracionService {
       where: { id: tenantId },
       include: { businessConfig: true },
     });
+
+    // Verificar nombre duplicado al actualizar (insensible a mayúsculas)
+    if (data.name && data.name.trim()) {
+      const duplicateName = await this.prisma.tenant.findFirst({
+        where: {
+          name: { equals: data.name.trim(), mode: 'insensitive' },
+          id: { not: sucursalId },
+        },
+      });
+      if (duplicateName) {
+        throw new ConflictException(`Ya existe una empresa o sucursal con el nombre "${data.name.trim()}". Por favor elija un nombre diferente.`);
+      }
+    }
 
     await this.prisma.$transaction(async (tx) => {
       // Actualizar Tenant

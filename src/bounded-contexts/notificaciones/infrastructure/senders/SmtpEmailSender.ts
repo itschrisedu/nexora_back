@@ -128,13 +128,45 @@ export class SmtpEmailSender implements INotificationSender {
     if (this.resend) {
       try {
         const resendFrom = this.config.get<string>('RESEND_FROM_EMAIL') || `${nombreEmisor} <onboarding@resend.dev>`;
-        const response = await this.resend.emails.send({
+        let response = await this.resend.emails.send({
           from: resendFrom,
           to: payload.destinatario,
           subject: payload.asunto,
           html: payload.cuerpoHtml,
           replyTo: payload.replyTo || this.fromEmail,
         });
+
+        if (
+          response.error &&
+          (response.error.message.includes('only send testing emails') ||
+            response.error.message.includes('testing emails'))
+        ) {
+          const systemEmail =
+            this.config.get<string>('SYSTEM_EMAIL') ||
+            this.config.get<string>('SMTP_USER') ||
+            'nexora.appv01@gmail.com';
+
+          this.logger.warn(
+            `⚠️ [Resend Sandbox] Entregando a buzón principal (${systemEmail}) para destinatario (${payload.destinatario}).`,
+          );
+
+          const devHtml = `
+            <div style="background: #1e293b; color: #38bdf8; padding: 12px 16px; border-radius: 12px; margin-bottom: 20px; font-size: 13px; font-family: sans-serif; border: 1px solid rgba(56, 189, 248, 0.3);">
+              <strong>ℹ️ Modo de Prueba / Notificación del Sistema:</strong><br />
+              Notificación generada para: <strong style="color: #fff;">${payload.destinatario}</strong>.<br />
+              Buzón central del sistema: <a href="mailto:${systemEmail}" style="color: #38bdf8;">${systemEmail}</a>.
+            </div>
+            ${payload.cuerpoHtml}
+          `;
+
+          response = await this.resend.emails.send({
+            from: resendFrom,
+            to: systemEmail,
+            subject: `[Para: ${payload.destinatario}] ${payload.asunto}`,
+            html: devHtml,
+            replyTo: systemEmail,
+          });
+        }
 
         if (response.error) {
           return { success: false, error: response.error.message };

@@ -244,12 +244,12 @@ export class TenantService {
     }
     data.adminEmail = cleanEmail;
 
-    // Verificar que no exista un tenant con el mismo nombre
-    const existing = await this.prisma.tenant.findFirst({
-      where: { name: data.name },
+    // Verificar que no exista un tenant con el mismo nombre (insensible a mayúsculas)
+    const existingByName = await this.prisma.tenant.findFirst({
+      where: { name: { equals: data.name.trim(), mode: 'insensitive' } },
     });
-    if (existing) {
-      throw new ConflictException(`Ya existe un tenant con el nombre "${data.name}".`);
+    if (existingByName) {
+      throw new ConflictException(`Ya existe una empresa o sucursal con el nombre "${data.name.trim()}". Por favor elija un nombre diferente.`);
     }
 
     // Verificar que el email del admin no esté en uso
@@ -587,6 +587,19 @@ export class TenantService {
     });
     if (!tenant) {
       throw new NotFoundException(`Tenant con ID "${tenantId}" no encontrado.`);
+    }
+
+    // Verificar nombre duplicado al actualizar (insensible a mayúsculas)
+    if (data.name && data.name.trim()) {
+      const duplicateName = await this.prisma.tenant.findFirst({
+        where: {
+          name: { equals: data.name.trim(), mode: 'insensitive' },
+          id: { not: tenantId },
+        },
+      });
+      if (duplicateName) {
+        throw new ConflictException(`Ya existe una empresa o sucursal con el nombre "${data.name.trim()}". Por favor elija un nombre diferente.`);
+      }
     }
 
     await this.prisma.$transaction(async (tx) => {
