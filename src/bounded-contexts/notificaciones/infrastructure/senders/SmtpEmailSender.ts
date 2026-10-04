@@ -127,12 +127,13 @@ export class SmtpEmailSender implements INotificationSender {
     // 2. Envío mediante Resend (Fallback)
     if (this.resend) {
       try {
+        const resendFrom = this.config.get<string>('RESEND_FROM_EMAIL') || `${nombreEmisor} <onboarding@resend.dev>`;
         const response = await this.resend.emails.send({
-          from: remitenteCompleto,
+          from: resendFrom,
           to: payload.destinatario,
           subject: payload.asunto,
           html: payload.cuerpoHtml,
-          ...(payload.replyTo ? { reply_to: payload.replyTo } : {}),
+          reply_to: payload.replyTo || this.fromEmail,
         });
 
         if (response.error) {

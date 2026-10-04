@@ -82,10 +82,11 @@ export class AuthService implements OnApplicationBootstrap {
       try {
         let transporter: Transporter;
 
-        const timeoutOptions = {
+        const timeoutOptions: any = {
           connectionTimeout: 5000,
           greetingTimeout: 5000,
           socketTimeout: 8000,
+          family: 4, // Forzar IPv4 para evitar error ENETUNREACH de IPv6 en Render/Cloud
         };
 
         if (smtpService) {
@@ -95,10 +96,13 @@ export class AuthService implements OnApplicationBootstrap {
             ...timeoutOptions,
           });
         } else if (smtpUser.toLowerCase().endsWith('@gmail.com')) {
-          // Transporte nativo optimizado para Gmail con timeout rápido
+          // Transporte optimizado para Gmail con puerto 587 / IPv4
           transporter = nodemailer.createTransport({
-            service: 'gmail',
+            host: 'smtp.gmail.com',
+            port: 587,
+            secure: false,
             auth: { user: smtpUser, pass: smtpPass },
+            tls: { rejectUnauthorized: false },
             ...timeoutOptions,
           });
         } else {
@@ -152,11 +156,14 @@ export class AuthService implements OnApplicationBootstrap {
     if (apiKey && apiKey.trim() !== '') {
       try {
         const resend = new Resend(apiKey);
+        // Resend requiere 'onboarding@resend.dev' salvo que se configure y verifique un dominio propio en resend.com
+        const resendFrom = this.configService.get<string>('RESEND_FROM_EMAIL') || 'NEXORA Notificaciones <onboarding@resend.dev>';
         const res = await resend.emails.send({
-          from: fromEmail,
+          from: resendFrom,
           to,
           subject,
           html,
+          ...(smtpUser ? { reply_to: smtpUser } : {}),
         });
         if (res.error) {
           this.logger.warn(`Resend Error: ${res.error.message}. Simulando en consola.`);

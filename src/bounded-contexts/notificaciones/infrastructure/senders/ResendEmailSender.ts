@@ -15,7 +15,9 @@ export class ResendEmailSender implements INotificationSender {
 
   constructor(private readonly config: ConfigService) {
     const apiKey = this.config.get<string>('RESEND_API_KEY', '');
-    this.fromEmail = this.config.get<string>('NOTIFICATIONS_FROM_EMAIL', 'nexora@example.com');
+    this.fromEmail = this.config.get<string>('RESEND_FROM_EMAIL') ||
+                     this.config.get<string>('NOTIFICATIONS_FROM_EMAIL') ||
+                     'NEXORA Notificaciones <onboarding@resend.dev>';
     
     if (apiKey && apiKey !== '') {
       this.resend = new Resend(apiKey);
@@ -37,6 +39,7 @@ export class ResendEmailSender implements INotificationSender {
         to: payload.destinatario,
         subject: payload.asunto,
         html: payload.cuerpoHtml,
+        ...(payload.replyTo ? { reply_to: payload.replyTo } : {}),
       });
 
       if (response.error) {
