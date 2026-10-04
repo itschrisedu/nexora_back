@@ -133,7 +133,7 @@ export class SmtpEmailSender implements INotificationSender {
           to: payload.destinatario,
           subject: payload.asunto,
           html: payload.cuerpoHtml,
-          reply_to: payload.replyTo || this.fromEmail,
+          replyTo: payload.replyTo || this.fromEmail,
         });
 
         if (response.error) {

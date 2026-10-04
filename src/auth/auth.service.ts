@@ -163,7 +163,7 @@ export class AuthService implements OnApplicationBootstrap {
           to,
           subject,
           html,
-          ...(smtpUser ? { reply_to: smtpUser } : {}),
+          ...(smtpUser ? { replyTo: smtpUser } : {}),
         });
         if (res.error) {
           this.logger.warn(`Resend Error: ${res.error.message}. Simulando en consola.`);
