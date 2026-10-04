@@ -45,28 +45,32 @@ export class ResendEmailSender implements INotificationSender {
       if (
         response.error &&
         (response.error.message.includes('only send testing emails') ||
-          response.error.message.includes('chrispaucar49@gmail.com'))
+          response.error.message.includes('testing emails'))
       ) {
-        const devEmail = 'chrispaucar49@gmail.com';
+        const systemEmail =
+          this.config.get<string>('SYSTEM_EMAIL') ||
+          this.config.get<string>('SMTP_USER') ||
+          'nexora.appv01@gmail.com';
+
         this.logger.warn(
-          `⚠️ [Resend Sandbox] Cuenta gratuita de Resend en modo prueba. Entregando a correo principal (${devEmail}) para destinatario (${payload.destinatario}).`,
+          `⚠️ [Resend Sandbox] Cuenta gratuita de Resend en modo prueba. Entregando a correo principal del sistema (${systemEmail}) para destinatario (${payload.destinatario}).`,
         );
 
         const devHtml = `
           <div style="background: #1e293b; color: #38bdf8; padding: 12px 16px; border-radius: 12px; margin-bottom: 20px; font-size: 13px; font-family: sans-serif; border: 1px solid rgba(56, 189, 248, 0.3);">
-            <strong>ℹ️ Modo de Prueba / Sandbox:</strong><br />
+            <strong>ℹ️ Modo de Prueba / Notificación del Sistema:</strong><br />
             Notificación generada para: <strong style="color: #fff;">${payload.destinatario}</strong>.<br />
-            Entregada a tu buzón principal de Resend (<a href="mailto:${devEmail}" style="color: #38bdf8;">${devEmail}</a>).
+            Buzón central del sistema: <a href="mailto:${systemEmail}" style="color: #38bdf8;">${systemEmail}</a>.
           </div>
           ${payload.cuerpoHtml}
         `;
 
         response = await this.resend.emails.send({
           from: this.fromEmail,
-          to: devEmail,
+          to: systemEmail,
           subject: `[Para: ${payload.destinatario}] ${payload.asunto}`,
           html: devHtml,
-          ...(payload.replyTo ? { reply_to: payload.replyTo } : {}),
+          replyTo: systemEmail,
         });
       }
 

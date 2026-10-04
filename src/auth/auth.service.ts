@@ -154,6 +154,12 @@ export class AuthService implements OnApplicationBootstrap {
       }
     }
 
+    const systemEmail =
+      this.configService.get<string>('SYSTEM_EMAIL') ||
+      this.configService.get<string>('SMTP_USER') ||
+      this.configService.get<string>('MAIL_USER') ||
+      'nexora.appv01@gmail.com';
+
     // 2. Fallback con Resend si está configurado
     const apiKey = this.configService.get<string>('RESEND_API_KEY', '');
     if (apiKey && apiKey.trim() !== '') {
@@ -166,35 +172,34 @@ export class AuthService implements OnApplicationBootstrap {
           to,
           subject,
           html,
-          ...(smtpUser ? { replyTo: smtpUser } : {}),
+          ...(smtpUser ? { replyTo: smtpUser } : { replyTo: systemEmail }),
         });
 
-        // Si Resend falla porque está en modo sandbox (solo permite enviar al correo del propietario en Resend)
+        // Si Resend falla porque está en modo sandbox (cuenta gratuita sin dominio verificado)
         if (
           res.error &&
           (res.error.message.includes('only send testing emails') ||
-            res.error.message.includes('chrispaucar49@gmail.com'))
+            res.error.message.includes('testing emails'))
         ) {
-          const devEmail = 'chrispaucar49@gmail.com';
           this.logger.warn(
-            `⚠️ [Resend Sandbox] Cuenta gratuita de Resend en modo prueba. Entregando a tu correo principal (${devEmail}) para la cuenta (${to}).`,
+            `⚠️ [Resend Sandbox] Cuenta gratuita de Resend en modo prueba. Entregando a buzón principal del sistema (${systemEmail}) para la cuenta (${to}).`,
           );
 
           const devHtml = `
             <div style="background: #1e293b; color: #38bdf8; padding: 12px 16px; border-radius: 12px; margin-bottom: 20px; font-size: 13px; font-family: sans-serif; border: 1px solid rgba(56, 189, 248, 0.3);">
-              <strong>ℹ️ Modo de Prueba / Sandbox:</strong><br />
+              <strong>ℹ️ Modo de Prueba / Notificación del Sistema:</strong><br />
               Este código de verificación fue generado para: <strong style="color: #fff;">${to}</strong>.<br />
-              Se entregó a tu buzón principal de Resend (<a href="mailto:${devEmail}" style="color: #38bdf8;">${devEmail}</a>).
+              Buzón central del sistema: <a href="mailto:${systemEmail}" style="color: #38bdf8;">${systemEmail}</a>.
             </div>
             ${html}
           `;
 
           res = await resend.emails.send({
             from: resendFrom,
-            to: devEmail,
+            to: systemEmail,
             subject: `[Para: ${to}] ${subject}`,
             html: devHtml,
-            ...(smtpUser ? { replyTo: smtpUser } : {}),
+            replyTo: systemEmail,
           });
         }
 
