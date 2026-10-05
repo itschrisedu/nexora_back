@@ -3,7 +3,7 @@ import {
   MerchandiseEntrySinLineasException,
   CantidadIngresadaInvalidaException,
   PrecioCostoEntryInvalidoException,
-} from './MerchandiseEntry';
+} from '../../../src/bounded-contexts/proveedores/domain/MerchandiseEntry';
 
 describe('MerchandiseEntry Aggregate Root', () => {
   const entryId = 'entry-1';

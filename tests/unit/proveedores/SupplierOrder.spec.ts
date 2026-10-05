@@ -4,7 +4,7 @@ import {
   CantidadPedidaInvalidaException,
   PrecioCostoInvalidoException,
   EstadoOrdenInvalidoException,
-} from './SupplierOrder';
+} from '../../../src/bounded-contexts/proveedores/domain/SupplierOrder';
 import { SupplierOrderStatus } from '@prisma/client';
 
 describe('SupplierOrder Aggregate Root', () => {
@@ -17,19 +17,24 @@ describe('SupplierOrder Aggregate Root', () => {
   ];
 
   describe('crear', () => {
-    it('debe inicializar la orden de compra correctamente en PENDIENTE', () => {
+    it('debe inicializar la orden de compra correctamente en BORRADOR por defecto', () => {
       const order = SupplierOrder.crear(orderId, numero, supplierId, lines);
 
       expect(order.id).toBe(orderId);
       expect(order.numero).toBe(numero);
       expect(order.supplierId).toBe(supplierId);
       expect(order.total).toBe(10 * 15.5 + 5 * 20.0); // 255.0
-      expect(order.estado).toBe(SupplierOrderStatus.PENDIENTE);
+      expect(order.estado).toBe(SupplierOrderStatus.BORRADOR);
       expect(order.lines).toHaveLength(2);
       expect(order.lines[0].subtotal).toBe(155.0);
 
       const events = order.domainEvents;
       expect(events.some((e) => e.eventName === 'SupplierOrderCreado')).toBe(true);
+    });
+
+    it('debe permitir crear la orden directamente en estado PENDIENTE', () => {
+      const order = SupplierOrder.crear(orderId, numero, supplierId, lines, undefined, SupplierOrderStatus.PENDIENTE);
+      expect(order.estado).toBe(SupplierOrderStatus.PENDIENTE);
     });
 
     it('debe lanzar exception si se crea sin líneas', () => {
@@ -58,7 +63,7 @@ describe('SupplierOrder Aggregate Root', () => {
   });
 
   describe('transición de estados', () => {
-    it('debe marcar como recibida una orden pendiente', () => {
+    it('debe marcar como recibida una orden', () => {
       const order = SupplierOrder.crear(orderId, numero, supplierId, lines);
       order.marcarComoRecibida();
 
@@ -67,7 +72,7 @@ describe('SupplierOrder Aggregate Root', () => {
       expect(events.some((e) => e.eventName === 'SupplierOrderRecibido')).toBe(true);
     });
 
-    it('debe cancelar una orden pendiente', () => {
+    it('debe cancelar una orden', () => {
       const order = SupplierOrder.crear(orderId, numero, supplierId, lines);
       order.cancelar();
 

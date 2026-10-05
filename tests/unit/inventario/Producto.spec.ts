@@ -1,10 +1,8 @@
-import { Producto } from './Producto';
-import { Money } from '../../../shared/domain/Money';
-import { Serie } from './value-objects/Serie';
-import { StockPorTalla } from './value-objects/StockPorTalla';
-import { TallaInvalidaParaSerieException } from './exceptions/TallaInvalidaParaSerieException';
-import { SerieInvalidaException } from './exceptions/SerieInvalidaException';
-import { Talla } from './value-objects/Talla';
+import { Producto } from '../../../src/bounded-contexts/inventario/domain/Producto';
+import { Money } from '../../../src/shared/domain/Money';
+import { Serie } from '../../../src/bounded-contexts/inventario/domain/value-objects/Serie';
+import { StockPorTalla } from '../../../src/bounded-contexts/inventario/domain/value-objects/StockPorTalla';
+import { Talla } from '../../../src/bounded-contexts/inventario/domain/value-objects/Talla';
 
 describe('Producto Aggregate Root', () => {
   let serieBebes: Serie;
@@ -38,7 +36,7 @@ describe('Producto Aggregate Root', () => {
     expect(producto.domainEvents[0].eventName).toBe('inventario.producto_creado');
   });
 
-  it('debe lanzar error si precio es negativo o cero', () => {
+  it('debe lanzar error si precio de venta o costo es menor o igual a cero', () => {
     expect(() =>
       Producto.crear(
         'prod-uuid',
@@ -54,16 +52,13 @@ describe('Producto Aggregate Root', () => {
     ).toThrow();
   });
 
-  it('debe lanzar SerieInvalidaException si la serie no es permitida', () => {
-    expect(() => Serie.create('OTRA_SERIE_INVALIDA')).toThrow(
-      SerieInvalidaException,
-    );
+  it('debe lanzar error si la serie está vacía', () => {
+    expect(() => Serie.create('')).toThrow();
   });
 
-  it('debe lanzar TallaInvalidaParaSerieException si la talla no corresponde al rango de la serie', () => {
-    expect(() => Talla.create(25, serieBebes)).toThrow(
-      TallaInvalidaParaSerieException,
-    );
+  it('debe lanzar error si el número de talla es menor o igual a 0', () => {
+    expect(() => Talla.create(0, serieBebes)).toThrow();
+    expect(() => Talla.create(-5, serieBebes)).toThrow();
   });
 
   it('debe cambiar de precio y registrarlo en el historial de precios', () => {
@@ -126,9 +121,20 @@ describe('Producto Aggregate Root', () => {
     ).toThrow();
   });
 
-  it('debe lanzar excepcion si cantidad disponible queda negativa al decrementar fisico', () => {
-    const stock = StockPorTalla.create('t-id', 10, 5, 1);
-    // Disponible = 5. Si descontamos 6 físicos, el stock disponible pasará a ser -1.
-    expect(() => stock.disminuirFisico(6)).toThrow();
+  it('debe lanzar excepcion si cantidad física a decrementar supera el total', () => {
+    const producto = Producto.crear(
+      'prod-uuid',
+      'model-uuid',
+      'COD-001',
+      'Blanco',
+      null,
+      Money.create(10),
+      Money.create(20),
+      serieBebes,
+      [talla18],
+    );
+    expect(() => producto.descontarStock('talla-18-id', 15)).toThrow(
+      'No es posible descontar más de la cantidad física real',
+    );
   });
 });

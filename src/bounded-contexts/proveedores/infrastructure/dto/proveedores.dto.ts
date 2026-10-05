@@ -49,7 +49,7 @@ export class ActualizarSupplierDto {
   direccion?: string;
 
   @IsOptional()
-  @IsEmail({}, { message: 'El formato del email no es válido.' })
+  @IsString()
   email?: string;
 }
 

@@ -1,8 +1,8 @@
-import { pedidoConfirmadoTemplate } from './pedido-confirmado.template';
-import { pedidoEnTransitoTemplate } from './pedido-en-transito.template';
-import { pedidoEntregadoTemplate } from './pedido-entregado.template';
-import { cobroVencidoTemplate } from './cobro-vencido.template';
-import { notaVentaGeneradaTemplate } from './nota-venta-generada.template';
+import { pedidoConfirmadoTemplate } from '../../../src/bounded-contexts/notificaciones/application/templates/pedido-confirmado.template';
+import { pedidoEnTransitoTemplate } from '../../../src/bounded-contexts/notificaciones/application/templates/pedido-en-transito.template';
+import { pedidoEntregadoTemplate } from '../../../src/bounded-contexts/notificaciones/application/templates/pedido-entregado.template';
+import { cobroVencidoTemplate } from '../../../src/bounded-contexts/notificaciones/application/templates/cobro-vencido.template';
+import { notaVentaGeneradaTemplate } from '../../../src/bounded-contexts/notificaciones/application/templates/nota-venta-generada.template';
 
 describe('Plantillas HTML de Notificaciones', () => {
   it('pedidoConfirmadoTemplate genera HTML con datos del pedido', () => {

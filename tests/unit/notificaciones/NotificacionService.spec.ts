@@ -1,6 +1,6 @@
-import { NotificacionService } from './NotificacionService';
-import { INotificationSender } from '../domain/INotificationSender';
-import { NotificationPayload } from '../domain/NotificationPayload';
+import { NotificacionService } from '../../../src/bounded-contexts/notificaciones/application/NotificacionService';
+import { INotificationSender } from '../../../src/bounded-contexts/notificaciones/domain/INotificationSender';
+import { NotificationPayload } from '../../../src/bounded-contexts/notificaciones/domain/NotificationPayload';
 
 describe('NotificacionService', () => {
   let service: NotificacionService;
@@ -94,7 +94,6 @@ describe('NotificacionService', () => {
       eventoOrigen: 'Test',
     });
 
-    // Debe registrar el fallo en el catch
     expect(mockPrisma.notificationLog.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
         estado: 'FALLIDO',

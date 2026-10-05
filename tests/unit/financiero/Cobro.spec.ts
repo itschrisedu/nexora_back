@@ -1,5 +1,5 @@
-import { Cobro, CobroYaSaldadoException, AbonoPorEncimaSaldoException } from './Cobro';
-import { Money } from '../../../shared/domain/Money';
+import { Cobro, CobroYaSaldadoException, AbonoPorEncimaSaldoException } from '../../../src/bounded-contexts/financiero/domain/Cobro';
+import { Money } from '../../../src/shared/domain/Money';
 import { CobroEstado, TipoCobro } from '@prisma/client';
 
 describe('Cobro Aggregate Root', () => {

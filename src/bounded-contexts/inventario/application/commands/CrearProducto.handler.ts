@@ -7,7 +7,7 @@ import { Serie } from '../../domain/value-objects/Serie';
 import { StockPorTalla } from '../../domain/value-objects/StockPorTalla';
 import { PrismaService } from '../../../../shared/infrastructure/prisma/prisma.service';
 import { Talla } from '../../domain/value-objects/Talla';
-import { generarSiglaProveedor } from '../../../../shared/utils/text-formatters';
+import { generarSiglaProveedor, generarCodigoBaseModelo } from '../../../../shared/utils/text-formatters';
 
 @Injectable()
 export class CrearProductoHandler {
@@ -19,7 +19,12 @@ export class CrearProductoHandler {
 
   async execute(command: CrearModeloCommand): Promise<{ modelId: string; productIds: string[] }> {
     // 1. Verificar si el baseCode ya existe y resolver conflicto automáticamente si pertenece a otro tenant
-    let finalBaseCode = command.baseCode.trim().toUpperCase();
+    let finalBaseCode = (command.baseCode || '').trim().toUpperCase();
+    if (!finalBaseCode) {
+      const allModels = await this.prisma.productModel.findMany({ select: { baseCode: true } });
+      finalBaseCode = generarCodigoBaseModelo(command.name, allModels.map(m => m.baseCode));
+    }
+
     const existeModelo = await this.prisma.productModel.findUnique({
       where: { baseCode: finalBaseCode },
     });
@@ -27,12 +32,12 @@ export class CrearProductoHandler {
       if (existeModelo.tenantId === command.tenantId) {
         throw new ConflictException(`El modelo con código base "${finalBaseCode}" ya existe en este local comercial`);
       } else {
-        // Generar secuencial o sufijo único para la sucursal (ej: MOD-001-2)
+        // Generar secuencial o sufijo único para la sucursal (ej: VHL-01-02)
         let counter = 2;
-        let candidate = `${finalBaseCode}-${counter}`;
+        let candidate = `${finalBaseCode}-${String(counter).padStart(2, '0')}`;
         while (await this.prisma.productModel.findUnique({ where: { baseCode: candidate } })) {
           counter++;
-          candidate = `${finalBaseCode}-${counter}`;
+          candidate = `${finalBaseCode}-${String(counter).padStart(2, '0')}`;
         }
         finalBaseCode = candidate;
       }

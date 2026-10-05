@@ -3,6 +3,7 @@ import { ISupplierRepository } from '../../domain/ISupplierRepository';
 import { ActualizarSupplierCommand } from './ActualizarSupplier.command';
 import {
   formatearNombres,
+  formatearTelefono,
   formatearEmail,
   formatearDireccion,
   validarEmailEstricto,
@@ -21,17 +22,17 @@ export class ActualizarSupplierHandler {
       throw new NotFoundException(`Proveedor con ID "${command.id}" no encontrado.`);
     }
 
-    if (command.email) {
+    if (command.email && command.email.trim() !== '') {
       const emailValidation = validarEmailEstricto(command.email);
       if (!emailValidation.valido) {
         throw new BadRequestException(emailValidation.mensaje);
       }
     }
 
-    const razonSocialFinal = command.razonSocial ? command.razonSocial.trim() : supplier.razonSocial;
-    const contactoFinal = command.contacto !== undefined ? formatearNombres(command.contacto, 3) : (supplier.contacto ?? undefined);
-    const direccionFinal = command.direccion !== undefined ? formatearDireccion(command.direccion) : (supplier.direccion ?? undefined);
-    const emailFinal = command.email !== undefined ? formatearEmail(command.email) : (supplier.email ?? undefined);
+    const razonSocialFinal = command.razonSocial !== undefined ? (command.razonSocial ? command.razonSocial.trim() : supplier.razonSocial) : supplier.razonSocial;
+    const contactoFinal = command.contacto !== undefined ? (command.contacto.trim() ? (formatearTelefono(command.contacto) || command.contacto.trim()) : undefined) : (supplier.contacto ?? undefined);
+    const direccionFinal = command.direccion !== undefined ? (command.direccion.trim() ? formatearDireccion(command.direccion) : undefined) : (supplier.direccion ?? undefined);
+    const emailFinal = command.email !== undefined ? (command.email.trim() ? formatearEmail(command.email) : undefined) : (supplier.email ?? undefined);
 
     supplier.actualizarInfo(
       razonSocialFinal,

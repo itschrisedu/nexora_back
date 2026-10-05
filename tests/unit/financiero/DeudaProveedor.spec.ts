@@ -1,5 +1,5 @@
-import { DeudaProveedor, DeudaYaSaldadaException, PagoSuperaDeudaException } from './DeudaProveedor';
-import { Money } from '../../../shared/domain/Money';
+import { DeudaProveedor, DeudaYaSaldadaException, PagoSuperaDeudaException } from '../../../src/bounded-contexts/financiero/domain/DeudaProveedor';
+import { Money } from '../../../src/shared/domain/Money';
 import { DeudaEstado } from '@prisma/client';
 
 describe('DeudaProveedor Aggregate Root', () => {

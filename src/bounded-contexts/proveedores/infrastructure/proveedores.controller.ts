@@ -126,7 +126,7 @@ export class ProveedoresController {
     @Param('id') id: string,
     @Body() dto: ActualizarSupplierDto,
   ) {
-    if (dto.email) {
+    if (dto.email && dto.email.trim() !== '') {
       const emailVal = validarEmailEstricto(dto.email);
       if (!emailVal.valido) {
         throw new BadRequestException(emailVal.mensaje);
@@ -164,6 +164,23 @@ export class ProveedoresController {
   @Roles(Rol.ROL_ADMIN, Rol.ROL_VENDEDOR, Rol.ROL_BODEGUERO)
   async obtenerProveedor(@Param('id') id: string) {
     return this.queryService.obtenerProveedor(id);
+  }
+
+  @Post('deuda-manual')
+  @Roles(Rol.ROL_ADMIN)
+  async registrarDeudaManual(
+    @Body()
+    body: {
+      supplierId: string;
+      monto: number;
+      concepto: string;
+      notas?: string;
+      fechaVencimiento?: string;
+      fechaEmision?: string;
+    },
+    @Req() req: any,
+  ) {
+    return this.queryService.registrarDeudaManual(body, req.user.tenantId, req.user.sub);
   }
 
   @Get('pagos/todos')

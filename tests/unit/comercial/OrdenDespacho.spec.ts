@@ -1,4 +1,4 @@
-import { OrdenDespacho, PermisoInsuficienteDespachoException } from './OrdenDespacho';
+import { OrdenDespacho, PermisoInsuficienteDespachoException } from '../../../src/bounded-contexts/comercial/domain/OrdenDespacho';
 import { DispatchEstado } from '@prisma/client';
 
 describe('OrdenDespacho — Aggregate Root', () => {

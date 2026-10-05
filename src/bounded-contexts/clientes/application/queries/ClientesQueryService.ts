@@ -23,6 +23,55 @@ export class ClientesQueryService {
     return this.formatCliente(client);
   }
 
+  private async getOrganizationTenantIds(tenantId: string): Promise<string[]> {
+    if (!tenantId) return [];
+    const mainTenant = await this.prisma.tenant.findUnique({
+      where: { id: tenantId },
+      include: { businessConfig: true },
+    });
+    let plainRucMatriz = '';
+    if (mainTenant?.businessConfig?.ruc) {
+      try {
+        plainRucMatriz = this.encryptionService.decrypt(mainTenant.businessConfig.ruc);
+      } catch {}
+    }
+
+    const allTenants = await this.prisma.tenant.findMany({
+      where: { active: true },
+      include: {
+        businessConfig: true,
+        users: { select: { id: true, parentId: true } },
+      },
+    });
+
+    const mainAdmin = await this.prisma.user.findFirst({
+      where: { tenantId, rol: { in: ['ROL_ADMIN', 'ROL_SUPER_ADMIN'] as any } },
+    });
+
+    const userInBranch = await this.prisma.user.findFirst({
+      where: { tenantId },
+      include: { parent: true },
+    });
+
+    const matching = allTenants.filter((s) => {
+      if (s.id === tenantId) return true;
+      if (plainRucMatriz && s.businessConfig?.ruc) {
+        try {
+          if (this.encryptionService.decrypt(s.businessConfig.ruc) === plainRucMatriz) return true;
+        } catch {}
+      }
+      if (mainAdmin && s.users.some((u) => u.parentId === mainAdmin.id || u.id === mainAdmin.id)) {
+        return true;
+      }
+      if (userInBranch?.parentId && (s.users.some((u) => u.id === userInBranch.parentId || u.parentId === userInBranch.parentId))) {
+        return true;
+      }
+      return false;
+    });
+
+    return matching.map((s) => s.id);
+  }
+
   async buscarClientes(
     filtros: { q?: string; busqueda?: string; nivelCredito?: PrismaNivelCredito; activo?: boolean },
     tenantId?: string | null,
@@ -31,7 +80,8 @@ export class ClientesQueryService {
     const where: any = {};
 
     if (tenantId) {
-      where.tenantId = tenantId;
+      const targetTenantIds = await this.getOrganizationTenantIds(tenantId);
+      where.tenantId = targetTenantIds.length > 0 ? { in: targetTenantIds } : tenantId;
     }
 
     if (filtros.nivelCredito) {

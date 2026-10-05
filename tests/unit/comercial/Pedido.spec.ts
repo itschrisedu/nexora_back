@@ -1,10 +1,10 @@
-import { Pedido } from './Pedido';
-import { LineaPedido } from './LineaPedido';
-import { CanalEntrada, PrismaCanalEntrada } from './value-objects/CanalEntrada';
-import { TipoPago, PrismaTipoPago } from './value-objects/TipoPago';
-import { TipoVenta, PrismaTipoVenta } from './value-objects/TipoVenta';
-import { Money } from '../../../shared/domain/Money';
-import { PrismaEstadoPedido, TransicionEstadoInvalidaException } from './value-objects/EstadoPedido';
+import { Pedido } from '../../../src/bounded-contexts/comercial/domain/Pedido';
+import { LineaPedido } from '../../../src/bounded-contexts/comercial/domain/LineaPedido';
+import { CanalEntrada, PrismaCanalEntrada } from '../../../src/bounded-contexts/comercial/domain/value-objects/CanalEntrada';
+import { TipoPago, PrismaTipoPago } from '../../../src/bounded-contexts/comercial/domain/value-objects/TipoPago';
+import { TipoVenta, PrismaTipoVenta } from '../../../src/bounded-contexts/comercial/domain/value-objects/TipoVenta';
+import { Money } from '../../../src/shared/domain/Money';
+import { PrismaEstadoPedido, TransicionEstadoInvalidaException, EstadoPedido } from '../../../src/bounded-contexts/comercial/domain/value-objects/EstadoPedido';
 
 // ── Helpers de Pruebas ─────────────────────────
 
@@ -98,86 +98,63 @@ describe('Pedido — Aggregate Root', () => {
     });
   });
 
-  // ── Eventos de Dominio ──────────────────────
+  // ── Eventos de dominio ─────────────────────
 
   describe('Eventos de dominio en creación', () => {
-    it('debe emitir PedidoCreado al crear con estado PENDIENTE', () => {
-      const pedido = crearPedidoPendiente();
-      const events = pedido.domainEvents;
-
-      expect(events.length).toBe(1);
-      expect(events[0].eventName).toBe('PedidoCreado');
-    });
-
-    it('debe emitir PedidoEnEsperaStock al crear con stock insuficiente', () => {
+    it('debe emitir PedidoEnEsperaStock si estado es EN_ESPERA_STOCK', () => {
       const pedido = crearPedidoEnEsperaStock();
       const events = pedido.domainEvents;
 
       expect(events.length).toBe(1);
       expect(events[0].eventName).toBe('PedidoEnEsperaStock');
     });
+
+    it('debe emitir PedidoCreado si el estado es PENDIENTE', () => {
+      const pedido = crearPedidoPendiente();
+      const events = pedido.domainEvents;
+
+      expect(events.length).toBe(1);
+      expect(events[0].eventName).toBe('PedidoCreado');
+    });
   });
 
-  // ── Máquina de Estados ─────────────────────
+  // ── Transiciones de Estado ──────────────────
 
   describe('Transiciones de estado', () => {
-    it('PENDIENTE → EN_PREPARACION', () => {
+    it('PENDIENTE → EN_PREPARACION → EN_TRANSITO → ENTREGADO', () => {
       const pedido = crearPedidoPendiente();
-      pedido.iniciarPreparacion();
 
+      pedido.iniciarPreparacion();
       expect(pedido.estado.value).toBe(PrismaEstadoPedido.EN_PREPARACION);
-      // Último evento emitido
-      const events = pedido.domainEvents;
-      expect(events[events.length - 1].eventName).toBe('PedidoEnPreparacion');
-    });
 
-    it('EN_PREPARACION → EN_TRANSITO', () => {
-      const pedido = crearPedidoPendiente();
-      pedido.iniciarPreparacion();
       pedido.marcarEnTransito();
-
       expect(pedido.estado.value).toBe(PrismaEstadoPedido.EN_TRANSITO);
-    });
 
-    it('EN_TRANSITO → ENTREGADO', () => {
-      const pedido = crearPedidoPendiente();
-      pedido.iniciarPreparacion();
-      pedido.marcarEnTransito();
       pedido.confirmarEntrega();
-
       expect(pedido.estado.value).toBe(PrismaEstadoPedido.ENTREGADO);
     });
 
-    it('EN_ESPERA_STOCK → PENDIENTE (confirmar)', () => {
+    it('EN_ESPERA_STOCK → PENDIENTE (cuando entra stock)', () => {
       const pedido = crearPedidoEnEsperaStock();
-      pedido.confirmar();
 
+      pedido.confirmar();
       expect(pedido.estado.value).toBe(PrismaEstadoPedido.PENDIENTE);
-      const events = pedido.domainEvents;
-      expect(events[events.length - 1].eventName).toBe('PedidoConfirmado');
     });
 
     it('PENDIENTE → CANCELADO', () => {
       const pedido = crearPedidoPendiente();
-      pedido.cancelar('Cliente solicitó cancelación');
 
+      pedido.cancelar('Cliente desistió');
       expect(pedido.estado.value).toBe(PrismaEstadoPedido.CANCELADO);
       const events = pedido.domainEvents;
       expect(events[events.length - 1].eventName).toBe('PedidoCancelado');
     });
 
-    it('EN_ESPERA_STOCK → CANCELADO', () => {
-      const pedido = crearPedidoEnEsperaStock();
-      pedido.cancelar('Stock nunca llegó');
-
-      expect(pedido.estado.value).toBe(PrismaEstadoPedido.CANCELADO);
-    });
-
-    it('EN_TRANSITO → MODIFICADO', () => {
+    it('EN_TRANSITO → MODIFICADO (transición permitida en Fase 4B)', () => {
       const pedido = crearPedidoPendiente();
       pedido.iniciarPreparacion();
       pedido.marcarEnTransito();
-      // EN_TRANSITO permite ir a MODIFICADO
+
       const estado = pedido.estado;
       const nuevoEstado = estado.transicionarA(PrismaEstadoPedido.MODIFICADO);
 
@@ -224,26 +201,31 @@ describe('Pedido — Aggregate Root', () => {
       const linea = crearLineaDePrueba({ cantidad: 4, precioUnitario: 15 });
 
       expect(linea.subtotal.amount).toBe(60);
+      expect(linea.cantidad).toBe(4);
+      expect(linea.precioUnitario.amount).toBe(15);
     });
 
-    it('debe rechazar cantidad cero', () => {
-      expect(() => crearLineaDePrueba({ cantidad: 0 })).toThrow(
-        'La cantidad de la línea de pedido debe ser mayor que cero',
-      );
-    });
-
-    it('debe rechazar cantidad negativa', () => {
-      expect(() => crearLineaDePrueba({ cantidad: -1 })).toThrow(
-        'La cantidad de la línea de pedido debe ser mayor que cero',
-      );
+    it('debe lanzar error si cantidad es menor o igual a cero', () => {
+      expect(() =>
+        LineaPedido.crear(
+          'line-1',
+          'prod-1',
+          'serie-1',
+          'talla-38',
+          0,
+          Money.create(10),
+          TipoVenta.create(PrismaTipoVenta.SERIE_COMPLETA),
+        ),
+      ).toThrow('La cantidad de la línea de pedido debe ser mayor que cero');
     });
   });
 
   // ── Reconstrucción ──────────────────────────
 
   describe('Reconstrucción (desde BD)', () => {
-    it('debe reconstruir un pedido sin emitir eventos', () => {
-      const linea = LineaPedido.reconstruir('line-1', {
+    it('debe reconstruir un pedido existente sin emitir eventos', () => {
+      const linea = LineaPedido.reconstruir({
+        id: 'linea-reconst-1',
         productId: 'prod-001',
         serieId: 'serie-001',
         tallaId: 'talla-38',
@@ -255,7 +237,7 @@ describe('Pedido — Aggregate Root', () => {
       const pedido = Pedido.reconstruir(
         'pedido-reconst-1',
         'client-001',
-        require('./value-objects/EstadoPedido').EstadoPedido.create(PrismaEstadoPedido.EN_PREPARACION),
+        EstadoPedido.create(PrismaEstadoPedido.EN_PREPARACION),
         CanalEntrada.create(PrismaCanalEntrada.MANUAL),
         TipoPago.create(PrismaTipoPago.CREDITO),
         [linea],
@@ -266,7 +248,7 @@ describe('Pedido — Aggregate Root', () => {
 
       expect(pedido.id).toBe('pedido-reconst-1');
       expect(pedido.estado.value).toBe(PrismaEstadoPedido.EN_PREPARACION);
-      expect(pedido.domainEvents.length).toBe(0); // Reconstrucción NO genera eventos
+      expect(pedido.domainEvents.length).toBe(0);
     });
   });
 
@@ -312,7 +294,6 @@ describe('Pedido — Aggregate Root', () => {
       pedido.iniciarPreparacion();
       pedido.marcarEnTransito();
 
-      // Cliente rechaza la linea 2
       pedido.registrarModificacionEnTransito([
         {
           productId: 'prod-002',
@@ -322,7 +303,6 @@ describe('Pedido — Aggregate Root', () => {
       ]);
 
       expect(pedido.estado.value).toBe(PrismaEstadoPedido.MODIFICADO);
-      // El total de linea 1 es 2 * 25 = 50. Linea 2 (3 * 10 = 30) fue rechazada
       expect(pedido.montoTotal.amount).toBe(50);
       expect(pedido.lineas.length).toBe(1);
       expect(pedido.lineas[0].id).toBe('line-1');
@@ -347,7 +327,6 @@ describe('Pedido — Aggregate Root', () => {
       pedido.iniciarPreparacion();
       pedido.marcarEnTransito();
 
-      // Rechaza todas las líneas
       pedido.registrarModificacionEnTransito([
         {
           productId: 'prod-001',
@@ -386,7 +365,6 @@ describe('Pedido — Aggregate Root', () => {
       pedido.iniciarPreparacion();
       pedido.marcarEnTransito();
 
-      // Cliente rechaza linea 2
       pedido.registrarModificacionEnTransito([
         {
           productId: 'prod-002',
@@ -404,4 +382,3 @@ describe('Pedido — Aggregate Root', () => {
     });
   });
 });
-

@@ -1,4 +1,4 @@
-import { Supplier, RucVacioException, RazonSocialVaciaException } from './Supplier';
+import { Supplier, RucVacioException, RazonSocialVaciaException } from '../../../src/bounded-contexts/proveedores/domain/Supplier';
 
 describe('Supplier Aggregate Root', () => {
   const id = 'sup-1';

@@ -1,6 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { ConfigService } from '@nestjs/config';
-import { EncryptionService } from './encryption.service';
+import { EncryptionService } from '../../../src/shared/infrastructure/encryption/encryption.service';
 
 describe('EncryptionService', () => {
   let service: EncryptionService;

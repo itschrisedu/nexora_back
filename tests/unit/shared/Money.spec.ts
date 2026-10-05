@@ -1,4 +1,4 @@
-import { Money } from './Money';
+import { Money } from '../../../src/shared/domain/Money';
 
 describe('Money Value Object', () => {
   it('debe crearse correctamente con valores positivos', () => {

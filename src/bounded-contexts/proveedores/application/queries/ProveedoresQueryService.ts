@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../../../shared/infrastructure/prisma/prisma.service';
 import { EncryptionService } from '../../../../shared/infrastructure/encryption/encryption.service';
 
@@ -577,6 +577,95 @@ export class ProveedoresQueryService {
       supplier: this.formatSupplier(p.supplier),
       sucursalNombre: p.supplier?.tenant?.name || '',
     }));
+  }
+
+  async registrarDeudaManual(
+    data: {
+      supplierId: string;
+      monto: number;
+      concepto: string;
+      notas?: string;
+      fechaVencimiento?: string | Date;
+      fechaEmision?: string | Date;
+    },
+    tenantId: string,
+    userId?: string,
+  ) {
+    const { supplierId, monto, concepto, notas, fechaVencimiento, fechaEmision } = data;
+    if (!supplierId) throw new BadRequestException('Se requiere seleccionar el proveedor.');
+    const montoNum = Number(Number(monto || 0).toFixed(2));
+    if (isNaN(montoNum) || montoNum <= 0) {
+      throw new BadRequestException('El monto de la deuda debe ser un valor positivo mayor a 0.');
+    }
+    if (!concepto || !concepto.trim()) {
+      throw new BadRequestException('Se requiere especificar el concepto o motivo de la deuda anterior.');
+    }
+
+    const supplier = await this.prisma.supplier.findUnique({
+      where: { id: supplierId },
+    });
+    if (!supplier) throw new NotFoundException('El proveedor especificado no existe.');
+
+    let numero = 1;
+    try {
+      const seqResult = await this.prisma.$queryRaw<[{ nextval: bigint }]>`
+        SELECT nextval('merchandise_entry_seq')
+      `;
+      numero = Number(seqResult[0].nextval);
+    } catch {
+      try {
+        await this.prisma.$executeRawUnsafe(`CREATE SEQUENCE IF NOT EXISTS merchandise_entry_seq START 1;`);
+        const seqResult = await this.prisma.$queryRaw<[{ nextval: bigint }]>`
+          SELECT nextval('merchandise_entry_seq')
+        `;
+        numero = Number(seqResult[0].nextval);
+      } catch {
+        const lastEntry = await this.prisma.merchandiseEntry.findFirst({
+          orderBy: { numero: 'desc' },
+        });
+        numero = (lastEntry?.numero ?? 0) + 1;
+      }
+    }
+
+    const entryId = crypto.randomUUID();
+    const fechaCreacion = fechaEmision ? new Date(fechaEmision) : new Date();
+    const fechaVenc = fechaVencimiento ? new Date(fechaVencimiento) : new Date(Date.now() + 30 * 86400000);
+
+    const obsTexto = `[SALDO ANTERIOR / DEUDA PREVIA] ${concepto.trim()}${notas ? ' - ' + notas.trim() : ''}`;
+
+    const entry = await this.prisma.merchandiseEntry.create({
+      data: {
+        id: entryId,
+        numero,
+        supplierId,
+        total: montoNum,
+        fechaIngreso: fechaCreacion,
+        observaciones: obsTexto,
+        estado: 'COMPLETA',
+      },
+    });
+
+    const deudaId = crypto.randomUUID();
+    await this.prisma.deudaProveedor.create({
+      data: {
+        id: deudaId,
+        tenantId: tenantId || supplier.tenantId,
+        supplierId,
+        entradaId: entryId,
+        montoTotal: montoNum,
+        saldoPendiente: montoNum,
+        fechaVencimiento: fechaVenc,
+        estado: 'PENDIENTE',
+      },
+    });
+
+    return {
+      ok: true,
+      message: 'Deuda anterior del proveedor registrada correctamente.',
+      entryId: entry.id,
+      deudaId,
+      monto: montoNum,
+    };
   }
 
   private formatSupplier(raw: any) {

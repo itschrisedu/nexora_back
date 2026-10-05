@@ -166,3 +166,72 @@ export function generarSiglaProveedor(nombreOrazonSocial: string): string {
   return limpia.slice(0, 2).toUpperCase();
 }
 
+/**
+ * Genera un código base único de modelo a partir del nombre del calzado.
+ * Regla: 3 letras mayúsculas derivadas del nombre + sufijo secuencial (ej: VHL-01, VHL-02, NKM-01).
+ * Si existen códigos con ese prefijo, incrementa el número secuencial garantizando que sea único e irrepetible.
+ */
+export function generarCodigoBaseModelo(nombreCalzado: string, codigosExistentes: string[] = []): string {
+  if (!nombreCalzado || !nombreCalzado.trim()) {
+    return 'MOD-01';
+  }
+
+  const sinAcentos = nombreCalzado
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toUpperCase();
+
+  const soloLetras = sinAcentos.replace(/[^A-Z\s]/g, ' ').trim();
+  if (!soloLetras) {
+    return 'MOD-01';
+  }
+
+  const stopwords = new Set([
+    'DE', 'DEL', 'LA', 'EL', 'LOS', 'LAS', 'Y', 'E', 'EN', 'CON', 'A', 'POR', 'PARA', 'CALZADO', 'ZAPATO', 'MODELO'
+  ]);
+
+  const palabras = soloLetras.split(/\s+/).filter(Boolean);
+  const palabrasUtiles = palabras.filter(p => !stopwords.has(p));
+  const fuente = palabrasUtiles.length > 0 ? palabrasUtiles : palabras;
+
+  let prefijo = '';
+
+  if (fuente.length >= 3) {
+    prefijo = fuente.slice(0, 3).map(p => p.charAt(0)).join('');
+  } else if (fuente.length === 2) {
+    if (fuente[0].length >= 2) {
+      prefijo = fuente[0].slice(0, 2) + fuente[1].charAt(0);
+    } else {
+      prefijo = fuente[0].charAt(0) + fuente[1].slice(0, 2);
+    }
+  } else if (fuente.length === 1) {
+    prefijo = fuente[0].slice(0, 3);
+  }
+
+  if (prefijo.length < 3) {
+    prefijo = prefijo.padEnd(3, 'X');
+  }
+  prefijo = prefijo.slice(0, 3).toUpperCase();
+
+  const codigosUpper = codigosExistentes.map(c => (c || '').toUpperCase().trim());
+  let maxSeq = 0;
+
+  const regex = new RegExp(`^${prefijo}-(\\d+)$`);
+  for (const cod of codigosUpper) {
+    const match = cod.match(regex);
+    if (match) {
+      const num = parseInt(match[1], 10);
+      if (!isNaN(num) && num > maxSeq) {
+        maxSeq = num;
+      }
+    } else if (cod === prefijo) {
+      if (maxSeq < 1) maxSeq = 1;
+    }
+  }
+
+  const siguienteSeq = maxSeq + 1;
+  const sufijo = String(siguienteSeq).padStart(2, '0');
+
+  return `${prefijo}-${sufijo}`;
+}
+
