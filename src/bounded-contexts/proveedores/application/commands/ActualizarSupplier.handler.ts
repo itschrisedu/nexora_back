@@ -30,15 +30,15 @@ export class ActualizarSupplierHandler {
     }
 
     const razonSocialFinal = command.razonSocial !== undefined ? (command.razonSocial ? command.razonSocial.trim() : supplier.razonSocial) : supplier.razonSocial;
-    const contactoFinal = command.contacto !== undefined ? (command.contacto.trim() ? (formatearTelefono(command.contacto) || command.contacto.trim()) : undefined) : (supplier.contacto ?? undefined);
-    const direccionFinal = command.direccion !== undefined ? (command.direccion.trim() ? formatearDireccion(command.direccion) : undefined) : (supplier.direccion ?? undefined);
-    const emailFinal = command.email !== undefined ? (command.email.trim() ? formatearEmail(command.email) : undefined) : (supplier.email ?? undefined);
+    const contactoFinal = command.contacto !== undefined ? (command.contacto && command.contacto.trim() ? (formatearTelefono(command.contacto) || command.contacto.trim()) : null) : supplier.contacto;
+    const direccionFinal = command.direccion !== undefined ? (command.direccion && command.direccion.trim() ? formatearDireccion(command.direccion) : null) : supplier.direccion;
+    const emailFinal = command.email !== undefined ? (command.email && command.email.trim() ? formatearEmail(command.email) : null) : supplier.email;
 
     supplier.actualizarInfo(
       razonSocialFinal,
-      contactoFinal,
-      direccionFinal,
-      emailFinal,
+      contactoFinal ?? undefined,
+      direccionFinal ?? undefined,
+      emailFinal ?? undefined,
     );
 
     if (command.activo !== undefined) {
