@@ -1018,7 +1018,7 @@ export class AuthService implements OnApplicationBootstrap {
     const isGlobal = rol === Rol.ROL_ADMIN ? (esAdminGeneral ?? false) : false;
 
     const passwordHash = await bcrypt.hash(password, this.BCRYPT_ROUNDS);
-    return this.prisma.user.create({
+    const user = await this.prisma.user.create({
       data: {
         email,
         nombre,
@@ -1041,6 +1041,18 @@ export class AuthService implements OnApplicationBootstrap {
         tenantId: true,
       },
     });
+
+    // Enviar correo con credenciales de acceso y enlace al sistema en segundo plano
+    this.sendWelcomeCredentialsEmail({
+      email,
+      nombre,
+      rol,
+      password,
+    }).catch((err) => {
+      this.logger.warn(`Error enviando correo de bienvenida a ${email}: ${err.message}`);
+    });
+
+    return user;
   }
 
   async toggleUserActive(id: string) {
@@ -1196,6 +1208,93 @@ export class AuthService implements OnApplicationBootstrap {
 
     this.logger.log(`Contraseña actualizada exitosamente para el usuario: ${user.email}`);
     return { ok: true, message: 'Contraseña actualizada correctamente.' };
+  }
+
+  // ── Envío de Correo de Bienvenida con Credenciales ──────────────────────────────
+
+  /**
+   * Envía un correo de bienvenida al nuevo usuario con sus credenciales de acceso
+   * y el enlace directo al sistema para iniciar sesión.
+   * Se invoca de forma asíncrona (fire-and-forget) para no bloquear la creación del usuario.
+   */
+  async sendWelcomeCredentialsEmail(data: {
+    email: string;
+    nombre: string;
+    rol: string;
+    password: string;
+  }): Promise<boolean> {
+    const { email, nombre, rol, password } = data;
+    const loginUrl = 'https://nexora-web-dusky-six.vercel.app/';
+
+    const rolLabels: Record<string, string> = {
+      ROL_SUPER_ADMIN: 'Super Administrador',
+      ROL_ADMIN: 'Administrador',
+      ROL_VENDEDOR: 'Vendedor',
+      ROL_BODEGUERO: 'Bodeguero',
+    };
+    const rolLabel = rolLabels[rol] || rol;
+
+    const html = `
+      <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 560px; margin: 0 auto; background: #07080a; color: #eef2f7; border-radius: 24px; padding: 40px 32px; border: 1px solid rgba(255,255,255,0.08);">
+        <div style="text-align: center; margin-bottom: 28px;">
+          <span style="display: inline-block; padding: 6px 16px; background: rgba(16,185,129,0.12); color: #10b981; border: 1px solid rgba(16,185,129,0.25); border-radius: 99px; font-size: 11px; font-weight: 800; letter-spacing: 0.15em; text-transform: uppercase;">
+            Bienvenido a NEXORA
+          </span>
+          <h1 style="color: #ffffff; font-size: 22px; font-weight: 800; margin: 18px 0 8px; letter-spacing: -0.02em;">
+            Tu cuenta ha sido creada
+          </h1>
+          <p style="color: rgba(238,242,247,0.6); font-size: 14px; line-height: 1.6; margin: 0;">
+            Hola <strong style="color: #ffffff;">${nombre}</strong>, se ha creado tu cuenta con el rol de <strong style="color: #10b981;">${rolLabel}</strong> en el sistema NEXORA.
+          </p>
+        </div>
+
+        <div style="background: linear-gradient(170deg, #14161a, #0f1114); border-radius: 20px; padding: 24px; border: 1px solid rgba(255,255,255,0.06); margin: 24px 0; box-shadow: inset 0 1px 0 rgba(255,255,255,0.05);">
+          <div style="font-size: 11px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: #94a3b8; margin-bottom: 16px; text-align: center;">
+            Credenciales de Acceso
+          </div>
+
+          <table style="width: 100%; border-collapse: collapse;">
+            <tr>
+              <td style="padding: 10px 0; border-bottom: 1px solid rgba(255,255,255,0.06);">
+                <span style="font-size: 12px; color: #94a3b8; display: block; margin-bottom: 4px;">Usuario (Correo)</span>
+                <span style="font-size: 15px; color: #ffffff; font-weight: 600;">${email}</span>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding: 10px 0;">
+                <span style="font-size: 12px; color: #94a3b8; display: block; margin-bottom: 4px;">Contrase\u00f1a</span>
+                <span style="font-size: 15px; color: #34d399; font-weight: 700; font-family: monospace; letter-spacing: 1px; background: #061c14; padding: 6px 14px; border-radius: 8px; border: 1px solid rgba(16,185,129,0.3); display: inline-block;">${password}</span>
+              </td>
+            </tr>
+          </table>
+        </div>
+
+        <div style="text-align: center; margin: 28px 0;">
+          <a href="${loginUrl}" style="display: inline-block; padding: 14px 36px; background: linear-gradient(135deg, #10b981, #059669); color: #ffffff; text-decoration: none; border-radius: 14px; font-size: 15px; font-weight: 700; letter-spacing: 0.02em; box-shadow: 0 4px 16px rgba(16,185,129,0.3);">
+            Ingresar al Sistema
+          </a>
+          <p style="margin: 12px 0 0; font-size: 12px; color: rgba(238,242,247,0.4);">
+            ${loginUrl}
+          </p>
+        </div>
+
+        <div style="background: rgba(245, 158, 11, 0.08); border: 1px solid rgba(245, 158, 11, 0.2); border-radius: 12px; padding: 14px 18px; margin-top: 24px;">
+          <p style="margin: 0; font-size: 12px; color: #fbbf24; line-height: 1.5;">
+            <strong>Recomendaci\u00f3n de Seguridad:</strong> Por tu seguridad, cambia tu contrase\u00f1a despu\u00e9s de tu primer inicio de sesi\u00f3n desde la secci\u00f3n de perfil.
+          </p>
+        </div>
+
+        <div style="text-align: center; margin-top: 28px; padding-top: 20px; border-top: 1px solid rgba(255,255,255,0.06);">
+          <p style="margin: 0; font-size: 11px; color: rgba(238,242,247,0.3);">
+            Este correo fue generado autom\u00e1ticamente por el sistema NEXORA.<br />
+            Si no solicitaste esta cuenta, comunica al administrador de tu organizaci\u00f3n.
+          </p>
+        </div>
+      </div>
+    `;
+
+    this.logger.log(`📧 Enviando correo de bienvenida con credenciales a ${email} (rol: ${rolLabel})...`);
+    return this.sendEmail(email, 'Bienvenido a NEXORA — Tus Credenciales de Acceso', html);
   }
 
   // ── Utilidades ──────────────────────────────

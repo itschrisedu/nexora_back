@@ -1,8 +1,9 @@
-import { Injectable, Logger, NotFoundException, ConflictException, BadRequestException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, ConflictException, BadRequestException, Inject, forwardRef } from '@nestjs/common';
 import { PrismaService } from '../shared/infrastructure/prisma/prisma.service';
 import { EncryptionService } from '../shared/infrastructure/encryption/encryption.service';
 import * as bcrypt from 'bcryptjs';
 import { Rol, PlanTipo, EstadoSuscripcion } from '@prisma/client';
+import { AuthService } from './auth.service';
 
 export const PLAN_DEFAULTS: Record<PlanTipo, { maxSucursales: number; maxUsuarios: number; precioMensual: number; name: string }> = {
   PLAN_BASICO: {
@@ -33,6 +34,7 @@ export class TenantService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly encryption: EncryptionService,
+    @Inject(forwardRef(() => AuthService)) private readonly authService: AuthService,
   ) {}
 
   /**
@@ -323,6 +325,16 @@ export class TenantService {
     });
 
     this.logger.log(`Tenant "${data.name}" creado con plan ${plan} y prueba de ${diasPrueba} días.`);
+
+    // Enviar correo de bienvenida con credenciales al admin del nuevo tenant
+    this.authService.sendWelcomeCredentialsEmail({
+      email: data.adminEmail,
+      nombre: data.adminNombre,
+      rol: Rol.ROL_ADMIN,
+      password: data.adminPassword,
+    }).catch((err) => {
+      this.logger.warn(`Error enviando correo de bienvenida a ${data.adminEmail}: ${err.message}`);
+    });
 
     return {
       id: result.tenant.id,
@@ -1025,6 +1037,17 @@ export class TenantService {
     });
 
     this.logger.log(`Usuario "${user.email}" creado para Tenant "${tenant.name}".`);
+
+    // Enviar correo de bienvenida con credenciales al nuevo usuario del tenant
+    this.authService.sendWelcomeCredentialsEmail({
+      email: data.email,
+      nombre: data.nombre,
+      rol: data.rol || Rol.ROL_ADMIN,
+      password: data.password,
+    }).catch((err) => {
+      this.logger.warn(`Error enviando correo de bienvenida a ${data.email}: ${err.message}`);
+    });
+
     return user;
   }
 
@@ -1149,6 +1172,17 @@ export class TenantService {
     });
 
     this.logger.log(`Nuevo Super Admin creado: "${user.email}" (${user.id})`);
+
+    // Enviar correo de bienvenida con credenciales al nuevo Super Admin
+    this.authService.sendWelcomeCredentialsEmail({
+      email: cleanEmail,
+      nombre: data.nombre.trim(),
+      rol: Rol.ROL_SUPER_ADMIN,
+      password: data.password.trim(),
+    }).catch((err) => {
+      this.logger.warn(`Error enviando correo de bienvenida a ${cleanEmail}: ${err.message}`);
+    });
+
     return user;
   }
 
