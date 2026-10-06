@@ -1,11 +1,11 @@
-import { Pedido } from '../../src/bounded-contexts/comercial/domain/Pedido';
-import { LineaPedido } from '../../src/bounded-contexts/comercial/domain/LineaPedido';
-import { OrdenDespacho } from '../../src/bounded-contexts/comercial/domain/OrdenDespacho';
-import { CanalEntrada, PrismaCanalEntrada } from '../../src/bounded-contexts/comercial/domain/value-objects/CanalEntrada';
-import { TipoPago, PrismaTipoPago } from '../../src/bounded-contexts/comercial/domain/value-objects/TipoPago';
-import { TipoVenta, PrismaTipoVenta } from '../../src/bounded-contexts/comercial/domain/value-objects/TipoVenta';
-import { Money } from '../../src/shared/domain/Money';
-import { PrismaEstadoPedido } from '../../src/bounded-contexts/comercial/domain/value-objects/EstadoPedido';
+import { Pedido } from '../../../src/bounded-contexts/comercial/domain/Pedido';
+import { LineaPedido } from '../../../src/bounded-contexts/comercial/domain/LineaPedido';
+import { OrdenDespacho } from '../../../src/bounded-contexts/comercial/domain/OrdenDespacho';
+import { CanalEntrada, PrismaCanalEntrada } from '../../../src/bounded-contexts/comercial/domain/value-objects/CanalEntrada';
+import { TipoPago, PrismaTipoPago } from '../../../src/bounded-contexts/comercial/domain/value-objects/TipoPago';
+import { TipoVenta, PrismaTipoVenta } from '../../../src/bounded-contexts/comercial/domain/value-objects/TipoVenta';
+import { Money } from '../../../src/shared/domain/Money';
+import { PrismaEstadoPedido } from '../../../src/bounded-contexts/comercial/domain/value-objects/EstadoPedido';
 import { DispatchEstado } from '@prisma/client';
 
 describe('E2E / Sistema — Flujo Integral de Pedido con Curva de Tallas, Despacho y Entrega', () => {

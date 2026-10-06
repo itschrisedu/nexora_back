@@ -1,8 +1,8 @@
-import { AuthService } from '../../src/auth/auth.service';
+import { AuthService } from '../../../src/auth/auth.service';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcryptjs';
 
-jest.mock('../../src/auth/active-session.store', () => ({
+jest.mock('../../../src/auth/active-session.store', () => ({
   ActiveSessionStore: {
     isSessionOnline: jest.fn().mockReturnValue(false),
     get: jest.fn().mockReturnValue(null),

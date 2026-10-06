@@ -1,7 +1,7 @@
-import { Cliente } from '../../src/bounded-contexts/clientes/domain/Cliente';
-import { Money } from '../../src/shared/domain/Money';
+import { Cliente } from '../../../src/bounded-contexts/clientes/domain/Cliente';
+import { Money } from '../../../src/shared/domain/Money';
 import { NivelCredito as PrismaNivelCredito } from '@prisma/client';
-import { ClientesQueryService } from '../../src/bounded-contexts/clientes/application/queries/ClientesQueryService';
+import { ClientesQueryService } from '../../../src/bounded-contexts/clientes/application/queries/ClientesQueryService';
 
 describe('E2E / Sistema — Flujo de Gestión de Clientes, Cifrado de Identidad y Scoring Crediticio', () => {
   let queryService: ClientesQueryService;
