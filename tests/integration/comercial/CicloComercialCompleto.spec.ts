@@ -22,7 +22,7 @@ describe('Integración — Ciclo Comercial Completo (Pedido -> Despacho -> Entre
       'talla-39',
       2,
       Money.create(35),
-      TipoVenta.create(PrismaTipoVenta.PAR_INDIVIDUAL),
+      TipoVenta.create(PrismaTipoVenta.TALLA_ESPECIFICA),
     );
 
     const linea2 = LineaPedido.crear(
@@ -32,7 +32,7 @@ describe('Integración — Ciclo Comercial Completo (Pedido -> Despacho -> Entre
       'talla-40',
       1,
       Money.create(35),
-      TipoVenta.create(PrismaTipoVenta.PAR_INDIVIDUAL),
+      TipoVenta.create(PrismaTipoVenta.TALLA_ESPECIFICA),
     );
 
     // 2. Crear Pedido en estado PENDIENTE
@@ -95,7 +95,7 @@ describe('Integración — Ciclo Comercial Completo (Pedido -> Despacho -> Entre
       'talla-38',
       1,
       Money.create(40),
-      TipoVenta.create(PrismaTipoVenta.PAR_INDIVIDUAL),
+      TipoVenta.create(PrismaTipoVenta.TALLA_ESPECIFICA),
     );
 
     const pedido = Pedido.crear(
@@ -125,7 +125,7 @@ describe('Integración — Ciclo Comercial Completo (Pedido -> Despacho -> Entre
       'talla-39',
       3,
       Money.create(30),
-      TipoVenta.create(PrismaTipoVenta.PAR_INDIVIDUAL),
+      TipoVenta.create(PrismaTipoVenta.TALLA_ESPECIFICA),
     );
 
     const pedido = Pedido.crear(

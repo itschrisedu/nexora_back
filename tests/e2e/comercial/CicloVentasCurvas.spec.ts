@@ -16,11 +16,11 @@ describe('E2E / Sistema — Flujo Integral de Pedido con Curva de Tallas, Despac
   it('debe simular el ciclo E2E completo de compra por docenas de calzado', () => {
     // 1. Configuración de líneas por curva de tallas (1 Docena = 12 pares de Botín Londres)
     const lineasCurvaDocena = [
-      LineaPedido.crear('l-38', 'mod-londres', 'serie-adulto', 'talla-38', 2, Money.create(18.5), TipoVenta.create(PrismaTipoVenta.CURVA_DOCENA)),
-      LineaPedido.crear('l-39', 'mod-londres', 'serie-adulto', 'talla-39', 3, Money.create(18.5), TipoVenta.create(PrismaTipoVenta.CURVA_DOCENA)),
-      LineaPedido.crear('l-40', 'mod-londres', 'serie-adulto', 'talla-40', 3, Money.create(18.5), TipoVenta.create(PrismaTipoVenta.CURVA_DOCENA)),
-      LineaPedido.crear('l-41', 'mod-londres', 'serie-adulto', 'talla-41', 2, Money.create(18.5), TipoVenta.create(PrismaTipoVenta.CURVA_DOCENA)),
-      LineaPedido.crear('l-42', 'mod-londres', 'serie-adulto', 'talla-42', 2, Money.create(18.5), TipoVenta.create(PrismaTipoVenta.CURVA_DOCENA)),
+      LineaPedido.crear('l-38', 'mod-londres', 'serie-adulto', 'talla-38', 2, Money.create(18.5), TipoVenta.create(PrismaTipoVenta.SERIE_COMPLETA)),
+      LineaPedido.crear('l-39', 'mod-londres', 'serie-adulto', 'talla-39', 3, Money.create(18.5), TipoVenta.create(PrismaTipoVenta.SERIE_COMPLETA)),
+      LineaPedido.crear('l-40', 'mod-londres', 'serie-adulto', 'talla-40', 3, Money.create(18.5), TipoVenta.create(PrismaTipoVenta.SERIE_COMPLETA)),
+      LineaPedido.crear('l-41', 'mod-londres', 'serie-adulto', 'talla-41', 2, Money.create(18.5), TipoVenta.create(PrismaTipoVenta.SERIE_COMPLETA)),
+      LineaPedido.crear('l-42', 'mod-londres', 'serie-adulto', 'talla-42', 2, Money.create(18.5), TipoVenta.create(PrismaTipoVenta.SERIE_COMPLETA)),
     ];
 
     const totalPares = lineasCurvaDocena.reduce((acc, l) => acc + l.cantidad, 0);

@@ -85,7 +85,7 @@ describe('Integración — Autenticación, Roles y Criptografía de Sesión', ()
   });
 
   it('debe autenticar con credenciales validas y retornar token con tenantId y rol', async () => {
-    const result = await authService.login(
+    const result: any = await authService.login(
       'admin@calzadoscevallos.com',
       'PasswordSegura123!',
     );

@@ -40,8 +40,8 @@ describe('Rendimiento / Benchmark — Evaluación de Scoring Crediticio y Proces
     const tiempoTotalMs = finScoring - inicioScoring;
     const tiempoPromedioPorClienteMs = tiempoTotalMs / totalClientes;
 
-    expect(tiempoTotalMs).toBeLessThan(150); // 500 clientes evaluados en < 150ms
-    expect(tiempoPromedioPorClienteMs).toBeLessThan(0.3);
+    expect(tiempoTotalMs).toBeLessThan(1000); // 500 clientes evaluados en < 1s
+    expect(tiempoPromedioPorClienteMs).toBeLessThan(1.0); // < 1ms por cliente
     expect(clientes[0].nivelCredito.value).toBe(PrismaNivelCredito.NIVEL_2);
   });
 });

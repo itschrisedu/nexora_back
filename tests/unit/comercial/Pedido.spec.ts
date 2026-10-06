@@ -224,8 +224,7 @@ describe('Pedido — Aggregate Root', () => {
 
   describe('Reconstrucción (desde BD)', () => {
     it('debe reconstruir un pedido existente sin emitir eventos', () => {
-      const linea = LineaPedido.reconstruir({
-        id: 'linea-reconst-1',
+      const linea = LineaPedido.reconstruir('linea-reconst-1', {
         productId: 'prod-001',
         serieId: 'serie-001',
         tallaId: 'talla-38',

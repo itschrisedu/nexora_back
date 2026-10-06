@@ -77,7 +77,7 @@ describe('E2E / Sistema — Flujo de Autenticación, Emisión JWT y Control de S
   });
 
   it('debe completar el flujo E2E de login exitoso retornando tokens JWT y datos del usuario', async () => {
-    const response = await authService.login(
+    const response: any = await authService.login(
       'admin@calzadoscevallos.com',
       validPassword,
       '192.168.1.50',
