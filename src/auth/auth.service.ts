@@ -84,13 +84,9 @@ export class AuthService implements OnApplicationBootstrap {
         let transporter: Transporter;
 
         const timeoutOptions: any = {
-          connectionTimeout: 6000,
-          greetingTimeout: 6000,
-          socketTimeout: 8000,
-          family: 4,
-          lookup: (hostname: string, options: any, callback: any) => {
-            dns.lookup(hostname, { family: 4 }, callback);
-          },
+          connectionTimeout: 10000,
+          greetingTimeout: 10000,
+          socketTimeout: 15000,
         };
 
         if (smtpService) {
@@ -100,11 +96,11 @@ export class AuthService implements OnApplicationBootstrap {
             ...timeoutOptions,
           });
         } else if (smtpUser.toLowerCase().endsWith('@gmail.com')) {
-          // Gmail en puerto 465 con SSL directo e IPv4 forzada
+          // Gmail en puerto 465 con SSL directo
           transporter = nodemailer.createTransport({
-            host: 'smtp.gmail.com',
-            port: 465,
-            secure: true,
+            host: smtpHost || 'smtp.gmail.com',
+            port: smtpPort || 465,
+            secure: smtpSecure !== undefined ? smtpSecure : true,
             auth: { user: smtpUser, pass: smtpPass },
             tls: { rejectUnauthorized: false },
             ...timeoutOptions,
