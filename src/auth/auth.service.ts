@@ -96,28 +96,15 @@ export class AuthService implements OnApplicationBootstrap {
         }
 
         const timeoutOptions: any = {
-          connectionTimeout: 15000,
-          greetingTimeout: 15000,
-          socketTimeout: 20000,
+          connectionTimeout: 10000,
+          greetingTimeout: 10000,
+          socketTimeout: 15000,
         };
 
-        if (smtpService) {
+        if (smtpService || smtpUser.toLowerCase().endsWith('@gmail.com')) {
           transporter = nodemailer.createTransport({
-            service: smtpService,
+            service: smtpService || 'gmail',
             auth: { user: smtpUser, pass: smtpPass },
-            ...timeoutOptions,
-          });
-        } else if (smtpUser.toLowerCase().endsWith('@gmail.com')) {
-          // Gmail con IPv4 directa y SNI TLS
-          transporter = nodemailer.createTransport({
-            host: resolvedHost,
-            port: smtpPort || 465,
-            secure: smtpSecure !== undefined ? smtpSecure : true,
-            auth: { user: smtpUser, pass: smtpPass },
-            tls: {
-              rejectUnauthorized: false,
-              servername: originalHost,
-            },
             ...timeoutOptions,
           });
         } else {
