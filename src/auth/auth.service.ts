@@ -508,7 +508,8 @@ export class AuthService implements OnApplicationBootstrap {
         tenantId: user.tenantId,
         tenantName: user.tenant?.name || null,
         permiteCambiarPrecio: user.permiteCambiarPrecio,
-        esAdminGeneral: user.esAdminGeneral || (!user.parentId && user.rol === Rol.ROL_ADMIN),
+        esAdminGeneral: user.rol === Rol.ROL_SUPER_ADMIN ? true : !!user.esAdminGeneral,
+        parentId: user.parentId || null,
         termsAcceptedAt: user.termsAcceptedAt,
         termsVersion: user.termsVersion,
         gpsConsentAt: user.gpsConsentAt,
@@ -989,7 +990,7 @@ export class AuthService implements OnApplicationBootstrap {
     // Permisos: Super Admin o Admin General (Dueño) pueden crear administradores
     const isCallerAdminGeneral =
       requestUser.rol === 'ROL_SUPER_ADMIN' ||
-      (requestUser.rol === 'ROL_ADMIN' && (requestUser.esAdminGeneral === true || !requestUser.parentId));
+      (requestUser.rol === 'ROL_ADMIN' && requestUser.esAdminGeneral === true);
 
     if (rol === Rol.ROL_ADMIN && !isCallerAdminGeneral) {
       throw new UnauthorizedException('Solo un Administrador General o Super Admin puede crear administradores.');

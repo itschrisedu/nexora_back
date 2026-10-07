@@ -84,7 +84,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       ActiveSessionStore.touch(user.id, payload.sessionId || user.activeSessionId);
     }
 
-    const isGlobalAdmin = user.rol === 'ROL_SUPER_ADMIN' || (user.rol === 'ROL_ADMIN' && (user.esAdminGeneral === true || !user.parentId));
+    const isGlobalAdmin = user.rol === 'ROL_SUPER_ADMIN' || (user.rol === 'ROL_ADMIN' && user.esAdminGeneral === true);
     const isAllSucursales = isGlobalAdmin && req?.headers?.['x-sucursal-id'] === 'TODAS';
     const targetSucursalId = req?.headers?.['x-sucursal-id'];
     let activeTenantId = isAllSucursales ? null : user.tenantId;
