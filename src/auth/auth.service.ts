@@ -78,7 +78,7 @@ export class AuthService implements OnApplicationBootstrap {
     );
     const fromName = this.configService.get<string>('NOTIFICATIONS_FROM_NAME', 'NEXORA Seguridad');
 
-    // 1. Envío directo mediante SMTP Nodemailer (Puerto 587 STARTTLS con IPv4 estricto)
+    // 1. Envío directo mediante SMTP Nodemailer (Gmail nativo con IPv4 estricto)
     if (smtpUser && smtpPass) {
       try {
         const ipv4Lookup = (hostname: string, options: any, callback: any) => {
@@ -89,20 +89,29 @@ export class AuthService implements OnApplicationBootstrap {
           return dns.lookup(hostname, { ...(options || {}), family: 4 }, callback);
         };
 
-        const transporter = nodemailer.createTransport({
-          host: smtpHost,
-          port: smtpPort,
-          secure: smtpSecure,
-          lookup: ipv4Lookup as any,
-          family: 4,
-          auth: { user: smtpUser, pass: smtpPass },
-          connectionTimeout: 10000,
-          greetingTimeout: 6000,
-          socketTimeout: 10000,
-          tls: {
-            rejectUnauthorized: false,
-          },
-        } as any);
+        const isGmail = smtpService === 'gmail' || smtpUser.toLowerCase().endsWith('@gmail.com');
+        const transporter = nodemailer.createTransport(
+          isGmail
+            ? ({
+                service: 'gmail',
+                lookup: ipv4Lookup as any,
+                auth: { user: smtpUser, pass: smtpPass },
+              } as any)
+            : ({
+                host: smtpHost,
+                port: smtpPort,
+                secure: smtpSecure,
+                lookup: ipv4Lookup as any,
+                family: 4,
+                auth: { user: smtpUser, pass: smtpPass },
+                connectionTimeout: 10000,
+                greetingTimeout: 6000,
+                socketTimeout: 10000,
+                tls: {
+                  rejectUnauthorized: false,
+                },
+              } as any),
+        );
 
         const info = await transporter.sendMail({
           from: `"${fromName}" <${fromEmail}>`,
@@ -111,10 +120,10 @@ export class AuthService implements OnApplicationBootstrap {
           html,
         });
 
-        this.logger.log(`📧 [SMTP :${smtpPort}] Correo enviado exitosamente a ${to} (MessageId: ${info.messageId})`);
+        this.logger.log(`📧 [SMTP] Correo entregado exitosamente a ${to} (MessageId: ${info.messageId})`);
         return true;
       } catch (smtpErr: any) {
-        this.logger.warn(`⚠️ [SMTP :${smtpPort}] Falló el envío a ${to}: ${smtpErr.message}. Pasando a fallback...`);
+        this.logger.warn(`⚠️ [SMTP] Falló el envío a ${to}: ${smtpErr.message}. Pasando a fallback...`);
       }
     }
 

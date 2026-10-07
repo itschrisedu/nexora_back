@@ -68,18 +68,19 @@ export class SmtpEmailSender implements INotificationSender {
         return dns.lookup(hostname, { ...(options || {}), family: 4 }, callback);
       };
 
-      if (smtpService) {
+      const isGmail = smtpService === 'gmail' || smtpUser.toLowerCase().endsWith('@gmail.com');
+      if (isGmail || smtpService) {
+        const serv = isGmail ? 'gmail' : smtpService;
         // Conexión por servicio conocido (nodemailer preconfigurado)
         this.transporter = nodemailer.createTransport({
-          service: smtpService,
+          service: serv,
           lookup: ipv4Lookup as any,
-          family: 4,
           auth: {
             user: smtpUser,
             pass: smtpPass,
           },
         } as any);
-        this.logger.log(`📧 Servicio de correo SMTP [${smtpService.toUpperCase()}] inicializado con usuario: ${smtpUser}`);
+        this.logger.log(`📧 Servicio de correo SMTP [${serv?.toUpperCase()}] inicializado con usuario: ${smtpUser}`);
       } else if (smtpHost) {
         // Conexión por host SMTP explícito
         this.transporter = nodemailer.createTransport({
