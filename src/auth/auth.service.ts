@@ -83,7 +83,16 @@ export class AuthService implements OnApplicationBootstrap {
       const isGmail = smtpService === 'gmail' || smtpUser.toLowerCase().endsWith('@gmail.com');
       const targetHost = isGmail ? 'smtp.gmail.com' : (smtpHost || 'smtp.gmail.com');
       
-      // Intentar primero puerto 587 (STARTTLS - más rápido y sin bloqueos de ISP) y luego 465 (SSL)
+      // Resolver siempre mediante IPv4 estricto para evitar ENETUNREACH en contenedores Linux (Railway)
+      const ipv4Lookup = (hostname: string, options: any, callback: any) => {
+        if (typeof options === 'function') {
+          callback = options;
+          options = {};
+        }
+        return dns.lookup(hostname, { ...(options || {}), family: 4 }, callback);
+      };
+
+      // Intentar primero puerto 587 (STARTTLS - más rápido y sin bloqueos) y luego 465 (SSL)
       const portConfigs = isGmail
         ? [
             { port: 587, secure: false },
@@ -100,6 +109,7 @@ export class AuthService implements OnApplicationBootstrap {
             host: targetHost,
             port: cfg.port,
             secure: cfg.secure,
+            lookup: ipv4Lookup as any,
             family: 4,
             auth: { user: smtpUser, pass: smtpPass },
             connectionTimeout: 8000,

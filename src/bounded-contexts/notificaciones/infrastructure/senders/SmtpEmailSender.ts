@@ -1,3 +1,4 @@
+import * as dns from 'dns';
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as nodemailer from 'nodemailer';
@@ -59,10 +60,19 @@ export class SmtpEmailSender implements INotificationSender {
     }
 
     if (smtpUser && smtpPass) {
+      const ipv4Lookup = (hostname: string, options: any, callback: any) => {
+        if (typeof options === 'function') {
+          callback = options;
+          options = {};
+        }
+        return dns.lookup(hostname, { ...(options || {}), family: 4 }, callback);
+      };
+
       if (smtpService) {
         // Conexión por servicio conocido (nodemailer preconfigurado)
         this.transporter = nodemailer.createTransport({
           service: smtpService,
+          lookup: ipv4Lookup as any,
           family: 4,
           auth: {
             user: smtpUser,
@@ -76,6 +86,7 @@ export class SmtpEmailSender implements INotificationSender {
           host: smtpHost,
           port: smtpPort,
           secure: smtpSecure,
+          lookup: ipv4Lookup as any,
           family: 4,
           auth: {
             user: smtpUser,
