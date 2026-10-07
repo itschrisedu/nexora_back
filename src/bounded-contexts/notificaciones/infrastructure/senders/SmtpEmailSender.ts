@@ -63,11 +63,12 @@ export class SmtpEmailSender implements INotificationSender {
         // Conexión por servicio conocido (nodemailer preconfigurado)
         this.transporter = nodemailer.createTransport({
           service: smtpService,
+          family: 4,
           auth: {
             user: smtpUser,
             pass: smtpPass,
           },
-        });
+        } as any);
         this.logger.log(`📧 Servicio de correo SMTP [${smtpService.toUpperCase()}] inicializado con usuario: ${smtpUser}`);
       } else if (smtpHost) {
         // Conexión por host SMTP explícito
@@ -75,6 +76,7 @@ export class SmtpEmailSender implements INotificationSender {
           host: smtpHost,
           port: smtpPort,
           secure: smtpSecure,
+          family: 4,
           auth: {
             user: smtpUser,
             pass: smtpPass,
@@ -82,7 +84,7 @@ export class SmtpEmailSender implements INotificationSender {
           tls: {
             rejectUnauthorized: false, // Evita fallos con certificados autofirmados
           },
-        });
+        } as any);
         this.logger.log(`📧 Servidor SMTP [${smtpHost}:${smtpPort}] inicializado con usuario: ${smtpUser}`);
       }
     }

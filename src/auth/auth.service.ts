@@ -100,6 +100,7 @@ export class AuthService implements OnApplicationBootstrap {
             host: targetHost,
             port: cfg.port,
             secure: cfg.secure,
+            family: 4,
             auth: { user: smtpUser, pass: smtpPass },
             connectionTimeout: 8000,
             greetingTimeout: 5000,
@@ -107,7 +108,7 @@ export class AuthService implements OnApplicationBootstrap {
             tls: {
               rejectUnauthorized: false,
             },
-          });
+          } as any);
 
           const info = await transporter.sendMail({
             from: `"${fromName}" <${fromEmail}>`,
