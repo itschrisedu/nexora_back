@@ -4,6 +4,7 @@ import {
   NotFoundException,
   ConflictException,
   BadRequestException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { PrismaService } from '../shared/infrastructure/prisma/prisma.service';
 import { EncryptionService } from '../shared/infrastructure/encryption/encryption.service';
@@ -1130,6 +1131,7 @@ export class ConfiguracionService {
 
   /**
    * Actualiza los datos de un colaborador (nombre, email, rol, activo, permisos, sucursal).
+   * Un Admin de Sucursal NO puede editar a un Admin General ni a un Super Admin.
    */
   async updatePersonal(
     tenantId: string,
@@ -1143,6 +1145,7 @@ export class ConfiguracionService {
       permiteCambiarPrecio?: boolean;
       tenantId?: string;
     },
+    currentUser?: { id: string; rol: Rol; esAdminGeneral?: boolean },
   ) {
     const allowedTenants = await this.getOrganizationTenantIds(tenantId);
 
@@ -1152,6 +1155,21 @@ export class ConfiguracionService {
 
     if (!user) {
       throw new NotFoundException('Colaborador no encontrado en la empresa');
+    }
+
+    // Validar jerarquia: un Admin de Sucursal no puede editar a un Admin General ni Super Admin
+    if (currentUser) {
+      const isCurrentUserGlobal =
+        currentUser.rol === Rol.ROL_SUPER_ADMIN || currentUser.esAdminGeneral === true;
+
+      if (!isCurrentUserGlobal) {
+        // El usuario actual es Admin de Sucursal (no global)
+        if (user.esAdminGeneral || user.rol === Rol.ROL_SUPER_ADMIN) {
+          throw new ForbiddenException(
+            'Un Administrador de Sucursal no tiene permisos para editar a un Administrador General.',
+          );
+        }
+      }
     }
 
     // Si se envía cambio de sucursal, validar que pertenezca a la empresa

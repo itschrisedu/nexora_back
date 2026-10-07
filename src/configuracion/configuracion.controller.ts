@@ -320,7 +320,7 @@ export class ConfiguracionController {
     @Body() dto: any,
     @Req() req: any,
   ) {
-    return this.configuracionService.updatePersonal(req.user.tenantId, id, dto);
+    return this.configuracionService.updatePersonal(req.user.tenantId, id, dto, req.user);
   }
 
   @Post('personal/:id/reset-password')
