@@ -82,11 +82,23 @@ export class AuthService implements OnApplicationBootstrap {
     if (smtpUser && smtpPass) {
       try {
         let transporter: Transporter;
+        const originalHost = smtpHost || 'smtp.gmail.com';
+        let resolvedHost = originalHost;
+
+        // Forzar resolución IPv4 explícita para evitar errores ENETUNREACH de IPv6 en Railway/Linux
+        try {
+          const dnsLookup = await dns.promises.lookup(originalHost, { family: 4 });
+          if (dnsLookup?.address) {
+            resolvedHost = dnsLookup.address;
+          }
+        } catch (_) {
+          resolvedHost = originalHost;
+        }
 
         const timeoutOptions: any = {
-          connectionTimeout: 10000,
-          greetingTimeout: 10000,
-          socketTimeout: 15000,
+          connectionTimeout: 15000,
+          greetingTimeout: 15000,
+          socketTimeout: 20000,
         };
 
         if (smtpService) {
@@ -96,13 +108,16 @@ export class AuthService implements OnApplicationBootstrap {
             ...timeoutOptions,
           });
         } else if (smtpUser.toLowerCase().endsWith('@gmail.com')) {
-          // Gmail en puerto 465 con SSL directo
+          // Gmail con IPv4 directa y SNI TLS
           transporter = nodemailer.createTransport({
-            host: smtpHost || 'smtp.gmail.com',
+            host: resolvedHost,
             port: smtpPort || 465,
             secure: smtpSecure !== undefined ? smtpSecure : true,
             auth: { user: smtpUser, pass: smtpPass },
-            tls: { rejectUnauthorized: false },
+            tls: {
+              rejectUnauthorized: false,
+              servername: originalHost,
+            },
             ...timeoutOptions,
           });
         } else {
@@ -118,22 +133,17 @@ export class AuthService implements OnApplicationBootstrap {
             }
           }
 
-          if (smtpHost) {
-            transporter = nodemailer.createTransport({
-              host: smtpHost,
-              port: smtpPort,
-              secure: smtpSecure,
-              auth: { user: smtpUser, pass: smtpPass },
-              tls: { rejectUnauthorized: false },
-              ...timeoutOptions,
-            });
-          } else {
-            transporter = nodemailer.createTransport({
-              service: 'gmail',
-              auth: { user: smtpUser, pass: smtpPass },
-              ...timeoutOptions,
-            });
-          }
+          transporter = nodemailer.createTransport({
+            host: resolvedHost,
+            port: smtpPort,
+            secure: smtpSecure,
+            auth: { user: smtpUser, pass: smtpPass },
+            tls: {
+              rejectUnauthorized: false,
+              servername: originalHost,
+            },
+            ...timeoutOptions,
+          });
         }
 
         const info = await transporter.sendMail({
