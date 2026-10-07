@@ -5,6 +5,7 @@ import {
   Logger,
   NotFoundException,
   BadRequestException,
+  ForbiddenException,
   OnApplicationBootstrap,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -1015,6 +1016,9 @@ export class AuthService implements OnApplicationBootstrap {
     // Determinar el tenantId del nuevo usuario
     let tenantId: string | null = null;
     if (explicitTenantId) {
+      if (!isCallerAdminGeneral && explicitTenantId !== requestUser.tenantId) {
+        throw new ForbiddenException('No tiene permisos para registrar personal en otra sucursal.');
+      }
       tenantId = explicitTenantId;
     } else {
       tenantId = requestUser.tenantId;
@@ -1022,7 +1026,8 @@ export class AuthService implements OnApplicationBootstrap {
 
     const cleanNombre = (nombre || '').trim().toLowerCase();
 
-    const isGlobal = rol === Rol.ROL_ADMIN ? (esAdminGeneral ?? false) : false;
+    // Solo un Administrador General o Super Admin puede conceder el rango de Admin General
+    const isGlobal = isCallerAdminGeneral && rol === Rol.ROL_ADMIN ? (esAdminGeneral ?? false) : false;
 
     const passwordHash = await bcrypt.hash(password, this.BCRYPT_ROUNDS);
     const user = await this.prisma.user.create({

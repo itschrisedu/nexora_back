@@ -640,7 +640,7 @@ export class ConfiguracionService {
   /**
    * Obtiene la lista de todas las sucursales pertenecientes a la organización.
    */
-  async getSucursales(tenantId: string) {
+  async getSucursales(tenantId: string, isGlobal: boolean = true) {
     const safeDecryptRuc = (encRuc?: string | null) => {
       if (!encRuc) return '';
       const dec = this.encryption.decrypt(encRuc);
@@ -713,16 +713,18 @@ export class ConfiguracionService {
       where: { tenantId, rol: { in: [Rol.ROL_ADMIN, Rol.ROL_SUPER_ADMIN] } },
     });
 
-    const matching = allTenants.filter((s) => {
-      if (s.id === tenantId) return true;
-      if (plainRucMatriz && s.businessConfig?.ruc && safeDecryptRuc(s.businessConfig.ruc) === plainRucMatriz) {
-        return true;
-      }
-      if (mainAdmin && s.users.some((u) => u.parentId === mainAdmin.id || u.id === mainAdmin.id)) {
-        return true;
-      }
-      return false;
-    });
+    const matching = isGlobal
+      ? allTenants.filter((s) => {
+          if (s.id === tenantId) return true;
+          if (plainRucMatriz && s.businessConfig?.ruc && safeDecryptRuc(s.businessConfig.ruc) === plainRucMatriz) {
+            return true;
+          }
+          if (mainAdmin && s.users.some((u) => u.parentId === mainAdmin.id || u.id === mainAdmin.id)) {
+            return true;
+          }
+          return false;
+        })
+      : allTenants.filter((s) => s.id === tenantId);
 
     return matching.map((s) => {
       const sucursalRuc = safeDecryptRuc(s.businessConfig?.ruc);
@@ -1103,8 +1105,10 @@ export class ConfiguracionService {
   /**
    * Obtiene la lista de colaboradores de todas las sucursales de la empresa.
    */
-  async getPersonal(tenantId: string) {
-    const targetTenants = await this.getOrganizationTenantIds(tenantId);
+  async getPersonal(tenantId: string, isGlobal: boolean = true) {
+    const targetTenants = isGlobal
+      ? await this.getOrganizationTenantIds(tenantId)
+      : (tenantId ? [tenantId] : []);
 
     return this.prisma.user.findMany({
       where: { tenantId: { in: targetTenants } },

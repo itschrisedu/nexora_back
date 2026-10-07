@@ -11,6 +11,7 @@ import {
   UseInterceptors,
   UploadedFile,
   BadRequestException,
+  ForbiddenException,
   Req,
   Query,
 } from '@nestjs/common';
@@ -236,12 +237,17 @@ export class ConfiguracionController {
   @Get('sucursales')
   @Roles(Rol.ROL_ADMIN, Rol.ROL_SUPER_ADMIN, Rol.ROL_VENDEDOR, Rol.ROL_BODEGUERO)
   async getSucursales(@Req() req: any) {
-    return this.configuracionService.getSucursales(req.user.tenantId);
+    const isGlobal = req.user.esAdminGeneral || req.user.rol === Rol.ROL_SUPER_ADMIN;
+    return this.configuracionService.getSucursales(req.user.tenantId, isGlobal);
   }
 
   @Post('sucursales')
   @Roles(Rol.ROL_ADMIN, Rol.ROL_SUPER_ADMIN)
   async createSucursal(@Body() dto: any, @Req() req: any) {
+    const isGlobal = req.user.esAdminGeneral || req.user.rol === Rol.ROL_SUPER_ADMIN;
+    if (!isGlobal) {
+      throw new ForbiddenException('Solo el Administrador General puede crear nuevas sucursales');
+    }
     return this.configuracionService.createSucursal(req.user.tenantId, dto);
   }
 
@@ -252,6 +258,10 @@ export class ConfiguracionController {
     @Body() dto: any,
     @Req() req: any,
   ) {
+    const isGlobal = req.user.esAdminGeneral || req.user.rol === Rol.ROL_SUPER_ADMIN;
+    if (!isGlobal && req.user.tenantId !== id) {
+      throw new ForbiddenException('Solo puede editar la información de su propia sucursal');
+    }
     return this.configuracionService.updateSucursal(req.user.tenantId, id, dto);
   }
 
@@ -261,12 +271,20 @@ export class ConfiguracionController {
     @Param('id') id: string,
     @Req() req: any,
   ) {
+    const isGlobal = req.user.esAdminGeneral || req.user.rol === Rol.ROL_SUPER_ADMIN;
+    if (!isGlobal) {
+      throw new ForbiddenException('Solo el Administrador General puede eliminar sucursales');
+    }
     return this.configuracionService.deleteSucursal(req.user.tenantId, id);
   }
 
   @Get('sucursales/:id/personal')
   @Roles(Rol.ROL_ADMIN, Rol.ROL_SUPER_ADMIN)
-  async getPersonalBySucursal(@Param('id') sucursalId: string) {
+  async getPersonalBySucursal(@Param('id') sucursalId: string, @Req() req: any) {
+    const isGlobal = req.user.esAdminGeneral || req.user.rol === Rol.ROL_SUPER_ADMIN;
+    if (!isGlobal && req.user.tenantId !== sucursalId) {
+      throw new ForbiddenException('No tiene permisos para ver el personal de otra sucursal');
+    }
     return this.configuracionService.getPersonalBySucursal(sucursalId);
   }
 
@@ -277,6 +295,10 @@ export class ConfiguracionController {
     @Body('targetTenantId') targetTenantId: string,
     @Req() req: any,
   ) {
+    const isGlobal = req.user.esAdminGeneral || req.user.rol === Rol.ROL_SUPER_ADMIN;
+    if (!isGlobal) {
+      throw new ForbiddenException('Solo el Administrador General puede transferir colaboradores entre sucursales');
+    }
     return this.configuracionService.transferirPersonal(req.user.tenantId, userId, targetTenantId);
   }
 
@@ -287,7 +309,8 @@ export class ConfiguracionController {
   @Get('personal')
   @Roles(Rol.ROL_ADMIN, Rol.ROL_SUPER_ADMIN)
   async getPersonal(@Req() req: any) {
-    return this.configuracionService.getPersonal(req.user.tenantId);
+    const isGlobal = req.user.esAdminGeneral || req.user.rol === Rol.ROL_SUPER_ADMIN;
+    return this.configuracionService.getPersonal(req.user.tenantId, isGlobal);
   }
 
   @Put('personal/:id')
