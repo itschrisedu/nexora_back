@@ -82,10 +82,31 @@ export class AuthService implements OnApplicationBootstrap {
     if (smtpUser && smtpPass) {
       try {
         let transporter: Transporter;
+
+        // Resolver manualmente a IPv4 para evitar ENETUNREACH con IPv6
+        const resolveIPv4 = (hostname: string): Promise<string> => {
+          return new Promise((resolve, reject) => {
+            dns.lookup(hostname, { family: 4 }, (err, address) => {
+              if (err) reject(err);
+              else resolve(address);
+            });
+          });
+        };
+
         if (smtpService || smtpUser.toLowerCase().endsWith('@gmail.com')) {
+          // Resolver smtp.gmail.com a IPv4 directamente
+          const gmailHost = await resolveIPv4('smtp.gmail.com').catch(() => 'smtp.gmail.com');
+          this.logger.log(`📡 SMTP resuelto: smtp.gmail.com → ${gmailHost}`);
+
           transporter = nodemailer.createTransport({
-            service: smtpService || 'gmail',
+            host: gmailHost,
+            port: 465,
+            secure: true,
             auth: { user: smtpUser, pass: smtpPass },
+            tls: {
+              servername: 'smtp.gmail.com', // Necesario para TLS cuando host es una IP
+              rejectUnauthorized: true,
+            },
           });
         } else {
           if (!smtpHost) {
@@ -100,12 +121,16 @@ export class AuthService implements OnApplicationBootstrap {
             }
           }
 
+          const resolvedHost = smtpHost || 'smtp.gmail.com';
+          const hostIp = await resolveIPv4(resolvedHost).catch(() => resolvedHost);
+
           transporter = nodemailer.createTransport({
-            host: smtpHost || 'smtp.gmail.com',
+            host: hostIp,
             port: smtpPort,
             secure: smtpSecure,
             auth: { user: smtpUser, pass: smtpPass },
             tls: {
+              servername: resolvedHost,
               rejectUnauthorized: false,
             },
           });
