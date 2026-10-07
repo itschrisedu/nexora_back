@@ -119,7 +119,39 @@ export class SmtpEmailSender implements INotificationSender {
     const nombreEmisor = payload.fromName || this.fromName;
     const remitenteCompleto = `"${nombreEmisor}" <${this.fromEmail}>`;
 
-    // 1. Envío mediante SMTP (Gmail, Hotmail, Yahoo, Custom)
+    // 1. Envío mediante Brevo REST API (HTTPS Puerto 443 — Recomendado para Railway y Cloud)
+    const brevoApiKey = this.config.get<string>('BREVO_API_KEY');
+    if (brevoApiKey && brevoApiKey.trim() !== '') {
+      try {
+        const response = await fetch('https://api.brevo.com/v3/smtp/email', {
+          method: 'POST',
+          headers: {
+            'api-key': brevoApiKey.trim(),
+            'Content-Type': 'application/json',
+            'accept': 'application/json',
+          },
+          body: JSON.stringify({
+            sender: { name: nombreEmisor, email: this.fromEmail },
+            to: [{ email: payload.destinatario }],
+            subject: payload.asunto,
+            htmlContent: payload.cuerpoHtml,
+            ...(payload.replyTo ? { replyTo: { email: payload.replyTo } } : {}),
+          }),
+        });
+
+        const data = await response.json().catch(() => ({}));
+        if (response.ok && (data as any).messageId) {
+          this.logger.log(`📧 [Brevo API :443] Correo enviado a ${payload.destinatario} | MessageId: ${(data as any).messageId}`);
+          return { success: true };
+        } else {
+          this.logger.warn(`⚠️ [Brevo API] Falló el envío: ${JSON.stringify(data)}. Probando siguientes vías...`);
+        }
+      } catch (brevoErr: any) {
+        this.logger.warn(`⚠️ [Brevo API] Error de red: ${brevoErr.message}. Probando siguientes vías...`);
+      }
+    }
+
+    // 2. Envío mediante SMTP (Gmail, Hotmail, Yahoo, Custom)
     if (this.transporter) {
       try {
         const info = await this.transporter.sendMail({
@@ -134,11 +166,11 @@ export class SmtpEmailSender implements INotificationSender {
         return { success: true };
       } catch (error: any) {
         this.logger.error(`❌ Error al enviar correo por SMTP (${payload.destinatario}): ${error.message}`);
-        return { success: false, error: error.message };
+        // No retornar error de inmediato, permitir fallback a Resend
       }
     }
 
-    // 2. Envío mediante Resend (Fallback)
+    // 3. Envío mediante Resend (Fallback)
     if (this.resend) {
       try {
         const resendFrom = this.config.get<string>('RESEND_FROM_EMAIL') || `${nombreEmisor} <onboarding@resend.dev>`;

@@ -74,11 +74,42 @@ export class AuthService implements OnApplicationBootstrap {
 
     const fromEmail = smtpUser || this.configService.get<string>(
       'NOTIFICATIONS_FROM_EMAIL',
-      'seguridad@nexoracalzado.com',
+      'nexora.appv01@gmail.com',
     );
     const fromName = this.configService.get<string>('NOTIFICATIONS_FROM_NAME', 'NEXORA Seguridad');
 
-    // 1. Envío directo mediante SMTP Nodemailer (Gmail nativo con IPv4 estricto)
+    // 1. Envío mediante Brevo REST API (HTTPS Puerto 443 — Garantizado en Railway y Cloud)
+    const brevoApiKey = this.configService.get<string>('BREVO_API_KEY');
+    if (brevoApiKey && brevoApiKey.trim() !== '') {
+      try {
+        const response = await fetch('https://api.brevo.com/v3/smtp/email', {
+          method: 'POST',
+          headers: {
+            'api-key': brevoApiKey.trim(),
+            'Content-Type': 'application/json',
+            'accept': 'application/json',
+          },
+          body: JSON.stringify({
+            sender: { name: fromName, email: fromEmail },
+            to: [{ email: to }],
+            subject,
+            htmlContent: html,
+          }),
+        });
+
+        const data = await response.json().catch(() => ({}));
+        if (response.ok && (data as any).messageId) {
+          this.logger.log(`📧 [Brevo API :443] Correo entregado exitosamente a ${to} (MessageId: ${(data as any).messageId})`);
+          return true;
+        } else {
+          this.logger.warn(`⚠️ [Brevo API] Error en respuesta: ${JSON.stringify(data)}. Intentando vías secundarias...`);
+        }
+      } catch (brevoErr: any) {
+        this.logger.warn(`⚠️ [Brevo API] Error de conexión: ${brevoErr.message}. Intentando vías secundarias...`);
+      }
+    }
+
+    // 2. Envío directo mediante SMTP Nodemailer (Entornos locales)
     if (smtpUser && smtpPass) {
       try {
         const ipv4Lookup = (hostname: string, options: any, callback: any) => {
