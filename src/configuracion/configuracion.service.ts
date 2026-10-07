@@ -619,17 +619,26 @@ export class ConfiguracionService {
       include: { businessConfig: true, users: true },
     });
 
-    // Encontrar admin general del tenant
-    const mainAdmin = await this.prisma.user.findFirst({
-      where: { tenantId, rol: { in: [Rol.ROL_ADMIN, Rol.ROL_SUPER_ADMIN] } },
+    const mainTenantUsers = await this.prisma.user.findMany({
+      where: {
+        OR: [
+          { tenantId },
+          { rol: { in: [Rol.ROL_ADMIN, Rol.ROL_SUPER_ADMIN] } },
+        ],
+      },
+      select: { id: true, parentId: true },
     });
+    const mainUserIds = new Set<string>(mainTenantUsers.map((u) => u.id));
+    for (const u of mainTenantUsers) {
+      if (u.parentId) mainUserIds.add(u.parentId);
+    }
 
     const matching = allTenants.filter((t) => {
       if (t.id === tenantId) return true;
       if (plainRuc && t.businessConfig?.ruc && safeDecryptRuc(t.businessConfig.ruc) === plainRuc) {
         return true;
       }
-      if (mainAdmin && t.users.some((u) => u.parentId === mainAdmin.id || u.id === mainAdmin.id)) {
+      if (t.users.some((u) => (u.parentId && mainUserIds.has(u.parentId)) || mainUserIds.has(u.id))) {
         return true;
       }
       return false;

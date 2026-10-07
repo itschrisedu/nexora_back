@@ -81,7 +81,12 @@ describe('Integración — Autenticación, Roles y Criptografía de Sesión', ()
       getOrThrow: jest.fn().mockReturnValue('jwt-secret-key-cevallos'),
     };
 
-    authService = new AuthService(mockPrisma, mockJwtService, mockConfigService);
+    const mockEncryptionService = {
+      encrypt: jest.fn((val: string) => `encrypted_${val}`),
+      decrypt: jest.fn((val: string) => val.replace('encrypted_', '')),
+    } as any;
+
+    authService = new AuthService(mockPrisma, mockJwtService, mockConfigService, mockEncryptionService);
   });
 
   it('debe autenticar con credenciales validas y retornar token con tenantId y rol', async () => {

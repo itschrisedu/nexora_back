@@ -316,7 +316,8 @@ export class ConfiguracionController {
   @Roles(Rol.ROL_ADMIN, Rol.ROL_SUPER_ADMIN)
   async getPersonal(@Req() req: any) {
     const isGlobal = req.user.esAdminGeneral || req.user.rol === Rol.ROL_SUPER_ADMIN;
-    return this.configuracionService.getPersonal(req.user.tenantId, isGlobal);
+    const tenantIdRef = isGlobal ? (req.user.originalTenantId || req.user.tenantId) : req.user.tenantId;
+    return this.configuracionService.getPersonal(tenantIdRef, isGlobal);
   }
 
   @Put('personal/:id')
@@ -326,7 +327,9 @@ export class ConfiguracionController {
     @Body() dto: any,
     @Req() req: any,
   ) {
-    return this.configuracionService.updatePersonal(req.user.tenantId, id, dto, req.user);
+    const isGlobal = req.user.esAdminGeneral || req.user.rol === Rol.ROL_SUPER_ADMIN;
+    const tenantIdRef = isGlobal ? (req.user.originalTenantId || req.user.tenantId) : req.user.tenantId;
+    return this.configuracionService.updatePersonal(tenantIdRef, id, dto, req.user);
   }
 
   @Post('personal/:id/reset-password')
@@ -336,8 +339,10 @@ export class ConfiguracionController {
     @Body('password') password: string,
     @Req() req: any,
   ) {
+    const isGlobal = req.user.esAdminGeneral || req.user.rol === Rol.ROL_SUPER_ADMIN;
+    const tenantIdRef = isGlobal ? (req.user.originalTenantId || req.user.tenantId) : req.user.tenantId;
     return this.configuracionService.resetPasswordPersonal(
-      req.user.tenantId,
+      tenantIdRef,
       id,
       password,
     );
@@ -349,8 +354,10 @@ export class ConfiguracionController {
     @Param('id') id: string,
     @Req() req: any,
   ) {
+    const isGlobal = req.user.esAdminGeneral || req.user.rol === Rol.ROL_SUPER_ADMIN;
+    const tenantIdRef = isGlobal ? (req.user.originalTenantId || req.user.tenantId) : req.user.tenantId;
     return this.configuracionService.deletePersonal(
-      req.user.tenantId,
+      tenantIdRef,
       req.user.id,
       id,
     );

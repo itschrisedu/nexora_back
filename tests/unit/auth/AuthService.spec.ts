@@ -39,10 +39,16 @@ describe('AuthService — Pruebas Unitarias', () => {
       }),
     };
 
+    const mockEncryptionService = {
+      encrypt: jest.fn((val: string) => `encrypted_${val}`),
+      decrypt: jest.fn((val: string) => val.replace('encrypted_', '')),
+    } as any;
+
     authService = new AuthService(
       mockPrisma,
       mockJwtService,
       mockConfigService,
+      mockEncryptionService,
     );
   });
 

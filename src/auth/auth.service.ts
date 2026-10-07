@@ -15,6 +15,7 @@ import { randomBytes } from 'crypto';
 import * as nodemailer from 'nodemailer';
 import type { Transporter } from 'nodemailer';
 import { Resend } from 'resend';
+import { EncryptionService } from '../shared/infrastructure/encryption/encryption.service';
 import { PrismaService } from '../shared/infrastructure/prisma/prisma.service';
 import { JwtPayload } from './jwt.strategy';
 import { ActiveSessionStore } from './active-session.store';
@@ -31,6 +32,7 @@ export class AuthService implements OnApplicationBootstrap {
     private readonly prisma: PrismaService,
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
+    private readonly encryption: EncryptionService,
   ) {}
 
   /**
@@ -924,32 +926,68 @@ export class AuthService implements OnApplicationBootstrap {
 
   // ── Gestión de Personal (Admin CRUD) ──────────
 
-  async listUsers(requestUser: { id: string; rol: string; tenantId: string | null }) {
+  async listUsers(requestUser: {
+    id: string;
+    rol: string;
+    tenantId: string | null;
+    originalTenantId?: string | null;
+    esAdminGeneral?: boolean;
+  }) {
     const where: any = {};
 
     if (requestUser.rol === 'ROL_SUPER_ADMIN') {
       // Super Admin ve todos los usuarios
     } else if (requestUser.rol === 'ROL_ADMIN') {
-      const mainTenant = requestUser.tenantId
-        ? await this.prisma.tenant.findUnique({
-            where: { id: requestUser.tenantId },
-            include: { businessConfig: true },
-          })
-        : null;
-      const ruc = mainTenant?.businessConfig?.ruc;
+      const isCallerAdminGeneral = Boolean(requestUser.esAdminGeneral);
+      const tenantIdRef = requestUser.originalTenantId || requestUser.tenantId;
 
-      const tenantIds: (string | null)[] = [requestUser.tenantId];
-      if (ruc) {
-        const relatedTenants = await this.prisma.tenant.findMany({
-          where: { businessConfig: { ruc }, active: true },
-          select: { id: true },
+      if (isCallerAdminGeneral) {
+        // Admin General ve los usuarios de todas las sucursales vinculadas a su negocio
+        const mainTenant = tenantIdRef
+          ? await this.prisma.tenant.findUnique({
+              where: { id: tenantIdRef },
+              include: { businessConfig: true },
+            })
+          : null;
+        const encRuc = mainTenant?.businessConfig?.ruc;
+        const plainRuc = encRuc ? this.encryption.decrypt(encRuc) : null;
+
+        const allTenants = await this.prisma.tenant.findMany({
+          include: { businessConfig: true, users: true },
         });
-        relatedTenants.forEach((t) => {
-          if (!tenantIds.includes(t.id)) tenantIds.push(t.id);
+
+        const mainTenantUsers = await this.prisma.user.findMany({
+          where: {
+            OR: [
+              { tenantId: tenantIdRef },
+              { rol: { in: [Rol.ROL_ADMIN, Rol.ROL_SUPER_ADMIN] } },
+            ],
+          },
+          select: { id: true, parentId: true },
         });
+        const mainUserIds = new Set<string>(mainTenantUsers.map((u) => u.id));
+        for (const u of mainTenantUsers) {
+          if (u.parentId) mainUserIds.add(u.parentId);
+        }
+
+        const matchingTenants = allTenants.filter((t) => {
+          if (t.id === tenantIdRef) return true;
+          if (plainRuc && t.businessConfig?.ruc) {
+            const rucDec = this.encryption.decrypt(t.businessConfig.ruc);
+            if (rucDec && rucDec === plainRuc && rucDec !== '0000000000001') return true;
+          }
+          if (t.users.some((u) => (u.parentId && mainUserIds.has(u.parentId)) || mainUserIds.has(u.id))) {
+            return true;
+          }
+          return false;
+        });
+
+        where.tenantId = { in: matchingTenants.map((t) => t.id) };
+      } else {
+        // Admin de sucursal solo ve los usuarios de su local asignado
+        where.tenantId = requestUser.tenantId;
       }
 
-      where.tenantId = { in: tenantIds.filter(Boolean) };
       where.rol = { in: [Rol.ROL_VENDEDOR, Rol.ROL_BODEGUERO, Rol.ROL_ADMIN] };
     } else {
       // Vendedores y bodegueros no deberían listar usuarios

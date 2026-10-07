@@ -73,7 +73,12 @@ describe('E2E / Sistema — Flujo de Autenticación, Emisión JWT y Control de S
       }),
     };
 
-    authService = new AuthService(mockPrisma, mockJwtService, mockConfigService);
+    const mockEncryptionService = {
+      encrypt: jest.fn((val: string) => `encrypted_${val}`),
+      decrypt: jest.fn((val: string) => val.replace('encrypted_', '')),
+    } as any;
+
+    authService = new AuthService(mockPrisma, mockJwtService, mockConfigService, mockEncryptionService);
   });
 
   it('debe completar el flujo E2E de login exitoso retornando tokens JWT y datos del usuario', async () => {
