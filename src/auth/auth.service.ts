@@ -1279,9 +1279,6 @@ export class AuthService implements OnApplicationBootstrap {
           <a href="${loginUrl}" style="display: inline-block; padding: 14px 36px; background: linear-gradient(135deg, #10b981, #059669); color: #ffffff; text-decoration: none; border-radius: 14px; font-size: 15px; font-weight: 700; letter-spacing: 0.02em; box-shadow: 0 4px 16px rgba(16,185,129,0.3);">
             Ingresar al Sistema
           </a>
-          <p style="margin: 12px 0 0; font-size: 12px; color: rgba(238,242,247,0.4);">
-            ${loginUrl}
-          </p>
         </div>
 
         <div style="background: rgba(245, 158, 11, 0.08); border: 1px solid rgba(245, 158, 11, 0.2); border-radius: 12px; padding: 14px 18px; margin-top: 24px;">
