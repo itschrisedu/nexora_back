@@ -314,6 +314,19 @@ export class ConfiguracionController {
     );
   }
 
+  @Delete('personal/:id')
+  @Roles(Rol.ROL_ADMIN, Rol.ROL_SUPER_ADMIN)
+  async deletePersonal(
+    @Param('id') id: string,
+    @Req() req: any,
+  ) {
+    return this.configuracionService.deletePersonal(
+      req.user.tenantId,
+      req.user.id,
+      id,
+    );
+  }
+
   // ══════════════════════════════
   // STOCK INTER-SUCURSAL
   // ══════════════════════════════

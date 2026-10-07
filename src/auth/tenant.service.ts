@@ -4,6 +4,7 @@ import { EncryptionService } from '../shared/infrastructure/encryption/encryptio
 import * as bcrypt from 'bcryptjs';
 import { Rol, PlanTipo, EstadoSuscripcion } from '@prisma/client';
 import { AuthService } from './auth.service';
+import { ActiveSessionStore } from './active-session.store';
 
 export const PLAN_DEFAULTS: Record<PlanTipo, { maxSucursales: number; maxUsuarios: number; precioMensual: number; name: string }> = {
   PLAN_BASICO: {
@@ -1105,7 +1106,56 @@ export class TenantService {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
     if (!user) throw new NotFoundException('Usuario no encontrado.');
 
+    // Verificar si el usuario tiene transacciones u operaciones vinculadas
+    const [
+      pedidosCount,
+      abonosCount,
+      cierresCajaCount,
+      movimientosStockCount,
+      cambiosPrecioCount,
+      pagosDeudaCount,
+      gastosCount,
+    ] = await Promise.all([
+      this.prisma.order.count({ where: { userId } }),
+      this.prisma.cobroAbono.count({ where: { userId } }),
+      this.prisma.cierreCaja.count({ where: { userId } }),
+      this.prisma.stockMovement.count({ where: { userId } }),
+      this.prisma.priceHistory.count({ where: { changedById: userId } }),
+      this.prisma.deudaPago.count({ where: { userId } }),
+      this.prisma.gasto.count({ where: { userId } }),
+    ]);
+
+    const totalOperaciones =
+      pedidosCount +
+      abonosCount +
+      cierresCajaCount +
+      movimientosStockCount +
+      cambiosPrecioCount +
+      pagosDeudaCount +
+      gastosCount;
+
+    if (totalOperaciones > 0) {
+      const detalles: string[] = [];
+      if (pedidosCount > 0) detalles.push(`${pedidosCount} pedido(s)`);
+      if (abonosCount > 0) detalles.push(`${abonosCount} abono(s)`);
+      if (cierresCajaCount > 0) detalles.push(`${cierresCajaCount} arqueo(s) de caja`);
+      if (movimientosStockCount > 0) detalles.push(`${movimientosStockCount} movimiento(s) de stock`);
+      if (cambiosPrecioCount > 0) detalles.push(`${cambiosPrecioCount} cambio(s) de precio`);
+      if (pagosDeudaCount > 0) detalles.push(`${pagosDeudaCount} pago(s) de deuda`);
+      if (gastosCount > 0) detalles.push(`${gastosCount} gasto(s)`);
+
+      throw new BadRequestException(
+        `No es posible eliminar a "${user.nombre}" porque registra operaciones en el sistema (${detalles.join(', ')}). Desactiva el usuario para revocar su acceso.`,
+      );
+    }
+
+    await this.prisma.refreshToken.deleteMany({ where: { userId } });
+    await this.prisma.passwordReset.deleteMany({ where: { userId } });
+    await this.prisma.vendorLocation.deleteMany({ where: { userId } });
+
     await this.prisma.user.delete({ where: { id: userId } });
+    ActiveSessionStore.invalidate(userId);
+
     this.logger.warn(`Usuario "${user.email}" (${userId}) eliminado por Super Admin.`);
     return { message: `Usuario "${user.nombre}" eliminado correctamente.` };
   }

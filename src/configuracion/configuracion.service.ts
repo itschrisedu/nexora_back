@@ -1215,6 +1215,90 @@ export class ConfiguracionService {
     return { message: `Contraseña restablecida exitosamente para ${user.nombre}` };
   }
 
+  /**
+   * Elimina un colaborador si no tiene transacciones u operaciones vinculadas en el sistema.
+   * Si tiene registros operativos (pedidos, abonos, caja, inventario, etc.), bloquea la eliminación
+   * para proteger la integridad relacional y sugiere desactivar su cuenta.
+   */
+  async deletePersonal(tenantId: string, currentUserId: string, targetUserId: string) {
+    if (currentUserId === targetUserId) {
+      throw new BadRequestException('No puedes eliminar tu propia cuenta de usuario.');
+    }
+
+    const allowedTenants = await this.getOrganizationTenantIds(tenantId);
+    const user = await this.prisma.user.findFirst({
+      where: { id: targetUserId, tenantId: { in: allowedTenants } },
+    });
+
+    if (!user) {
+      throw new NotFoundException('Colaborador no encontrado en la empresa.');
+    }
+
+    if (user.esAdminGeneral) {
+      throw new BadRequestException('No se puede eliminar al Administrador Principal de la empresa.');
+    }
+
+    // Verificar si el colaborador tiene transacciones u operaciones registradas
+    const [
+      pedidosCount,
+      abonosCount,
+      cierresCajaCount,
+      movimientosStockCount,
+      cambiosPrecioCount,
+      pagosDeudaCount,
+      gastosCount,
+    ] = await Promise.all([
+      this.prisma.order.count({ where: { userId: targetUserId } }),
+      this.prisma.cobroAbono.count({ where: { userId: targetUserId } }),
+      this.prisma.cierreCaja.count({ where: { userId: targetUserId } }),
+      this.prisma.stockMovement.count({ where: { userId: targetUserId } }),
+      this.prisma.priceHistory.count({ where: { changedById: targetUserId } }),
+      this.prisma.deudaPago.count({ where: { userId: targetUserId } }),
+      this.prisma.gasto.count({ where: { userId: targetUserId } }),
+    ]);
+
+    const totalOperaciones =
+      pedidosCount +
+      abonosCount +
+      cierresCajaCount +
+      movimientosStockCount +
+      cambiosPrecioCount +
+      pagosDeudaCount +
+      gastosCount;
+
+    if (totalOperaciones > 0) {
+      const detalles: string[] = [];
+      if (pedidosCount > 0) detalles.push(`${pedidosCount} pedido(s)`);
+      if (abonosCount > 0) detalles.push(`${abonosCount} abono(s) de cobro`);
+      if (cierresCajaCount > 0) detalles.push(`${cierresCajaCount} arqueo(s) de caja`);
+      if (movimientosStockCount > 0) detalles.push(`${movimientosStockCount} movimiento(s) de inventario`);
+      if (cambiosPrecioCount > 0) detalles.push(`${cambiosPrecioCount} cambio(s) de precio`);
+      if (pagosDeudaCount > 0) detalles.push(`${pagosDeudaCount} pago(s) a proveedores`);
+      if (gastosCount > 0) detalles.push(`${gastosCount} gasto(s)`);
+
+      throw new BadRequestException(
+        `No es posible eliminar a "${user.nombre}" porque tiene historial operativo registrado (${detalles.join(', ')}). Para impedir su acceso al sistema, puedes desactivar su cuenta marcándolo como Inactivo.`,
+      );
+    }
+
+    // Si no tiene transacciones u operaciones, proceder con la eliminación segura
+    await this.prisma.refreshToken.deleteMany({ where: { userId: targetUserId } });
+    await this.prisma.passwordReset.deleteMany({ where: { userId: targetUserId } });
+    await this.prisma.vendorLocation.deleteMany({ where: { userId: targetUserId } });
+
+    await this.prisma.user.delete({
+      where: { id: targetUserId },
+    });
+
+    ActiveSessionStore.invalidate(targetUserId);
+
+    this.logger.warn(`Colaborador "${user.nombre}" (${user.email}) eliminado por el Administrador.`);
+    return {
+      success: true,
+      message: `Colaborador "${user.nombre}" eliminado correctamente del sistema.`,
+    };
+  }
+
   // ══════════════════════════════
   // INVENTARIO INTER-SUCURSAL
   // ══════════════════════════════
