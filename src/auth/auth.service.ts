@@ -1038,7 +1038,7 @@ export class AuthService implements OnApplicationBootstrap {
         esAdminGeneral: isGlobal,
         passwordHash,
         activo: true,
-        permiteCambiarPrecio: permiteCambiarPrecio ?? false,
+        permiteCambiarPrecio: rol === Rol.ROL_ADMIN || rol === Rol.ROL_SUPER_ADMIN ? true : (permiteCambiarPrecio ?? false),
         tenantId,
         parentId: requestUser.id,
       },
