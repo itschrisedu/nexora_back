@@ -709,10 +709,20 @@ export class ConfiguracionService {
       ? safeDecryptRuc(mainTenant.businessConfig.ruc)
       : '';
 
-    // Encontrar admin general para asociar sucursales creadas bajo su cuenta
-    const mainAdmin = await this.prisma.user.findFirst({
-      where: { tenantId, rol: { in: [Rol.ROL_ADMIN, Rol.ROL_SUPER_ADMIN] } },
+    // Encontrar todos los usuarios de la matriz para asociar sucursales creadas bajo cualquiera de ellos
+    const mainTenantUsers = await this.prisma.user.findMany({
+      where: {
+        OR: [
+          { tenantId },
+          { rol: { in: [Rol.ROL_ADMIN, Rol.ROL_SUPER_ADMIN] } },
+        ],
+      },
+      select: { id: true, parentId: true },
     });
+    const mainUserIds = new Set<string>(mainTenantUsers.map((u) => u.id));
+    for (const u of mainTenantUsers) {
+      if (u.parentId) mainUserIds.add(u.parentId);
+    }
 
     const matching = isGlobal
       ? allTenants.filter((s) => {
@@ -720,7 +730,7 @@ export class ConfiguracionService {
           if (plainRucMatriz && s.businessConfig?.ruc && safeDecryptRuc(s.businessConfig.ruc) === plainRucMatriz) {
             return true;
           }
-          if (mainAdmin && s.users.some((u) => u.parentId === mainAdmin.id || u.id === mainAdmin.id)) {
+          if (s.users.some((u) => (u.parentId && mainUserIds.has(u.parentId)) || mainUserIds.has(u.id))) {
             return true;
           }
           return false;

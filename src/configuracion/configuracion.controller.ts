@@ -238,7 +238,9 @@ export class ConfiguracionController {
   @Roles(Rol.ROL_ADMIN, Rol.ROL_SUPER_ADMIN, Rol.ROL_VENDEDOR, Rol.ROL_BODEGUERO)
   async getSucursales(@Req() req: any) {
     const isGlobal = req.user.esAdminGeneral || req.user.rol === Rol.ROL_SUPER_ADMIN;
-    return this.configuracionService.getSucursales(req.user.tenantId, isGlobal);
+    // Admin General: usar originalTenantId (Matriz) como referencia para encontrar todas las sucursales relacionadas
+    const tenantIdRef = isGlobal ? (req.user.originalTenantId || req.user.tenantId) : req.user.tenantId;
+    return this.configuracionService.getSucursales(tenantIdRef, isGlobal);
   }
 
   @Post('sucursales')
@@ -248,7 +250,8 @@ export class ConfiguracionController {
     if (!isGlobal) {
       throw new ForbiddenException('Solo el Administrador General puede crear nuevas sucursales');
     }
-    return this.configuracionService.createSucursal(req.user.tenantId, dto);
+    const tenantIdRef = req.user.originalTenantId || req.user.tenantId;
+    return this.configuracionService.createSucursal(tenantIdRef, dto);
   }
 
   @Put('sucursales/:id')
@@ -262,7 +265,8 @@ export class ConfiguracionController {
     if (!isGlobal && req.user.tenantId !== id) {
       throw new ForbiddenException('Solo puede editar la información de su propia sucursal');
     }
-    return this.configuracionService.updateSucursal(req.user.tenantId, id, dto);
+    const tenantIdRef = req.user.originalTenantId || req.user.tenantId;
+    return this.configuracionService.updateSucursal(tenantIdRef, id, dto);
   }
 
   @Delete('sucursales/:id')
@@ -275,7 +279,8 @@ export class ConfiguracionController {
     if (!isGlobal) {
       throw new ForbiddenException('Solo el Administrador General puede eliminar sucursales');
     }
-    return this.configuracionService.deleteSucursal(req.user.tenantId, id);
+    const tenantIdRef = req.user.originalTenantId || req.user.tenantId;
+    return this.configuracionService.deleteSucursal(tenantIdRef, id);
   }
 
   @Get('sucursales/:id/personal')
@@ -299,7 +304,8 @@ export class ConfiguracionController {
     if (!isGlobal) {
       throw new ForbiddenException('Solo el Administrador General puede transferir colaboradores entre sucursales');
     }
-    return this.configuracionService.transferirPersonal(req.user.tenantId, userId, targetTenantId);
+    const tenantIdRef = req.user.originalTenantId || req.user.tenantId;
+    return this.configuracionService.transferirPersonal(tenantIdRef, userId, targetTenantId);
   }
 
   // ══════════════════════════════

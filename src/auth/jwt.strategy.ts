@@ -47,6 +47,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
           tenantId: true,
           permiteCambiarPrecio: true,
           activeSessionId: true,
+          esAdminGeneral: true,
         },
       });
     } catch (dbError: any) {
