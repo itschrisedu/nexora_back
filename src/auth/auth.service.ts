@@ -80,73 +80,47 @@ export class AuthService implements OnApplicationBootstrap {
 
     // 1. Intentar envío con SMTP Nodemailer
     if (smtpUser && smtpPass) {
-      try {
-        let transporter: Transporter;
+      const isGmail = smtpService === 'gmail' || smtpUser.toLowerCase().endsWith('@gmail.com');
+      const targetHost = isGmail ? 'smtp.gmail.com' : (smtpHost || 'smtp.gmail.com');
+      
+      // Intentar primero puerto 587 (STARTTLS - más rápido y sin bloqueos de ISP) y luego 465 (SSL)
+      const portConfigs = isGmail
+        ? [
+            { port: 587, secure: false },
+            { port: 465, secure: true },
+          ]
+        : [
+            { port: smtpPort, secure: smtpSecure },
+            { port: 587, secure: false },
+          ];
 
-        // Resolver manualmente a IPv4 para evitar ENETUNREACH con IPv6
-        const resolveIPv4 = (hostname: string): Promise<string> => {
-          return new Promise((resolve, reject) => {
-            dns.lookup(hostname, { family: 4 }, (err, address) => {
-              if (err) reject(err);
-              else resolve(address);
-            });
-          });
-        };
-
-        if (smtpService || smtpUser.toLowerCase().endsWith('@gmail.com')) {
-          // Resolver smtp.gmail.com a IPv4 directamente
-          const gmailHost = await resolveIPv4('smtp.gmail.com').catch(() => 'smtp.gmail.com');
-          this.logger.log(`📡 SMTP resuelto: smtp.gmail.com → ${gmailHost}`);
-
-          transporter = nodemailer.createTransport({
-            host: gmailHost,
-            port: 465,
-            secure: true,
+      for (const cfg of portConfigs) {
+        try {
+          const transporter = nodemailer.createTransport({
+            host: targetHost,
+            port: cfg.port,
+            secure: cfg.secure,
             auth: { user: smtpUser, pass: smtpPass },
+            connectionTimeout: 8000,
+            greetingTimeout: 5000,
+            socketTimeout: 8000,
             tls: {
-              servername: 'smtp.gmail.com', // Necesario para TLS cuando host es una IP
-              rejectUnauthorized: true,
-            },
-          });
-        } else {
-          if (!smtpHost) {
-            if (smtpUser.endsWith('@hotmail.com') || smtpUser.endsWith('@outlook.com') || smtpUser.endsWith('@live.com')) {
-              smtpHost = 'smtp-mail.outlook.com';
-              smtpPort = 587;
-              smtpSecure = false;
-            } else if (smtpUser.endsWith('@yahoo.com') || smtpUser.endsWith('@yahoo.es')) {
-              smtpHost = 'smtp.mail.yahoo.com';
-              smtpPort = 465;
-              smtpSecure = true;
-            }
-          }
-
-          const resolvedHost = smtpHost || 'smtp.gmail.com';
-          const hostIp = await resolveIPv4(resolvedHost).catch(() => resolvedHost);
-
-          transporter = nodemailer.createTransport({
-            host: hostIp,
-            port: smtpPort,
-            secure: smtpSecure,
-            auth: { user: smtpUser, pass: smtpPass },
-            tls: {
-              servername: resolvedHost,
               rejectUnauthorized: false,
             },
           });
+
+          const info = await transporter.sendMail({
+            from: `"${fromName}" <${fromEmail}>`,
+            to,
+            subject,
+            html,
+          });
+
+          this.logger.log(`📧 [SMTP :${cfg.port}] Correo enviado exitosamente a ${to} (MessageId: ${info.messageId})`);
+          return true;
+        } catch (smtpErr: any) {
+          this.logger.warn(`⚠️ [SMTP :${cfg.port}] Falló el envío a ${to}: ${smtpErr.message}. Probando siguiente vía...`);
         }
-
-        const info = await transporter.sendMail({
-          from: `"${fromName}" <${fromEmail}>`,
-          to,
-          subject,
-          html,
-        });
-
-        this.logger.log(`📧 [SMTP] Correo enviado exitosamente a ${to} (MessageId: ${info.messageId})`);
-        return true;
-      } catch (smtpErr: any) {
-        this.logger.error(`❌ Error al enviar correo mediante SMTP a ${to}: ${smtpErr.message}`);
       }
     }
 
