@@ -1008,13 +1008,15 @@ export class AuthService implements OnApplicationBootstrap {
       tenantId = requestUser.tenantId;
     }
 
+    const cleanNombre = (nombre || '').trim().toLowerCase();
+
     const isGlobal = rol === Rol.ROL_ADMIN ? (esAdminGeneral ?? false) : false;
 
     const passwordHash = await bcrypt.hash(password, this.BCRYPT_ROUNDS);
     const user = await this.prisma.user.create({
       data: {
-        email,
-        nombre,
+        email: cleanEmail,
+        nombre: cleanNombre,
         rol,
         esAdminGeneral: isGlobal,
         passwordHash,
@@ -1037,12 +1039,12 @@ export class AuthService implements OnApplicationBootstrap {
 
     // Enviar correo con credenciales de acceso y enlace al sistema en segundo plano
     this.sendWelcomeCredentialsEmail({
-      email,
-      nombre,
+      email: cleanEmail,
+      nombre: nombre.trim(),
       rol,
       password,
     }).catch((err) => {
-      this.logger.warn(`Error enviando correo de bienvenida a ${email}: ${err.message}`);
+      this.logger.warn(`Error enviando correo de bienvenida a ${cleanEmail}: ${err.message}`);
     });
 
     return user;
