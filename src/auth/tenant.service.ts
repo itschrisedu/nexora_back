@@ -415,6 +415,7 @@ export class TenantService {
             email: true,
             nombre: true,
             rol: true,
+            esAdminGeneral: true,
             activo: true,
             createdAt: true,
           },
@@ -1001,6 +1002,7 @@ export class TenantService {
       nombre: string;
       password: string;
       rol?: Rol;
+      esAdminGeneral?: boolean;
     },
   ) {
     // Validar formato del correo
@@ -1015,7 +1017,11 @@ export class TenantService {
     if (!tenant) throw new NotFoundException('Tenant no encontrado.');
 
     const emailExists = await this.prisma.user.findUnique({ where: { email: data.email } });
-    if (emailExists) throw new ConflictException(`El correo "${data.email}" ya está registrado.`);
+    if (emailExists) throw new ConflictException(`El correo \"${data.email}\" ya está registrado.`);
+
+    // Si el rol es ROL_ADMIN, determinar si es Admin General (todas las sucursales) o Admin de Sucursal
+    const isAdmin = (data.rol || Rol.ROL_ADMIN) === Rol.ROL_ADMIN;
+    const esAdminGeneral = isAdmin ? (data.esAdminGeneral !== false) : false;
 
     const passwordHash = await bcrypt.hash(data.password, this.BCRYPT_ROUNDS);
     const user = await this.prisma.user.create({
@@ -1023,6 +1029,7 @@ export class TenantService {
         email: data.email,
         nombre: data.nombre,
         rol: data.rol || Rol.ROL_ADMIN,
+        esAdminGeneral,
         passwordHash,
         tenantId,
         activo: true,
@@ -1032,6 +1039,7 @@ export class TenantService {
         email: true,
         nombre: true,
         rol: true,
+        esAdminGeneral: true,
         activo: true,
         createdAt: true,
       },
@@ -1063,6 +1071,7 @@ export class TenantService {
       rol?: Rol;
       activo?: boolean;
       password?: string;
+      esAdminGeneral?: boolean;
     },
   ) {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
@@ -1070,7 +1079,7 @@ export class TenantService {
 
     if (data.email && data.email !== user.email) {
       const emailExists = await this.prisma.user.findUnique({ where: { email: data.email } });
-      if (emailExists) throw new ConflictException(`El correo "${data.email}" ya está registrado.`);
+      if (emailExists) throw new ConflictException(`El correo \"${data.email}\" ya está registrado.`);
     }
 
     const updateData: any = {};
@@ -1078,6 +1087,11 @@ export class TenantService {
     if (data.email !== undefined) updateData.email = data.email;
     if (data.rol !== undefined) updateData.rol = data.rol;
     if (data.activo !== undefined) updateData.activo = data.activo;
+    if (data.esAdminGeneral !== undefined) {
+      // Solo aplicar esAdminGeneral si el rol es ROL_ADMIN
+      const effectiveRol = data.rol || user.rol;
+      updateData.esAdminGeneral = effectiveRol === Rol.ROL_ADMIN ? data.esAdminGeneral : false;
+    }
     if (data.password && data.password.trim()) {
       updateData.passwordHash = await bcrypt.hash(data.password.trim(), this.BCRYPT_ROUNDS);
     }
@@ -1090,12 +1104,13 @@ export class TenantService {
         email: true,
         nombre: true,
         rol: true,
+        esAdminGeneral: true,
         activo: true,
         createdAt: true,
       },
     });
 
-    this.logger.log(`Usuario "${userId}" actualizado por Super Admin.`);
+    this.logger.log(`Usuario \"${userId}\" actualizado por Super Admin.`);
     return updated;
   }
 
