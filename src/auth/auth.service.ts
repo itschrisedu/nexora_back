@@ -63,9 +63,9 @@ export class AuthService implements OnApplicationBootstrap {
     const smtpUser = this.configService.get<string>('SMTP_USER') || this.configService.get<string>('MAIL_USER');
     let smtpPass = this.configService.get<string>('SMTP_PASS') || this.configService.get<string>('MAIL_PASS');
     const smtpService = this.configService.get<string>('SMTP_SERVICE')?.toLowerCase();
-    let smtpHost = this.configService.get<string>('SMTP_HOST') || this.configService.get<string>('MAIL_HOST');
-    let smtpPort = Number(this.configService.get<number | string>('SMTP_PORT') || this.configService.get<number | string>('MAIL_PORT')) || 465;
-    let smtpSecure = this.configService.get<string>('SMTP_SECURE') === 'true' || smtpPort === 465;
+    let smtpHost = this.configService.get<string>('SMTP_HOST') || this.configService.get<string>('MAIL_HOST') || 'smtp.gmail.com';
+    let smtpPort = Number(this.configService.get<number | string>('SMTP_PORT') || this.configService.get<number | string>('MAIL_PORT')) || 587;
+    let smtpSecure = this.configService.get<string>('SMTP_SECURE') === 'true';
 
     // Limpiar espacios en la contraseña de aplicación de Gmail (ej: "abcd efgh ijkl mnop" -> "abcdefghijklmnop")
     if (smtpPass) {
@@ -78,60 +78,43 @@ export class AuthService implements OnApplicationBootstrap {
     );
     const fromName = this.configService.get<string>('NOTIFICATIONS_FROM_NAME', 'NEXORA Seguridad');
 
-    // 1. Intentar envío con SMTP Nodemailer
+    // 1. Envío directo mediante SMTP Nodemailer (Puerto 587 STARTTLS con IPv4 estricto)
     if (smtpUser && smtpPass) {
-      const isGmail = smtpService === 'gmail' || smtpUser.toLowerCase().endsWith('@gmail.com');
-      const targetHost = isGmail ? 'smtp.gmail.com' : (smtpHost || 'smtp.gmail.com');
-      
-      // Resolver siempre mediante IPv4 estricto para evitar ENETUNREACH en contenedores Linux (Railway)
-      const ipv4Lookup = (hostname: string, options: any, callback: any) => {
-        if (typeof options === 'function') {
-          callback = options;
-          options = {};
-        }
-        return dns.lookup(hostname, { ...(options || {}), family: 4 }, callback);
-      };
+      try {
+        const ipv4Lookup = (hostname: string, options: any, callback: any) => {
+          if (typeof options === 'function') {
+            callback = options;
+            options = {};
+          }
+          return dns.lookup(hostname, { ...(options || {}), family: 4 }, callback);
+        };
 
-      // Intentar primero puerto 587 (STARTTLS - más rápido y sin bloqueos) y luego 465 (SSL)
-      const portConfigs = isGmail
-        ? [
-            { port: 587, secure: false },
-            { port: 465, secure: true },
-          ]
-        : [
-            { port: smtpPort, secure: smtpSecure },
-            { port: 587, secure: false },
-          ];
+        const transporter = nodemailer.createTransport({
+          host: smtpHost,
+          port: smtpPort,
+          secure: smtpSecure,
+          lookup: ipv4Lookup as any,
+          family: 4,
+          auth: { user: smtpUser, pass: smtpPass },
+          connectionTimeout: 10000,
+          greetingTimeout: 6000,
+          socketTimeout: 10000,
+          tls: {
+            rejectUnauthorized: false,
+          },
+        } as any);
 
-      for (const cfg of portConfigs) {
-        try {
-          const transporter = nodemailer.createTransport({
-            host: targetHost,
-            port: cfg.port,
-            secure: cfg.secure,
-            lookup: ipv4Lookup as any,
-            family: 4,
-            auth: { user: smtpUser, pass: smtpPass },
-            connectionTimeout: 8000,
-            greetingTimeout: 5000,
-            socketTimeout: 8000,
-            tls: {
-              rejectUnauthorized: false,
-            },
-          } as any);
+        const info = await transporter.sendMail({
+          from: `"${fromName}" <${fromEmail}>`,
+          to,
+          subject,
+          html,
+        });
 
-          const info = await transporter.sendMail({
-            from: `"${fromName}" <${fromEmail}>`,
-            to,
-            subject,
-            html,
-          });
-
-          this.logger.log(`📧 [SMTP :${cfg.port}] Correo enviado exitosamente a ${to} (MessageId: ${info.messageId})`);
-          return true;
-        } catch (smtpErr: any) {
-          this.logger.warn(`⚠️ [SMTP :${cfg.port}] Falló el envío a ${to}: ${smtpErr.message}. Probando siguiente vía...`);
-        }
+        this.logger.log(`📧 [SMTP :${smtpPort}] Correo enviado exitosamente a ${to} (MessageId: ${info.messageId})`);
+        return true;
+      } catch (smtpErr: any) {
+        this.logger.warn(`⚠️ [SMTP :${smtpPort}] Falló el envío a ${to}: ${smtpErr.message}. Pasando a fallback...`);
       }
     }
 
