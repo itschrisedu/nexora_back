@@ -82,30 +82,10 @@ export class AuthService implements OnApplicationBootstrap {
     if (smtpUser && smtpPass) {
       try {
         let transporter: Transporter;
-        const originalHost = smtpHost || 'smtp.gmail.com';
-        let resolvedHost = originalHost;
-
-        // Forzar resolución IPv4 explícita para evitar errores ENETUNREACH de IPv6 en Railway/Linux
-        try {
-          const dnsLookup = await dns.promises.lookup(originalHost, { family: 4 });
-          if (dnsLookup?.address) {
-            resolvedHost = dnsLookup.address;
-          }
-        } catch (_) {
-          resolvedHost = originalHost;
-        }
-
-        const timeoutOptions: any = {
-          connectionTimeout: 10000,
-          greetingTimeout: 10000,
-          socketTimeout: 15000,
-        };
-
         if (smtpService || smtpUser.toLowerCase().endsWith('@gmail.com')) {
           transporter = nodemailer.createTransport({
             service: smtpService || 'gmail',
             auth: { user: smtpUser, pass: smtpPass },
-            ...timeoutOptions,
           });
         } else {
           if (!smtpHost) {
@@ -121,15 +101,13 @@ export class AuthService implements OnApplicationBootstrap {
           }
 
           transporter = nodemailer.createTransport({
-            host: resolvedHost,
+            host: smtpHost || 'smtp.gmail.com',
             port: smtpPort,
             secure: smtpSecure,
             auth: { user: smtpUser, pass: smtpPass },
             tls: {
               rejectUnauthorized: false,
-              servername: originalHost,
             },
-            ...timeoutOptions,
           });
         }
 
