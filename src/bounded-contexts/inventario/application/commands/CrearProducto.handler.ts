@@ -69,7 +69,19 @@ export class CrearProductoHandler {
     const primarySupplierId = command.supplierId || null;
     const alternateIds = Array.from(allSupplierIds).filter(id => id !== primarySupplierId);
 
-    // 2. Crear el modelo padre
+    // 2. Resolver sucursal y crear el modelo padre
+    let effectiveTenantId: string | undefined = command.tenantId || undefined;
+    if (!effectiveTenantId) {
+      const activeTenant = await this.prisma.tenant.findFirst({
+        where: { active: true },
+        orderBy: { createdAt: 'asc' },
+      });
+      effectiveTenantId = activeTenant?.id;
+    }
+    if (!effectiveTenantId) {
+      throw new NotFoundException('No existe una sucursal/organización activa para registrar el modelo.');
+    }
+
     const modelId = crypto.randomUUID();
     await this.prisma.productModel.create({
       data: {
@@ -80,7 +92,7 @@ export class CrearProductoHandler {
         material: command.material,
         supplierId: primarySupplierId || undefined,
         alternateSupplierIds: alternateIds,
-        tenantId: command.tenantId!,
+        tenantId: effectiveTenantId,
       },
     });
 

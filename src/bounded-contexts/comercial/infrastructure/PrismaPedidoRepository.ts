@@ -52,6 +52,15 @@ export class PrismaPedidoRepository extends IPedidoRepository {
   }
 
   async save(pedido: Pedido, tenantId?: string): Promise<void> {
+    let effectiveTenantId = tenantId;
+    if (!effectiveTenantId) {
+      const activeTenant = await this.prisma.tenant.findFirst({
+        where: { active: true },
+        orderBy: { createdAt: 'asc' },
+      });
+      effectiveTenantId = activeTenant?.id;
+    }
+
     const linesData = pedido.lineas.map((line) => ({
       id: line.id,
       productId: line.productId,
@@ -65,7 +74,7 @@ export class PrismaPedidoRepository extends IPedidoRepository {
     await this.prisma.order.create({
       data: {
         id: pedido.id,
-        tenantId: tenantId!,
+        tenantId: effectiveTenantId!,
         clientId: pedido.clientId,
         estado: pedido.estado.value,
         canal: pedido.canal.value,

@@ -157,11 +157,7 @@ export class ClientesController {
     }
 
     const telNormalizado = normalizarTelefonoCelular(dto.telefono);
-    const targetTenantId = req.user.tenantId || req.user.originalTenantId;
-
-    if (!targetTenantId) {
-      throw new BadRequestException('Por favor, selecciona una sucursal en la barra superior antes de registrar al cliente.');
-    }
+    const targetTenantId = req.user.tenantId || req.user.originalTenantId || null;
 
     const command = new RegistrarClienteCommand(
       formatearNombres(dto.nombre, 3),

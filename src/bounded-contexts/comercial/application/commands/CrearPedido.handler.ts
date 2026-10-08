@@ -203,8 +203,18 @@ export class CrearPedidoHandler {
       command.userId,
     );
 
+    // Resolver sucursal efectiva si viene vacía (ej. Admin General)
+    let effectiveTenantId: string | undefined = command.tenantId || undefined;
+    if (!effectiveTenantId) {
+      const activeTenant = await this.prisma.tenant.findFirst({
+        where: { active: true },
+        orderBy: { createdAt: 'asc' },
+      });
+      effectiveTenantId = activeTenant?.id;
+    }
+
     // Persistir el pedido
-    await this.pedidoRepository.save(pedido, command.tenantId);
+    await this.pedidoRepository.save(pedido, effectiveTenantId);
 
     // Actualizar campos de logística de entrega (Fase E1)
     await this.prisma.order.update({
@@ -227,7 +237,7 @@ export class CrearPedidoHandler {
     if (command.asumeFlete === 'EMPRESA' && command.costoEnvio && Number(command.costoEnvio) > 0) {
       await this.prisma.gasto.create({
         data: {
-          tenantId: command.tenantId,
+          tenantId: effectiveTenantId!,
           userId: command.userId,
           orderId: pedidoId,
           categoria: 'LOGISTICA_ENVIOS',

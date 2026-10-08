@@ -59,8 +59,17 @@ export class PrismaClienteRepository extends IClienteRepository {
   }
 
   async save(cliente: Cliente, tenantId?: string): Promise<void> {
-    if (!tenantId) {
-      throw new BadRequestException('Por favor, selecciona una sucursal en la barra superior antes de registrar un cliente.');
+    let effectiveTenantId = tenantId;
+    if (!effectiveTenantId) {
+      const activeTenant = await this.prisma.tenant.findFirst({
+        where: { active: true },
+        orderBy: { createdAt: 'asc' },
+      });
+      effectiveTenantId = activeTenant?.id;
+    }
+
+    if (!effectiveTenantId) {
+      throw new BadRequestException('No se encontró una sucursal activa para asociar al cliente.');
     }
 
     await this.prisma.client.create({

@@ -28,10 +28,19 @@ export class PrismaSupplierRepository extends ISupplierRepository {
   }
 
   async save(supplier: Supplier, tenantId?: string): Promise<void> {
+    let effectiveTenantId = tenantId;
+    if (!effectiveTenantId) {
+      const activeTenant = await this.prisma.tenant.findFirst({
+        where: { active: true },
+        orderBy: { createdAt: 'asc' },
+      });
+      effectiveTenantId = activeTenant?.id;
+    }
+
     await this.prisma.supplier.create({
       data: {
         id: supplier.id,
-        tenantId: tenantId!,
+        tenantId: effectiveTenantId!,
         ruc: supplier.ruc,
         razonSocial: supplier.razonSocial,
         contacto: supplier.contacto,
