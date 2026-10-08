@@ -731,8 +731,9 @@ export class FinancieroQueryService {
       notas?: string;
       fechaVencimiento?: string | Date;
       fechaEmision?: string | Date;
+      sucursalId?: string;
     },
-    tenantId: string,
+    tenantId: string | null | undefined,
     userId: string,
   ) {
     const { clientId, monto, concepto, notas, fechaVencimiento, fechaEmision } = data;
@@ -750,6 +751,20 @@ export class FinancieroQueryService {
     });
     if (!client) throw new NotFoundException('El cliente especificado no existe.');
 
+    // Resolver sucursal (tenantId): si es Admin General (tenantId es null),
+    // usar el tenantId asignado al cliente o el sucursalId enviado en data, o la Matriz
+    let effectiveTenantId = tenantId || (data as any).sucursalId || client.tenantId;
+    if (!effectiveTenantId) {
+      const matrizTenant = await this.prisma.tenant.findFirst({
+        where: { active: true },
+        orderBy: { createdAt: 'asc' },
+      });
+      effectiveTenantId = matrizTenant?.id || '';
+    }
+    if (!effectiveTenantId) {
+      throw new BadRequestException('No se pudo determinar la sucursal para asociar la deuda del cliente.');
+    }
+
     const lastNote = await this.prisma.saleNote.findFirst({
       orderBy: { numero: 'desc' },
       select: { numero: true },
@@ -762,7 +777,7 @@ export class FinancieroQueryService {
     const saleNote = await this.prisma.saleNote.create({
       data: {
         id: saleNoteId,
-        tenantId,
+        tenantId: effectiveTenantId,
         numero,
         orderId: `MANUAL-${Date.now()}`,
         clientId,
@@ -795,7 +810,7 @@ export class FinancieroQueryService {
     const cobro = await this.prisma.cobro.create({
       data: {
         id: cobroId,
-        tenantId,
+        tenantId: effectiveTenantId,
         saleNoteId: saleNote.id,
         clientId,
         tipo: 'CREDITO',
