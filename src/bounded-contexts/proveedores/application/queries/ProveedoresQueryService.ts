@@ -114,6 +114,8 @@ export class ProveedoresQueryService {
       const totalPagado = s.payments.reduce((acc, p) => acc + Number(p.monto), 0);
       const totalDevoluciones = s.devoluciones ? s.devoluciones.reduce((acc, d) => acc + Number(d.totalDevuelto), 0) : 0;
       const saldoPendiente = Math.max(0, totalCompras - totalPagado - totalDevoluciones);
+      const saldoAFavor = Math.max(0, totalPagado + totalDevoluciones - totalCompras);
+      const cruzadoConMercaderia = Math.min(totalCompras, totalPagado + totalDevoluciones);
       const ordenesPendientes = s.orders.filter((o) => o.estado === 'PENDIENTE' || o.estado === 'BORRADOR').length;
 
       return {
@@ -122,6 +124,8 @@ export class ProveedoresQueryService {
         totalPagado,
         totalDevoluciones,
         saldoPendiente,
+        saldoAFavor,
+        cruzadoConMercaderia,
         ordenesPendientes,
         totalOrdenes: s.orders.length,
         totalEntregas: s.entries.length,
@@ -182,6 +186,8 @@ export class ProveedoresQueryService {
     const totalPagado = supplier.payments.reduce((acc, p) => acc + Number(p.monto), 0);
     const totalDevoluciones = supplier.devoluciones ? supplier.devoluciones.reduce((acc, d) => acc + Number(d.totalDevuelto), 0) : 0;
     const saldoPendiente = Math.max(0, totalFacturado - totalPagado - totalDevoluciones);
+    const saldoAFavor = Math.max(0, totalPagado + totalDevoluciones - totalFacturado);
+    const cruzadoConMercaderia = Math.min(totalFacturado, totalPagado + totalDevoluciones);
 
     // Build timeline movements
     const movimientos: any[] = [];
@@ -247,6 +253,8 @@ export class ProveedoresQueryService {
         totalPagado,
         totalDevoluciones,
         saldoPendiente,
+        saldoAFavor,
+        cruzadoConMercaderia,
         totalOrdenes: supplier.orders.length,
         totalEntregas: supplier.entries.length,
         totalPagos: supplier.payments.length,
