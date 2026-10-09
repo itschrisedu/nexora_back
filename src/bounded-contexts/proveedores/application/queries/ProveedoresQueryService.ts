@@ -91,10 +91,10 @@ export class ProveedoresQueryService {
   }
 
   async buscarProveedores(tenantId?: string | null, q?: string) {
-    if (!tenantId) {
-      return [];
+    const where: any = {};
+    if (tenantId) {
+      where.tenantId = tenantId;
     }
-    const where: any = { tenantId };
 
     const suppliers = await this.prisma.supplier.findMany({
       where,
@@ -156,24 +156,30 @@ export class ProveedoresQueryService {
     return formated;
   }
 
-  async buscarProveedoresGlobalesEmpresa(tenantId: string, q?: string) {
-    if (!tenantId) return [];
-
-    const organizationTenantIds = await this.getOrganizationTenantIds(tenantId);
-    if (!organizationTenantIds || organizationTenantIds.length === 0) {
-      return [];
+  async buscarProveedoresGlobalesEmpresa(tenantId?: string | null, q?: string) {
+    let allSuppliers: any[] = [];
+    if (tenantId) {
+      const organizationTenantIds = await this.getOrganizationTenantIds(tenantId);
+      if (!organizationTenantIds || organizationTenantIds.length === 0) {
+        return [];
+      }
+      allSuppliers = await this.prisma.supplier.findMany({
+        where: {
+          tenantId: { in: organizationTenantIds },
+        },
+        include: {
+          tenant: { select: { id: true, name: true } },
+        },
+        orderBy: { createdAt: 'desc' },
+      });
+    } else {
+      allSuppliers = await this.prisma.supplier.findMany({
+        include: {
+          tenant: { select: { id: true, name: true } },
+        },
+        orderBy: { createdAt: 'desc' },
+      });
     }
-
-    // Proveedores de la empresa en todas las sucursales
-    const allSuppliers = await this.prisma.supplier.findMany({
-      where: {
-        tenantId: { in: organizationTenantIds },
-      },
-      include: {
-        tenant: { select: { id: true, name: true } },
-      },
-      orderBy: { createdAt: 'desc' },
-    });
 
     // Formatear proveedores
     const formatted = allSuppliers.map((s) => {
