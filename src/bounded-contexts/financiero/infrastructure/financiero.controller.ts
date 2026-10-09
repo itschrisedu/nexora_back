@@ -41,32 +41,34 @@ export class FinancieroController {
 
   @Get('cobros')
   @Roles(Rol.ROL_ADMIN, Rol.ROL_VENDEDOR)
-  listarTodosCobros(@Req() req: any) {
-    return this.queryService.listarTodosCobros(req.user.tenantId);
+  listarTodosCobros(@Req() req: any, @Query('incluirOtrasSucursales') incluirOtras?: string) {
+    const isGlobal = req.user.rol === Rol.ROL_ADMIN || req.user.tenantId === 'TODAS';
+    const filterTenant = (incluirOtras === 'true' || isGlobal) ? null : req.user.tenantId;
+    return this.queryService.listarTodosCobros(filterTenant);
   }
 
   @Get('cobros/vencidos')
   @Roles(Rol.ROL_ADMIN)
   cobrosVencidos(@Req() req: any) {
-    return this.queryService.listarCobrosVencidos(req.user.tenantId);
+    return this.queryService.listarCobrosVencidos(null);
   }
 
   @Get('cobros/proximos-a-vencer')
   @Roles(Rol.ROL_ADMIN, Rol.ROL_VENDEDOR)
   cobrosProximosAVencer(@Req() req: any, @Query('dias') dias?: string) {
-    return this.queryService.listarCobrosProximosAVencer(dias ? parseInt(dias) : 7, req.user.tenantId);
+    return this.queryService.listarCobrosProximosAVencer(dias ? parseInt(dias) : 7, null);
   }
 
   @Get('cobros/cliente/:clientId')
   @Roles(Rol.ROL_ADMIN, Rol.ROL_VENDEDOR)
-  cobrosCliente(@Param('clientId') clientId: string, @Req() req: any) {
-    return this.queryService.listarCobrosCliente(clientId, req.user.tenantId);
+  cobrosCliente(@Param('clientId') clientId: string) {
+    return this.queryService.listarCobrosCliente(clientId, null);
   }
 
   @Get('cliente/:clientId/historial')
   @Roles(Rol.ROL_ADMIN, Rol.ROL_VENDEDOR)
-  obtenerHistorialCliente(@Param('clientId') clientId: string, @Req() req: any) {
-    return this.queryService.obtenerHistorialCompletoCliente(clientId, req.user.tenantId);
+  obtenerHistorialCliente(@Param('clientId') clientId: string) {
+    return this.queryService.obtenerHistorialCompletoCliente(clientId, null);
   }
 
   @Get('cobros/:id')
