@@ -472,10 +472,20 @@ export class InventarioQueryService {
   }
 
   /**
-   * Obtiene los modelos creados en la Matriz para que las sucursales puedan adoptarlos como plantilla base.
+   * Obtiene los modelos creados en la red comercial (Matriz u otras Sucursales de la misma empresa)
+   * para que cualquier sucursal o la matriz puedan importarlos con todas sus variantes o variantes faltantes.
    */
-  async obtenerModelosMatriz(currentTenantId?: string | null, userId?: string) {
-    if (!currentTenantId) return { isMatriz: true, modelosMatriz: [] };
+  async obtenerModelosRed(currentTenantId?: string | null, userId?: string) {
+    if (!currentTenantId) {
+      return {
+        isMatriz: false,
+        redSucursales: [],
+        modelosRed: [],
+        totalDisponibles: 0,
+        totalParciales: 0,
+        totalCompletos: 0,
+      };
+    }
 
     // 1. Obtener datos del tenant actual y del usuario
     const [currentTenant, currentUser] = await Promise.all([
@@ -491,66 +501,64 @@ export class InventarioQueryService {
         : null,
     ]);
 
-    let matrizTenantId: string | null = null;
-    let matrizName = 'Matriz Principal';
-
-    // A. Si el usuario tiene parentId, la matriz es el tenantId del parent
-    if (currentUser?.parent?.tenantId && currentUser.parent.tenantId !== currentTenantId) {
-      matrizTenantId = currentUser.parent.tenantId;
-    }
-
-    // B. Si no, buscar por coincidencia de RUC de la empresa
-    if (!matrizTenantId && currentTenant?.businessConfig?.ruc) {
-      const currentRuc = currentTenant.businessConfig.ruc;
-      const matchingTenants = await this.prisma.tenant.findMany({
-        where: {
-          active: true,
-          businessConfig: { isNot: null },
-        },
-        include: { businessConfig: true },
-        orderBy: { createdAt: 'asc' },
-      });
-
-      const sameRucTenants = matchingTenants.filter((t) => {
-        if (!t.businessConfig?.ruc) return false;
-        try {
-          const r1 = this.encryptionService.decrypt(t.businessConfig.ruc);
-          const r2 = this.encryptionService.decrypt(currentRuc);
-          return r1 && r2 && r1 === r2;
-        } catch {
-          return t.businessConfig.ruc === currentRuc;
-        }
-      });
-
-      if (sameRucTenants.length > 0) {
-        const first = sameRucTenants[0];
-        if (first.id !== currentTenantId) {
-          matrizTenantId = first.id;
-          matrizName = first.name;
-        }
+    let plainRuc: string | null = null;
+    if (currentTenant?.businessConfig?.ruc) {
+      try {
+        plainRuc = this.encryptionService.decrypt(currentTenant.businessConfig.ruc);
+      } catch {
+        plainRuc = currentTenant.businessConfig.ruc;
       }
     }
 
-    // C. Si el tenant actual es la Matriz (o no se encontró matriz distinta)
-    if (!matrizTenantId || matrizTenantId === currentTenantId) {
+    // 2. Resolver todos los tenants pertenecientes al mismo negocio
+    const allTenants = await this.prisma.tenant.findMany({
+      where: { active: true },
+      include: { businessConfig: true },
+      orderBy: { createdAt: 'asc' },
+    });
+
+    const relatedTenants = allTenants.filter((t) => {
+      if (t.id === currentTenantId) return true;
+      if (currentUser?.parent?.tenantId && t.id === currentUser.parent.tenantId) return true;
+      if (plainRuc && t.businessConfig?.ruc) {
+        try {
+          const dec = this.encryptionService.decrypt(t.businessConfig.ruc);
+          return dec === plainRuc;
+        } catch {
+          return t.businessConfig.ruc === plainRuc;
+        }
+      }
+      return false;
+    });
+
+    const siblingTenants = relatedTenants.filter((t) => t.id !== currentTenantId);
+    const siblingTenantIds = siblingTenants.map((t) => t.id);
+
+    if (siblingTenantIds.length === 0) {
       return {
-        isMatriz: true,
-        matrizName: currentTenant?.name || 'Matriz',
-        modelosMatriz: [],
+        isMatriz: relatedTenants.length <= 1,
+        redSucursales: [],
+        modelosRed: [],
+        totalDisponibles: 0,
+        totalParciales: 0,
+        totalCompletos: 0,
       };
     }
 
-    // 2. Obtener modelos activos de la Matriz y los existentes en la sucursal
-    const [modelosMatrizRaw, modelosSucursalActual] = await Promise.all([
+    // 3. Consultar modelos de la red y modelos del local actual
+    const [modelosRedRaw, modelosLocales] = await Promise.all([
       this.prisma.productModel.findMany({
         where: {
-          tenantId: matrizTenantId,
+          tenantId: { in: siblingTenantIds },
           active: true,
         },
         include: {
+          tenant: { select: { id: true, name: true } },
+          supplier: true,
           products: {
             where: { active: true },
             include: {
+              supplier: true,
               serie: {
                 include: {
                   tallas: { orderBy: { numero: 'asc' } },
@@ -567,21 +575,64 @@ export class InventarioQueryService {
         orderBy: { name: 'asc' },
       }),
       this.prisma.productModel.findMany({
-        where: { tenantId: currentTenantId },
-        select: { name: true, baseCode: true },
+        where: { tenantId: currentTenantId, active: true },
+        include: {
+          products: {
+            where: { active: true },
+            select: { id: true, color: true, serieId: true },
+          },
+        },
       }),
     ]);
 
-    const nombresExistentes = new Set(
-      modelosSucursalActual.map((m) => m.name.trim().toUpperCase()),
-    );
+    // Mapa de modelos locales por nombre normalizado y por baseCode
+    const localModelMap = new Map<string, { id: string; name: string; baseCode: string; variants: { color: string; serieId: string }[] }>();
+    modelosLocales.forEach((lm) => {
+      const normName = lm.name.trim().toUpperCase();
+      localModelMap.set(normName, {
+        id: lm.id,
+        name: lm.name,
+        baseCode: lm.baseCode,
+        variants: lm.products.map((p) => ({
+          color: p.color.trim().toUpperCase(),
+          serieId: p.serieId,
+        })),
+      });
+      localModelMap.set(lm.baseCode.trim().toUpperCase(), {
+        id: lm.id,
+        name: lm.name,
+        baseCode: lm.baseCode,
+        variants: lm.products.map((p) => ({
+          color: p.color.trim().toUpperCase(),
+          serieId: p.serieId,
+        })),
+      });
+    });
 
-    const modelosMatriz = modelosMatrizRaw.map((m: any) => {
+    let totalDisponibles = 0;
+    let totalParciales = 0;
+    let totalCompletos = 0;
+
+    const modelosRed = modelosRedRaw.map((m: any) => {
+      const normName = m.name.trim().toUpperCase();
+      const normBaseCode = m.baseCode.trim().toUpperCase();
+      const localMatch = localModelMap.get(normName) || localModelMap.get(normBaseCode);
+
+      const localVariantsSet = new Set<string>();
+      if (localMatch) {
+        localMatch.variants.forEach((v) => {
+          localVariantsSet.add(`${v.color}__${v.serieId}`);
+        });
+      }
+
       const colorMap = new Map<string, { color: string; fotoUrl: string | null }>();
       const seriesMap = new Map<
         string,
         { id: string; nombre: string; tallas: number[]; costPrice: number; salePrice: number }
       >();
+
+      const missingVariants: any[] = [];
+      const existingVariants: any[] = [];
 
       for (const prod of m.products) {
         const cKey = prod.color.trim().toUpperCase();
@@ -604,9 +655,55 @@ export class InventarioQueryService {
             salePrice: Number(prod.salePrice) || 0,
           });
         }
+
+        const variantKey = `${cKey}__${prod.serieId}`;
+        let variantSupRuc = prod.supplier?.ruc;
+        if (variantSupRuc) {
+          try {
+            variantSupRuc = this.encryptionService.decrypt(variantSupRuc);
+          } catch {}
+        }
+
+        const formattedVariant = {
+          id: prod.id,
+          code: prod.code,
+          color: prod.color,
+          imageUrl: prod.imageUrl || null,
+          costPrice: Number(prod.costPrice) || 0,
+          salePrice: Number(prod.salePrice) || 0,
+          serieId: prod.serieId,
+          serieNombre: prod.serie?.nombre || '',
+          tallas: (prod.serie?.tallas || []).map((t: any) => t.numero),
+          supplierId: prod.supplierId || m.supplierId || null,
+          supplier: prod.supplier
+            ? {
+                id: prod.supplier.id,
+                razonSocial: prod.supplier.razonSocial,
+                ruc: variantSupRuc,
+                contacto: prod.supplier.contacto,
+              }
+            : null,
+        };
+
+        if (localVariantsSet.has(variantKey)) {
+          existingVariants.push(formattedVariant);
+        } else {
+          missingVariants.push(formattedVariant);
+        }
       }
 
-      const yaImportado = nombresExistentes.has(m.name.trim().toUpperCase());
+      let status: 'DISPONIBLE' | 'PARCIAL' | 'COMPLETO' = 'DISPONIBLE';
+      if (!localMatch) {
+        status = 'DISPONIBLE';
+        totalDisponibles++;
+      } else if (missingVariants.length === 0) {
+        status = 'COMPLETO';
+        totalCompletos++;
+      } else {
+        status = 'PARCIAL';
+        totalParciales++;
+      }
+
       const minCosto =
         m.products.length > 0
           ? Math.min(...m.products.map((p: any) => Number(p.costPrice) || 0))
@@ -616,27 +713,65 @@ export class InventarioQueryService {
           ? Math.min(...m.products.map((p: any) => Number(p.salePrice) || 0))
           : 0;
 
+      let modelSupRuc = m.supplier?.ruc;
+      if (modelSupRuc) {
+        try {
+          modelSupRuc = this.encryptionService.decrypt(modelSupRuc);
+        } catch {}
+      }
+
       return {
         id: m.id,
+        tenantId: m.tenantId,
+        sucursalOrigenNombre: m.tenant?.name || 'Otra Sucursal',
         baseCode: m.baseCode,
         name: m.name,
         brand: m.brand,
         material: m.material || '',
-        yaImportado,
+        status,
+        yaImportado: status === 'COMPLETO',
+        parcial: status === 'PARCIAL',
+        totalVariantesRed: m.products.length,
+        variantesFaltantes: missingVariants,
+        variantesExistentes: existingVariants,
+        localModelId: localMatch?.id || null,
         colores: Array.from(colorMap.values()),
         series: Array.from(seriesMap.values()),
         precioCostoReferencial: minCosto,
         precioVentaReferencial: minVenta,
         fotoPrincipal:
           Array.from(colorMap.values()).find((c) => c.fotoUrl)?.fotoUrl || null,
+        supplier: m.supplier
+          ? {
+              id: m.supplier.id,
+              razonSocial: m.supplier.razonSocial,
+              ruc: modelSupRuc,
+              contacto: m.supplier.contacto,
+            }
+          : null,
       };
     });
 
     return {
       isMatriz: false,
-      matrizTenantId,
-      matrizName,
-      modelosMatriz,
+      redSucursales: siblingTenants.map((s) => ({ id: s.id, nombre: s.name })),
+      modelosRed,
+      totalDisponibles,
+      totalParciales,
+      totalCompletos,
+    };
+  }
+
+  /**
+   * Alias de compatibilidad hacia atrás para obtenerModelosMatriz
+   */
+  async obtenerModelosMatriz(currentTenantId?: string | null, userId?: string) {
+    const res = await this.obtenerModelosRed(currentTenantId, userId);
+    return {
+      isMatriz: res.isMatriz,
+      matrizName: res.redSucursales[0]?.nombre || 'Matriz / Red',
+      modelosMatriz: res.modelosRed,
     };
   }
 }
+

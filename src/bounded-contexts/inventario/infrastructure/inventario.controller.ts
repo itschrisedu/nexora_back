@@ -29,6 +29,7 @@ import {
   ActualizarProductoDto,
   TransferirStockDto,
   TransferirStockLoteDto,
+  ImportarModeloRedDto,
 } from './dto/inventario.dto';
 import { IProductoRepository } from '../domain/IProductoRepository';
 import { Producto } from '../domain/Producto';
@@ -107,13 +108,19 @@ export class InventarioController {
   }
 
   @Get('modelos/matriz')
-  @Roles(Rol.ROL_ADMIN, Rol.ROL_VENDEDOR, Rol.ROL_BODEGUERO)
+  @Roles(Rol.ROL_ADMIN, Rol.ROL_SUPER_ADMIN, Rol.ROL_VENDEDOR, Rol.ROL_BODEGUERO)
   async obtenerModelosMatriz(@Req() req: any) {
     return this.queryService.obtenerModelosMatriz(req.user.tenantId, req.user.id);
   }
 
+  @Get('modelos/red')
+  @Roles(Rol.ROL_ADMIN, Rol.ROL_SUPER_ADMIN, Rol.ROL_VENDEDOR, Rol.ROL_BODEGUERO)
+  async obtenerModelosRed(@Req() req: any) {
+    return this.queryService.obtenerModelosRed(req.user.tenantId, req.user.id);
+  }
+
   @Get('modelos')
-  @Roles(Rol.ROL_ADMIN, Rol.ROL_VENDEDOR, Rol.ROL_BODEGUERO)
+  @Roles(Rol.ROL_ADMIN, Rol.ROL_SUPER_ADMIN, Rol.ROL_VENDEDOR, Rol.ROL_BODEGUERO)
   async listarModelos(@Req() req: any) {
     return this.queryService.listarModelos(req.user.tenantId);
   }
@@ -967,8 +974,184 @@ export class InventarioController {
     return { message: 'Variante de calzado actualizada exitosamente' };
   }
 
+  @Post('modelos/importar-red')
+  @Roles(Rol.ROL_ADMIN, Rol.ROL_SUPER_ADMIN)
+  async importarModeloRed(@Body() dto: ImportarModeloRedDto, @Req() req: any) {
+    const targetTenantId = req.user.tenantId;
+    if (!targetTenantId) {
+      throw new BadRequestException('No se especificó la sucursal activa para realizar la importación');
+    }
+
+    const sourceModel = await this.prisma.productModel.findUnique({
+      where: { id: dto.sourceModelId },
+      include: {
+        tenant: true,
+        supplier: true,
+        products: {
+          where: { active: true },
+          include: {
+            supplier: true,
+            serie: {
+              include: {
+                tallas: { orderBy: { numero: 'asc' } },
+              },
+            },
+            stockByTalla: {
+              include: { talla: true },
+            },
+          },
+        },
+      },
+    });
+
+    if (!sourceModel) {
+      throw new NotFoundException(`Modelo de origen con ID "${dto.sourceModelId}" no encontrado`);
+    }
+
+    // 1. Mapear o crear proveedores del modelo origen en la sucursal destino
+    const mappedPrimarySupplierId = await this.ensureSupplierInTenant(
+      sourceModel.supplierId,
+      targetTenantId,
+    );
+
+    const mappedAlternateSupplierIds: string[] = [];
+    if (Array.isArray(sourceModel.alternateSupplierIds)) {
+      for (const altId of sourceModel.alternateSupplierIds) {
+        const mapped = await this.ensureSupplierInTenant(altId, targetTenantId);
+        if (mapped && !mappedAlternateSupplierIds.includes(mapped) && mapped !== mappedPrimarySupplierId) {
+          mappedAlternateSupplierIds.push(mapped);
+        }
+      }
+    }
+
+    // 2. Buscar o crear el ProductModel en la sucursal destino
+    let targetModel = await this.prisma.productModel.findFirst({
+      where: {
+        tenantId: targetTenantId,
+        OR: [
+          { name: { equals: sourceModel.name, mode: 'insensitive' } },
+          { baseCode: { equals: sourceModel.baseCode, mode: 'insensitive' } },
+        ],
+      },
+    });
+
+    if (!targetModel) {
+      let candidateBaseCode = sourceModel.baseCode;
+      let counter = 2;
+      while (await this.prisma.productModel.findUnique({ where: { baseCode: candidateBaseCode } })) {
+        candidateBaseCode = `${sourceModel.baseCode}-${String(counter).padStart(2, '0')}`;
+        counter++;
+      }
+
+      targetModel = await this.prisma.productModel.create({
+        data: {
+          tenantId: targetTenantId,
+          baseCode: candidateBaseCode,
+          name: sourceModel.name,
+          brand: sourceModel.brand,
+          material: sourceModel.material,
+          supplierId: mappedPrimarySupplierId || undefined,
+          alternateSupplierIds: mappedAlternateSupplierIds,
+          active: true,
+        },
+      });
+    } else {
+      // Actualizar proveedores si hay nuevos
+      const updatedAlternates = Array.from(
+        new Set([
+          ...(targetModel.alternateSupplierIds || []),
+          ...mappedAlternateSupplierIds,
+        ]),
+      ).filter((id) => id !== targetModel?.supplierId);
+
+      targetModel = await this.prisma.productModel.update({
+        where: { id: targetModel.id },
+        data: {
+          supplierId: targetModel.supplierId || mappedPrimarySupplierId || undefined,
+          alternateSupplierIds: updatedAlternates,
+        },
+      });
+    }
+
+    // 3. Filtrar variantes a importar
+    let variantsToImport = sourceModel.products;
+    if (Array.isArray(dto.variantIds) && dto.variantIds.length > 0) {
+      variantsToImport = sourceModel.products.filter((p) =>
+        dto.variantIds!.includes(p.id),
+      );
+    }
+
+    let importedCount = 0;
+    for (const p of variantsToImport) {
+      // Verificar si ya existe esta variante (mismo color y misma serie) en el modelo destino
+      const existingVariant = await this.prisma.product.findFirst({
+        where: {
+          modelId: targetModel.id,
+          color: { equals: p.color, mode: 'insensitive' },
+          serieId: p.serieId,
+        },
+      });
+
+      if (existingVariant) continue;
+
+      const variantSupplierId = await this.ensureSupplierInTenant(
+        p.supplierId || sourceModel.supplierId,
+        targetTenantId,
+      );
+
+      // Generar código único para el producto en el catálogo
+      const colorSuffix = p.color.substring(0, 3).toUpperCase();
+      const serieSuffix = p.serie?.nombre
+        ? p.serie.nombre.substring(0, 3).toUpperCase()
+        : 'STD';
+      let codeCandidate = `${targetModel.baseCode}-${colorSuffix}-${serieSuffix}`;
+      let counter = 2;
+      let finalCode = codeCandidate;
+      while (await this.prisma.product.findUnique({ where: { code: finalCode } })) {
+        finalCode = `${codeCandidate}-${String(counter).padStart(3, '0')}`;
+        counter++;
+      }
+
+      const createdProduct = await this.prisma.product.create({
+        data: {
+          modelId: targetModel.id,
+          code: finalCode,
+          color: p.color,
+          imageUrl: p.imageUrl,
+          costPrice: p.costPrice,
+          salePrice: p.salePrice,
+          serieId: p.serieId,
+          supplierId: variantSupplierId || undefined,
+          active: true,
+        },
+      });
+
+      // Crear stock inicial por talla en 0
+      const tallas = p.serie?.tallas || [];
+      for (const t of tallas) {
+        await this.prisma.stockByTalla.create({
+          data: {
+            productId: createdProduct.id,
+            tallaId: t.id,
+            quantity: 0,
+            reservedQuantity: 0,
+            minStock: 0,
+          },
+        });
+      }
+
+      importedCount++;
+    }
+
+    return {
+      message: `Modelo "${targetModel.name}" importado con éxito a la sucursal (${importedCount} variantes sincronizadas).`,
+      modelId: targetModel.id,
+      importedCount,
+    };
+  }
+
   @Delete('modelos/:id')
-  @Roles(Rol.ROL_ADMIN)
+  @Roles(Rol.ROL_ADMIN, Rol.ROL_SUPER_ADMIN)
   async eliminarModelo(@Param('id') id: string) {
     const model = await this.prisma.productModel.findUnique({
       where: { id },
@@ -976,32 +1159,184 @@ export class InventarioController {
     });
     if (!model) throw new NotFoundException(`Modelo con ID ${id} no encontrado`);
 
-    // Eliminar fotos asociadas de Cloudinary
-    if (model.products && model.products.length > 0) {
-      for (const p of model.products) {
-        if (p.imageUrl && p.imageUrl.includes('cloudinary.com')) {
-          await this.cloudinaryService.deleteImage(p.imageUrl);
-        }
-      }
-    }
+    const tenantId = model.tenantId;
+    const suppliersToCheck = [
+      model.supplierId,
+      ...(model.alternateSupplierIds || []),
+      ...model.products.map((p) => p.supplierId),
+    ];
+    const imageUrls = model.products
+      .map((p) => p.imageUrl)
+      .filter((url): url is string => Boolean(url && url.includes('cloudinary.com')));
 
     await this.prisma.productModel.delete({ where: { id } });
 
-    return { message: `Modelo ${model.name} y sus fotos eliminados permanentemente exitosamente` };
+    // Eliminar fotos de Cloudinary SOLO si ningún otro producto en toda la base de datos las usa
+    for (const imgUrl of imageUrls) {
+      const otherUsing = await this.prisma.product.findFirst({
+        where: { imageUrl: imgUrl },
+      });
+      if (!otherUsing) {
+        await this.cloudinaryService.deleteImage(imgUrl).catch(() => null);
+      }
+    }
+
+    // Limpieza automática de proveedores huérfanos en la sucursal
+    await this.limpiarProveedoresHuerfanos(tenantId, suppliersToCheck);
+
+    return { message: `Modelo ${model.name} y sus variantes eliminados exitosamente de la sucursal` };
   }
 
   @Delete('productos/:id')
-  @Roles(Rol.ROL_ADMIN)
+  @Roles(Rol.ROL_ADMIN, Rol.ROL_SUPER_ADMIN)
   async eliminarProducto(@Param('id') id: string) {
-    const product = await this.prisma.product.findUnique({ where: { id } });
+    const product = await this.prisma.product.findUnique({
+      where: { id },
+      include: { model: { select: { tenantId: true } } },
+    });
     if (!product) throw new NotFoundException(`Producto con ID ${id} no encontrado`);
 
-    if (product.imageUrl && product.imageUrl.includes('cloudinary.com')) {
-      await this.cloudinaryService.deleteImage(product.imageUrl);
-    }
+    const tenantId = product.model.tenantId;
+    const supplierIdToCheck = product.supplierId;
+    const imageUrl = product.imageUrl;
 
     await this.prisma.product.delete({ where: { id } });
 
-    return { message: `Variante de calzado y su foto eliminadas permanentemente` };
+    // Eliminar de Cloudinary SOLO si ningún otro producto en el sistema usa esta imagen
+    if (imageUrl && imageUrl.includes('cloudinary.com')) {
+      const otherUsing = await this.prisma.product.findFirst({
+        where: { imageUrl },
+      });
+      if (!otherUsing) {
+        await this.cloudinaryService.deleteImage(imageUrl).catch(() => null);
+      }
+    }
+
+    // Limpieza automática de proveedor si ya no está ligado a ninguna variante en esta sucursal
+    if (supplierIdToCheck) {
+      await this.limpiarProveedoresHuerfanos(tenantId, [supplierIdToCheck]);
+    }
+
+    return { message: `Variante de calzado eliminada exitosamente de la sucursal` };
+  }
+
+  // ══════════════════════════════
+  // HELPER METHODS PRIVADOS
+  // ══════════════════════════════
+
+  /**
+   * Asegura que un proveedor de origen exista en el tenant destino (por RUC o razón social).
+   * Si no existe, lo replica en el tenant destino para permitir emitir órdenes de compra.
+   */
+  private async ensureSupplierInTenant(
+    sourceSupplierId: string | null | undefined,
+    targetTenantId: string,
+  ): Promise<string | null> {
+    if (!sourceSupplierId) return null;
+
+    const sourceSup = await this.prisma.supplier.findUnique({
+      where: { id: sourceSupplierId },
+    });
+    if (!sourceSup) return null;
+
+    // Si ya pertenece al targetTenantId
+    if (sourceSup.tenantId === targetTenantId) {
+      return sourceSup.id;
+    }
+
+    // Buscar si ya existe en el tenant destino
+    const targetSuppliers = await this.prisma.supplier.findMany({
+      where: { tenantId: targetTenantId, activo: true },
+    });
+
+    let plainSourceRuc: string | null = null;
+    try {
+      plainSourceRuc = this.encryption.decrypt(sourceSup.ruc);
+    } catch {
+      plainSourceRuc = sourceSup.ruc;
+    }
+
+    const normSourceRazon = sourceSup.razonSocial.trim().toUpperCase();
+
+    const existingMatch = targetSuppliers.find((s) => {
+      if (s.razonSocial.trim().toUpperCase() === normSourceRazon) return true;
+      if (plainSourceRuc && s.ruc) {
+        try {
+          const dec = this.encryption.decrypt(s.ruc);
+          return dec === plainSourceRuc;
+        } catch {
+          return s.ruc === plainSourceRuc;
+        }
+      }
+      return false;
+    });
+
+    if (existingMatch) {
+      return existingMatch.id;
+    }
+
+    // Crear proveedor en el tenant destino
+    const newSup = await this.prisma.supplier.create({
+      data: {
+        tenantId: targetTenantId,
+        ruc: sourceSup.ruc,
+        razonSocial: sourceSup.razonSocial,
+        contacto: sourceSup.contacto,
+        direccion: sourceSup.direccion,
+        email: sourceSup.email,
+        activo: true,
+      },
+    });
+
+    return newSup.id;
+  }
+
+  /**
+   * Elimina proveedores que hayan quedado huérfanos (sin variantes, sin modelos, sin órdenes ni deudas) en una sucursal.
+   */
+  private async limpiarProveedoresHuerfanos(
+    tenantId: string,
+    supplierIdsToCheck: (string | null | undefined)[],
+  ): Promise<void> {
+    const uniqueIds = Array.from(new Set(supplierIdsToCheck.filter(Boolean))) as string[];
+    for (const supId of uniqueIds) {
+      try {
+        const [hasProducts, hasModelsPrimary, hasModelsAlt, hasOrders, hasEntries, hasDeudas] =
+          await Promise.all([
+            this.prisma.product.findFirst({
+              where: { model: { tenantId }, supplierId: supId },
+            }),
+            this.prisma.productModel.findFirst({
+              where: { tenantId, supplierId: supId },
+            }),
+            this.prisma.productModel.findFirst({
+              where: { tenantId, alternateSupplierIds: { has: supId } },
+            }),
+            this.prisma.supplierOrder.findFirst({
+              where: { supplierId: supId },
+            }),
+            this.prisma.merchandiseEntry.findFirst({
+              where: { supplierId: supId },
+            }),
+            this.prisma.deudaProveedor.findFirst({
+              where: { supplierId: supId },
+            }),
+          ]);
+
+        if (
+          !hasProducts &&
+          !hasModelsPrimary &&
+          !hasModelsAlt &&
+          !hasOrders &&
+          !hasEntries &&
+          !hasDeudas
+        ) {
+          await this.prisma.supplier.delete({ where: { id: supId } });
+        }
+      } catch (err) {
+        // Ignorar si no se puede eliminar por restricciones de FK
+      }
+    }
   }
 }
+

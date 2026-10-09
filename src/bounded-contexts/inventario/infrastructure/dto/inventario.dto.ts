@@ -310,3 +310,14 @@ export class TransferirStockLoteDto {
   motivo!: string;
 }
 
+export class ImportarModeloRedDto {
+  @IsString()
+  @IsNotEmpty()
+  sourceModelId!: string;
+
+  @IsArray()
+  @IsString({ each: true })
+  @IsOptional()
+  variantIds?: string[];
+}
+
