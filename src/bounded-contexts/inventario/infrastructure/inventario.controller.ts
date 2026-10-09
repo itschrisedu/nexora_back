@@ -880,9 +880,25 @@ export class InventarioController {
     });
     if (!product) throw new NotFoundException(`Producto con ID ${id} no encontrado`);
 
-    // Si cambió de imagen y la anterior era de Cloudinary y es distinta, limpiamos la anterior
-    if (dto.imageUrl && product.imageUrl && product.imageUrl !== dto.imageUrl && product.imageUrl.includes('cloudinary.com')) {
-      await this.cloudinaryService.deleteImage(product.imageUrl).catch(() => null);
+    const isImageUpdating = dto.imageUrl !== undefined;
+    const oldImageUrl = product.imageUrl;
+    const newImageUrl = dto.imageUrl;
+
+    // Si cambió de imagen y la anterior era de Cloudinary, verificar si algún OTRO producto fuera de este modelo y color la está usando antes de borrar
+    if (isImageUpdating && oldImageUrl && oldImageUrl !== newImageUrl && oldImageUrl.includes('cloudinary.com')) {
+      const otherUsing = await this.prisma.product.findFirst({
+        where: {
+          imageUrl: oldImageUrl,
+          id: { not: product.id },
+          NOT: {
+            modelId: product.modelId,
+            color: { equals: product.color, mode: 'insensitive' },
+          },
+        },
+      });
+      if (!otherUsing) {
+        await this.cloudinaryService.deleteImage(oldImageUrl).catch(() => null);
+      }
     }
 
     await this.prisma.$transaction(async (tx) => {
@@ -919,6 +935,19 @@ export class InventarioController {
           ...(dto.supplierId !== undefined && { supplierId: dto.supplierId }),
         },
       });
+
+      // Si se actualizó la imagen, sincronizarla en TODAS las series del mismo modelo y color
+      if (isImageUpdating) {
+        await tx.product.updateMany({
+          where: {
+            modelId: product.modelId,
+            color: { equals: product.color, mode: 'insensitive' },
+          },
+          data: {
+            imageUrl: newImageUrl ?? null,
+          },
+        });
+      }
 
       // Si se enviaron tallas para actualizar stock y numeración
       if (Array.isArray(dto.tallas) && dto.tallas.length > 0) {
@@ -1081,6 +1110,26 @@ export class InventarioController {
       );
     }
 
+    // Mapa de la mejor imagen por color en el modelo origen
+    const sourceColorImageMap = new Map<string, string>();
+    for (const sp of sourceModel.products) {
+      const cKey = sp.color.trim().toUpperCase();
+      if (sp.imageUrl && !sourceColorImageMap.has(cKey)) {
+        sourceColorImageMap.set(cKey, sp.imageUrl);
+      }
+    }
+
+    // También revisar si en el targetModel ya hay alguna variante con ese color que tenga imagen
+    const existingTargetProducts = await this.prisma.product.findMany({
+      where: { modelId: targetModel.id, active: true },
+    });
+    for (const tp of existingTargetProducts) {
+      const cKey = tp.color.trim().toUpperCase();
+      if (tp.imageUrl && !sourceColorImageMap.has(cKey)) {
+        sourceColorImageMap.set(cKey, tp.imageUrl);
+      }
+    }
+
     let importedCount = 0;
     for (const p of variantsToImport) {
       // Verificar si ya existe esta variante (mismo color y misma serie) en el modelo destino
@@ -1112,12 +1161,15 @@ export class InventarioController {
         counter++;
       }
 
+      const cKey = p.color.trim().toUpperCase();
+      const finalVariantImageUrl = p.imageUrl || sourceColorImageMap.get(cKey) || null;
+
       const createdProduct = await this.prisma.product.create({
         data: {
           modelId: targetModel.id,
           code: finalCode,
           color: p.color,
-          imageUrl: p.imageUrl,
+          imageUrl: finalVariantImageUrl,
           costPrice: p.costPrice,
           salePrice: p.salePrice,
           serieId: p.serieId,
@@ -1125,6 +1177,20 @@ export class InventarioController {
           active: true,
         },
       });
+
+      // Sincronizar imagen en otras series del mismo color en el destino si estaban sin imagen
+      if (finalVariantImageUrl) {
+        await this.prisma.product.updateMany({
+          where: {
+            modelId: targetModel.id,
+            color: { equals: p.color, mode: 'insensitive' },
+            imageUrl: null,
+          },
+          data: {
+            imageUrl: finalVariantImageUrl,
+          },
+        });
+      }
 
       // Crear stock inicial por talla en 0
       const tallas = p.serie?.tallas || [];

@@ -417,6 +417,16 @@ export class InventarioQueryService {
       } catch {}
     }
 
+    let fotoUrl = record.imageUrl || null;
+    if (!fotoUrl && mdl?.products && Array.isArray(mdl.products)) {
+      const sibling = mdl.products.find(
+        (sp: any) => sp.color?.trim().toUpperCase() === record.color?.trim().toUpperCase() && sp.imageUrl
+      );
+      if (sibling?.imageUrl) {
+        fotoUrl = sibling.imageUrl;
+      }
+    }
+
     return {
       id: record.id,
       tenantId: mdl?.tenantId,
@@ -427,7 +437,7 @@ export class InventarioQueryService {
       modelo: mdl?.baseCode ?? '',
       material: mdl?.material ?? null,
       color: record.color,
-      fotoUrl: record.imageUrl,
+      fotoUrl,
       precioCosto: Number(record.costPrice),
       precioVenta: Number(record.salePrice),
       supplierId: record.supplierId || mdl?.supplierId || null,
@@ -625,6 +635,14 @@ export class InventarioQueryService {
         });
       }
 
+      const colorImageMap = new Map<string, string>();
+      for (const prod of m.products) {
+        const cKey = prod.color.trim().toUpperCase();
+        if (prod.imageUrl && !colorImageMap.has(cKey)) {
+          colorImageMap.set(cKey, prod.imageUrl);
+        }
+      }
+
       const colorMap = new Map<string, { color: string; fotoUrl: string | null }>();
       const seriesMap = new Map<
         string,
@@ -636,10 +654,17 @@ export class InventarioQueryService {
 
       for (const prod of m.products) {
         const cKey = prod.color.trim().toUpperCase();
+        const bestColorFoto = prod.imageUrl || colorImageMap.get(cKey) || null;
+
         if (!colorMap.has(cKey)) {
           colorMap.set(cKey, {
             color: prod.color,
-            fotoUrl: prod.imageUrl || null,
+            fotoUrl: bestColorFoto,
+          });
+        } else if (!colorMap.get(cKey)?.fotoUrl && bestColorFoto) {
+          colorMap.set(cKey, {
+            color: prod.color,
+            fotoUrl: bestColorFoto,
           });
         }
 
@@ -668,7 +693,7 @@ export class InventarioQueryService {
           id: prod.id,
           code: prod.code,
           color: prod.color,
-          imageUrl: prod.imageUrl || null,
+          imageUrl: bestColorFoto,
           costPrice: Number(prod.costPrice) || 0,
           salePrice: Number(prod.salePrice) || 0,
           serieId: prod.serieId,
