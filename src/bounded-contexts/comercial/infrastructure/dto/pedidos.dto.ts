@@ -77,6 +77,10 @@ export class CrearPedidoDto {
 
   @IsString()
   @IsOptional()
+  sucursalId?: string;
+
+  @IsString()
+  @IsOptional()
   direccionEnvio?: string;
 
   @IsString()

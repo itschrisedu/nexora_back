@@ -70,15 +70,17 @@ export class PedidosController {
     @Req() req: any,
     @Query('clientId') clientId?: string,
     @Query('estado') estado?: EstadoPedido,
+    @Query('incluirOtrasSucursales') incluirOtrasSucursales?: string,
   ) {
+    const targetTenantId = incluirOtrasSucursales === 'true' ? null : req.user.tenantId;
     if (estado) {
-      return this.queryService.obtenerPedidosPorEstado(estado, req.user.tenantId);
+      return this.queryService.obtenerPedidosPorEstado(estado, targetTenantId);
     }
     if (clientId) {
-      return this.queryService.obtenerPedidosPorCliente(clientId, req.user.tenantId);
+      return this.queryService.obtenerPedidosPorCliente(clientId, targetTenantId);
     }
-    // Si no hay filtros, retornar todos los pedidos del tenant
-    return this.queryService.obtenerTodosLosPedidos(req.user.tenantId);
+    // Si no hay filtros, retornar todos los pedidos
+    return this.queryService.obtenerTodosLosPedidos(targetTenantId);
   }
 
   @Get('cola/pendiente')
@@ -100,13 +102,14 @@ export class PedidosController {
   @Post()
   @Roles(Rol.ROL_ADMIN, Rol.ROL_VENDEDOR)
   async crearPedido(@Body() dto: CrearPedidoDto, @Req() req: any) {
+    const targetTenantId = dto.sucursalId || req.user.tenantId;
     const command = new CrearPedidoCommand(
       dto.clientId,
       dto.canal,
       dto.tipoPago,
       dto.lineas,
       req.user.sub || req.user.id,
-      req.user.tenantId,
+      targetTenantId,
       dto.notas,
       dto.tipoEntrega,
       dto.asumeFlete,
