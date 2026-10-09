@@ -44,18 +44,29 @@ export class FinancieroQueryService {
     const users = abonoUserIds.length > 0
       ? await this.prisma.user.findMany({
           where: { id: { in: abonoUserIds } },
-          select: { id: true, nombre: true, email: true, rol: true },
+          select: {
+            id: true,
+            nombre: true,
+            email: true,
+            rol: true,
+            tenantId: true,
+            tenant: { select: { id: true, name: true } },
+          },
         })
       : [];
     const userMap = new Map(users.map((u) => [u.id, u]));
 
     const abonosEnriquecidos = cobro.abonos.map((a) => {
       const cajero = userMap.get(a.userId);
+      const sucursalCajero = (cajero as any)?.tenant?.name || 'Administración Central';
+      const esOtraSucursal = Boolean(cajero?.tenantId && cobro.tenantId && cajero.tenantId !== cobro.tenantId);
       return {
         ...a,
         usuarioNombre: cajero?.nombre || 'Usuario del sistema',
         usuarioEmail: cajero?.email || '',
         usuarioRol: cajero?.rol || '',
+        usuarioSucursal: sucursalCajero,
+        esCobroOtraSucursal: esOtraSucursal,
       };
     });
 
@@ -284,7 +295,14 @@ export class FinancieroQueryService {
     const users = allUserIds.length > 0
       ? await this.prisma.user.findMany({
           where: { id: { in: allUserIds } },
-          select: { id: true, nombre: true, email: true, rol: true },
+          select: {
+            id: true,
+            nombre: true,
+            email: true,
+            rol: true,
+            tenantId: true,
+            tenant: { select: { id: true, name: true } },
+          },
         })
       : [];
     const userMap = new Map(users.map((u) => [u.id, u]));
@@ -338,14 +356,18 @@ export class FinancieroQueryService {
           })
         : orderLinesEnriched;
 
-      // Enriquecer abonos con datos del cajero
+      // Enriquecer abonos con datos del cajero y sucursal
       const abonosEnriquecidos = cobro.abonos.map((a) => {
         const cajero = userMap.get(a.userId);
+        const sucursalCajero = (cajero as any)?.tenant?.name || 'Administración Central';
+        const esOtraSucursal = Boolean(cajero?.tenantId && cobro.tenantId && cajero.tenantId !== cobro.tenantId);
         return {
           ...a,
           usuarioNombre: cajero?.nombre || 'Usuario del sistema',
           usuarioEmail: cajero?.email || '',
           usuarioRol: cajero?.rol || '',
+          usuarioSucursal: sucursalCajero,
+          esCobroOtraSucursal: esOtraSucursal,
         };
       });
 
@@ -450,7 +472,14 @@ export class FinancieroQueryService {
     const histUsers = histUserIds.length > 0
       ? await this.prisma.user.findMany({
           where: { id: { in: histUserIds } },
-          select: { id: true, nombre: true, email: true, rol: true },
+          select: {
+            id: true,
+            nombre: true,
+            email: true,
+            rol: true,
+            tenantId: true,
+            tenant: { select: { id: true, name: true } },
+          },
         })
       : [];
     const histUserMap = new Map(histUsers.map((u) => [u.id, u]));
@@ -517,6 +546,8 @@ export class FinancieroQueryService {
     cobros.forEach((c) => {
       c.abonos.forEach((a) => {
         const cajero = histUserMap.get(a.userId);
+        const sucursalCajero = (cajero as any)?.tenant?.name || 'Administración Central';
+        const esOtraSucursal = Boolean(cajero?.tenantId && c.tenantId && cajero.tenantId !== c.tenantId);
         movimientos.push({
           id: `abono-${a.id}`,
           tipo: 'ABONO',
@@ -528,6 +559,9 @@ export class FinancieroQueryService {
           fecha: a.createdAt,
           cobradoPor: cajero?.nombre || 'Usuario del sistema',
           cobradoPorEmail: cajero?.email || '',
+          cobradoPorRol: cajero?.rol || '',
+          cobradoPorSucursal: sucursalCajero,
+          esCobroOtraSucursal: esOtraSucursal,
         });
       });
     });

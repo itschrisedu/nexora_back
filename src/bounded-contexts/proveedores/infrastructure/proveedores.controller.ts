@@ -162,8 +162,8 @@ export class ProveedoresController {
 
   @Get(':id')
   @Roles(Rol.ROL_ADMIN, Rol.ROL_VENDEDOR, Rol.ROL_BODEGUERO)
-  async obtenerProveedor(@Param('id') id: string) {
-    return this.queryService.obtenerProveedor(id);
+  async obtenerProveedor(@Param('id') id: string, @Req() req: any) {
+    return this.queryService.obtenerProveedor(id, req.user.tenantId);
   }
 
   @Post('deuda-manual')

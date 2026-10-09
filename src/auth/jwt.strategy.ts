@@ -85,47 +85,26 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       ActiveSessionStore.touch(user.id, payload.sessionId || user.activeSessionId);
     }
 
+    const canSwitchSucursal = user.rol === 'ROL_SUPER_ADMIN' || user.rol === 'ROL_ADMIN' || user.rol === 'ROL_VENDEDOR';
     const isGlobalAdmin = user.rol === 'ROL_SUPER_ADMIN' || (user.rol === 'ROL_ADMIN' && user.esAdminGeneral === true);
-    const isAllSucursales = isGlobalAdmin && req?.headers?.['x-sucursal-id'] === 'TODAS';
+    const isAllSucursales = canSwitchSucursal && req?.headers?.['x-sucursal-id'] === 'TODAS';
     const targetSucursalId = req?.headers?.['x-sucursal-id'];
     let activeTenantId = isAllSucursales ? null : user.tenantId;
 
     if (
       targetSucursalId &&
       targetSucursalId !== 'TODAS' &&
-      isGlobalAdmin
+      canSwitchSucursal
     ) {
-      if (user.tenantId) {
-        if (targetSucursalId === user.tenantId) {
-          activeTenantId = targetSucursalId;
-        } else {
-          const userConfig = await this.prisma.businessConfig.findUnique({
-            where: { tenantId: user.tenantId },
-            select: { ruc: true },
-          });
-
-          const targetConfig = await this.prisma.businessConfig.findUnique({
-            where: { tenantId: targetSucursalId },
-            select: { ruc: true },
-          });
-
-          if (userConfig?.ruc && targetConfig?.ruc) {
-            const userRuc = this.encryption.decrypt(userConfig.ruc);
-            const targetRuc = this.encryption.decrypt(targetConfig.ruc);
-            if (userRuc && userRuc === targetRuc) {
-              activeTenantId = targetSucursalId;
-            }
-          } else {
-            const targetTenant = await this.prisma.tenant.findUnique({
-              where: { id: targetSucursalId, active: true },
-            });
-            if (targetTenant) {
-              activeTenantId = targetSucursalId;
-            }
-          }
-        }
-      } else if (user.rol === 'ROL_SUPER_ADMIN') {
+      if (user.tenantId && targetSucursalId === user.tenantId) {
         activeTenantId = targetSucursalId;
+      } else {
+        const targetTenant = await this.prisma.tenant.findUnique({
+          where: { id: targetSucursalId, active: true },
+        });
+        if (targetTenant) {
+          activeTenantId = targetSucursalId;
+        }
       }
     }
 

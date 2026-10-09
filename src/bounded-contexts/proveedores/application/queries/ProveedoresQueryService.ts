@@ -9,15 +9,15 @@ export class ProveedoresQueryService {
     private readonly encryptionService: EncryptionService,
   ) {}
 
-  async obtenerProveedor(id: string) {
+  async obtenerProveedor(id: string, tenantId?: string | null) {
     const raw = await this.prisma.supplier.findUnique({
       where: { id },
       include: {
         tenant: { select: { id: true, name: true } },
-        orders: true,
-        entries: true,
-        payments: true,
-        devoluciones: true,
+        orders: { orderBy: { createdAt: 'desc' } },
+        entries: { orderBy: { createdAt: 'desc' } },
+        payments: { orderBy: { createdAt: 'desc' } },
+        devoluciones: { orderBy: { createdAt: 'desc' } },
       },
     });
     if (!raw) {
@@ -94,8 +94,8 @@ export class ProveedoresQueryService {
     if (!tenantId) {
       return [];
     }
-    const targetTenantIds = await this.getOrganizationTenantIds(tenantId);
-    const where: any = targetTenantIds.length > 0 ? { tenantId: { in: targetTenantIds } } : { tenantId };
+    const where: any = { tenantId };
+
     const suppliers = await this.prisma.supplier.findMany({
       where,
       include: {
