@@ -156,6 +156,76 @@ export class ProveedoresQueryService {
     return formated;
   }
 
+  async buscarProveedoresGlobalesEmpresa(tenantId: string, q?: string) {
+    if (!tenantId) return [];
+
+    const organizationTenantIds = await this.getOrganizationTenantIds(tenantId);
+    if (!organizationTenantIds || organizationTenantIds.length === 0) {
+      return [];
+    }
+
+    // Proveedores de la empresa en todas las sucursales
+    const allSuppliers = await this.prisma.supplier.findMany({
+      where: {
+        tenantId: { in: organizationTenantIds },
+      },
+      include: {
+        tenant: { select: { id: true, name: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    // Formatear proveedores
+    const formatted = allSuppliers.map((s) => {
+      const base = this.formatSupplier(s);
+      return {
+        ...base,
+        estaEnEstaSucursal: s.tenantId === tenantId,
+        sucursalOrigenId: s.tenantId,
+        sucursalOrigenNombre: s.tenant?.name || 'Matriz Principal',
+      };
+    });
+
+    // Agrupar o deduplicar por RUC (o por razón social si no tiene RUC)
+    const mapUnicos = new Map<string, typeof formatted[0]>();
+    for (const sup of formatted) {
+      const key = (sup.ruc && sup.ruc.trim()) ? `RUC:${sup.ruc.trim().toLowerCase()}` : `NOM:${sup.razonSocial.trim().toLowerCase()}`;
+      if (!mapUnicos.has(key)) {
+        mapUnicos.set(key, sup);
+      } else {
+        const existing = mapUnicos.get(key)!;
+        // Priorizar si ya está registrado en esta sucursal
+        if (sup.estaEnEstaSucursal && !existing.estaEnEstaSucursal) {
+          mapUnicos.set(key, sup);
+        }
+      }
+    }
+
+    const list = Array.from(mapUnicos.values());
+
+    if (q && q.trim()) {
+      const terminos = q.toLowerCase().trim().split(/\s+/).filter(Boolean);
+      return list.filter((s) => {
+        const razon = (s.razonSocial || '').toLowerCase();
+        const ruc = (s.ruc || '').toLowerCase();
+        const contacto = (s.contacto || '').toLowerCase();
+        const direccion = (s.direccion || '').toLowerCase();
+        const email = (s.email || '').toLowerCase();
+
+        return terminos.some(
+          (t) =>
+            razon.includes(t) ||
+            ruc.includes(t) ||
+            contacto.includes(t) ||
+            direccion.includes(t) ||
+            email.includes(t),
+        );
+      });
+    }
+
+    return list;
+  }
+
   async obtenerCuentaCorriente(supplierId: string) {
     const supplier = await this.prisma.supplier.findUnique({
       where: { id: supplierId },

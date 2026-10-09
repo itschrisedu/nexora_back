@@ -27,10 +27,10 @@ export class RegistrarSupplierHandler {
       // 2. Cifrar el RUC para persistencia e invariante de unicidad
       rucCifrado = this.encryptionService.encrypt(rucLimpio);
 
-      // 3. Validar duplicado por RUC (cifrado)
-      const existe = await this.supplierRepository.findByRuc(rucCifrado);
+      // 3. Validar duplicado por RUC (cifrado) en esta sucursal
+      const existe = await this.supplierRepository.findByRuc(rucCifrado, command.tenantId);
       if (existe) {
-        throw new ConflictException(`Ya existe un proveedor registrado con el RUC/Cédula "${command.ruc}"`);
+        throw new ConflictException(`Ya existe un proveedor registrado con el RUC/Cédula "${command.ruc}" en esta sucursal.`);
       }
     } else {
       // Si no se proporciona RUC, generamos un identificador único seguro cifrado para cumplir la restricción única de BD

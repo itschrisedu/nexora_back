@@ -758,7 +758,7 @@ enum SupplierOrderStatus {
 model Supplier {
   id          String             @id @default(uuid())
   tenantId    String
-  ruc         String             @unique // Cifrado AES-256-GCM en infraestructura
+  ruc         String             // Cifrado AES-256-GCM en infraestructura
   razonSocial String
   contacto    String?
   direccion   String?
@@ -775,6 +775,7 @@ model Supplier {
   updatedAt   DateTime           @updatedAt
   tenant      Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
+  @@unique([tenantId, ruc])
   @@map("suppliers")
 }
 

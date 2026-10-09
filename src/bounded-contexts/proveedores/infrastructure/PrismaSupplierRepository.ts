@@ -17,11 +17,11 @@ export class PrismaSupplierRepository extends ISupplierRepository {
     return this.toDomain(raw);
   }
 
-  async findByRuc(ruc: string): Promise<Supplier | null> {
-    // ruc en la base de datos está cifrado, por lo que el command handler
-    // consultará pasándole el RUC ya cifrado para buscar coincidencia exacta.
-    const raw = await this.prisma.supplier.findUnique({
-      where: { ruc },
+  async findByRuc(ruc: string, tenantId?: string): Promise<Supplier | null> {
+    const where: any = { ruc };
+    if (tenantId) where.tenantId = tenantId;
+    const raw = await this.prisma.supplier.findFirst({
+      where,
     });
     if (!raw) return null;
     return this.toDomain(raw);

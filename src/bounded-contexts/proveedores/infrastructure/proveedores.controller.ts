@@ -154,6 +154,12 @@ export class ProveedoresController {
     return this.actualizarProveedor(id, dto);
   }
 
+  @Get('buscar-global')
+  @Roles(Rol.ROL_ADMIN, Rol.ROL_VENDEDOR, Rol.ROL_BODEGUERO)
+  async buscarProveedoresGlobales(@Req() req: any, @Query('q') q?: string) {
+    return this.queryService.buscarProveedoresGlobalesEmpresa(req.user.tenantId, q);
+  }
+
   @Get()
   @Roles(Rol.ROL_ADMIN, Rol.ROL_VENDEDOR, Rol.ROL_BODEGUERO)
   async listarProveedores(@Req() req: any, @Query('q') q?: string) {
