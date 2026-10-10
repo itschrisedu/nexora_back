@@ -54,6 +54,11 @@ export class CrearProductoHandler {
         if (sp.supplierId) allSupplierIds.add(sp.supplierId);
       });
     }
+    if (Array.isArray(command.colors)) {
+      command.colors.forEach(c => {
+        if (c.supplierId) allSupplierIds.add(c.supplierId);
+      });
+    }
 
     // Cargar datos de los proveedores para generar siglas
     const suppliers = allSupplierIds.size > 0
@@ -115,7 +120,7 @@ export class CrearProductoHandler {
 
         // Resolver proveedor específico de esta serie / variante
         const seriePrices = command.seriesPrices?.[serieConfig.id];
-        const variantSupplierId = seriePrices?.supplierId || primarySupplierId || null;
+        const variantSupplierId = colorEntry.supplierId || seriePrices?.supplierId || primarySupplierId || null;
         const supplierInfo = variantSupplierId ? suppliersMap.get(variantSupplierId) : null;
         const sigla = supplierInfo?.sigla ? `-${supplierInfo.sigla}` : '';
 

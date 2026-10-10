@@ -139,7 +139,11 @@ export class InventarioController {
       dto.material ?? null,
       dto.costPrice,
       dto.salePrice,
-      dto.colors.map(c => ({ color: c.color, imageUrl: c.imageUrl ?? null })),
+      dto.colors.map(c => ({
+        color: c.color,
+        imageUrl: c.imageUrl ?? null,
+        supplierId: c.supplierId ?? null,
+      })),
       dto.serieIds,
       dto.stockInicial ?? 1,
       dto.stockMinimo ?? 0,
@@ -930,11 +934,25 @@ export class InventarioController {
           ...(dto.color && { color: dto.color }),
           ...(dto.imageUrl !== undefined && { imageUrl: dto.imageUrl }),
           ...(dto.serieId && { serieId: dto.serieId }),
-          ...(dto.costPrice && { costPrice: dto.costPrice }),
-          ...(dto.salePrice && { salePrice: dto.salePrice }),
+          ...(dto.costPrice !== undefined && { costPrice: dto.costPrice }),
+          ...(dto.salePrice !== undefined && { salePrice: dto.salePrice }),
           ...(dto.supplierId !== undefined && { supplierId: dto.supplierId }),
         },
       });
+
+      // Si se asignó un taller o proveedor específico a la variante, agregarlo a los alternos del modelo si no está
+      if (dto.supplierId && product.modelId) {
+        const parentModel = await tx.productModel.findUnique({ where: { id: product.modelId } });
+        if (parentModel && parentModel.supplierId !== dto.supplierId) {
+          const currentAlts = parentModel.alternateSupplierIds || [];
+          if (!currentAlts.includes(dto.supplierId)) {
+            await tx.productModel.update({
+              where: { id: product.modelId },
+              data: { alternateSupplierIds: [...currentAlts, dto.supplierId] },
+            });
+          }
+        }
+      }
 
       // Si se actualizó la imagen, sincronizarla en TODAS las series del mismo modelo y color
       if (isImageUpdating) {

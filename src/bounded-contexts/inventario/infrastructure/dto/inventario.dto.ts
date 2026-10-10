@@ -20,6 +20,10 @@ class ColorVariantDto {
   @IsString()
   @IsOptional()
   imageUrl?: string;
+
+  @IsString()
+  @IsOptional()
+  supplierId?: string;
 }
 
 // ── Crear modelo con variantes ──

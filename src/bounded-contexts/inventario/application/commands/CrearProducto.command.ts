@@ -9,6 +9,7 @@ export class CrearModeloCommand {
     public readonly colors: {
       color: string;
       imageUrl: string | null;
+      supplierId?: string | null;
     }[],
     public readonly serieIds: string[],
     public readonly stockInicial: number = 1,
