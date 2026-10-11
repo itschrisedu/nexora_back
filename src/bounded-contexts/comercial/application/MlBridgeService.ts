@@ -164,16 +164,16 @@ export class MlBridgeService {
       },
       CLASES_SIERRA: {
         nombre: 'Inicio de Clases Sierra / Amazonía',
-        desc: 'Pico de demanda en calzado escolar, colegial y mocasines de cuero (Agosto - Octubre)',
+        desc: 'Pico de demanda en calzado escolar, colegial, mocasines y deportivo blanco/negro (Agosto - Octubre)',
         multDef: 1.35,
-        keywords: ['escolar', 'colegial', 'mocas', 'estudiantil', 'negro', 'juvenil', 'botin'],
+        keywords: ['escolar', 'colegial', 'mocas', 'estudiantil', 'negro', 'juvenil', 'botin', 'blanco', 'deportiv', 'tenis', 'pupillo'],
         multMatch: 2.2,
       },
       CLASES_COSTA: {
         nombre: 'Inicio de Clases Costa / Galápagos',
-        desc: 'Alta demanda de calzado escolar y colegial para el régimen Costa (Febrero - Mayo)',
+        desc: 'Alta demanda de calzado escolar, colegial y deportivo blanco/negro para el régimen Costa (Febrero - Mayo)',
         multDef: 1.25,
-        keywords: ['escolar', 'colegial', 'mocas', 'estudiantil', 'negro'],
+        keywords: ['escolar', 'colegial', 'mocas', 'estudiantil', 'negro', 'blanco', 'deportiv', 'tenis'],
         multMatch: 2.0,
       },
       NAVIDAD_FIN_ANIO: {
@@ -185,9 +185,9 @@ export class MlBridgeService {
       },
       DIA_MADRE_PADRE: {
         nombre: 'Día de la Madre y Padre',
-        desc: 'Incremento de ventas en calzado ejecutivo, casual de cuero, líneas de confort y dama/caballero',
+        desc: 'Incremento de ventas en calzado ejecutivo, casual de cuero, líneas de confort, cuarterones y dama/caballero',
         multDef: 1.4,
-        keywords: ['dama', 'caballero', 'confort', 'clasico', 'casual', 'oxford', 'sandalia'],
+        keywords: ['dama', 'caballero', 'confort', 'clasico', 'casual', 'oxford', 'sandalia', 'cuarteron', 'cuarterones', 'tacon', 'reina'],
         multMatch: 1.75,
       },
       FERIA_CEVALLOS: {
@@ -208,7 +208,9 @@ export class MlBridgeService {
     for (const prod of products) {
       const modelName = prod.model?.name || 'Modelo Clásico';
       const serieName = prod.serie?.nombre || 'Serie Estándar';
-      const fullText = `${modelName} ${serieName}`.toLowerCase();
+      const colorName = prod.color || '';
+      const materialName = prod.model?.material || '';
+      const fullText = `${modelName} ${serieName} ${colorName} ${materialName}`.toLowerCase();
       const isMatch = tempCfg.keywords.some((k) => fullText.includes(k));
       const factorEstacional = isMatch ? tempCfg.multMatch : tempCfg.multDef;
 

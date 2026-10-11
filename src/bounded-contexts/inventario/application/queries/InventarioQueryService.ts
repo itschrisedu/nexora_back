@@ -95,6 +95,9 @@ export class InventarioQueryService {
           include: { talla: true },
           orderBy: { talla: { numero: 'asc' } },
         },
+        _count: {
+          select: { stockMovements: true },
+        },
       },
       orderBy: { code: 'asc' },
     });
@@ -478,6 +481,7 @@ export class InventarioQueryService {
         motivo: h.reason,
         createdAt: h.createdAt,
       })),
+      totalMovimientos: record._count?.stockMovements ?? record.totalMovimientos ?? 0,
     };
   }
 
