@@ -121,7 +121,9 @@ export class CrearPedidoHandler {
         tieneStockParaTodo = false;
       }
 
-      const precioUnit = Money.create(Number(prod.salePrice));
+      const precioUnit = (lineaInput.precioUnitario !== undefined && lineaInput.precioUnitario !== null && Number(lineaInput.precioUnitario) > 0)
+        ? Money.create(Number(lineaInput.precioUnitario))
+        : Money.create(Number(prod.salePrice));
       totalAcumulado += precioUnit.amount * lineaInput.cantidad;
 
       lineasProducto.push({

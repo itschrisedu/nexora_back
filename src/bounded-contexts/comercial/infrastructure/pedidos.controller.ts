@@ -6,6 +6,7 @@ import {
   Param,
   Post,
   Put,
+  Patch,
   Query,
   Req,
   UseGuards,
@@ -24,6 +25,7 @@ import {
   ActualizarEnvioPedidoDto,
   EntregarItemsPedidoDto,
   ActualizarAdelantoPedidoDto,
+  CorregirPrecioLineaDto,
 } from './dto/pedidos.dto';
 import { CrearPedidoHandler } from '../application/commands/CrearPedido.handler';
 import { CrearPedidoCommand } from '../application/commands/CrearPedido.command';
@@ -155,16 +157,28 @@ export class PedidosController {
     let montoTotal = 0;
     const nuevasLineasData: any[] = [];
 
+    let tieneStockParaTodo = true;
+
     for (const l of dto.lineas) {
       const prod = await this.prisma.product.findUnique({
         where: { id: l.productId },
+        include: { stockByTalla: true },
       });
 
       if (!prod) {
         throw new NotFoundException(`El producto con ID "${l.productId}" no existe`);
       }
 
-      const precioUnitario = Number(prod.salePrice);
+      // Evaluar stock disponible para esta talla
+      const stockItem = prod.stockByTalla?.find((s) => s.tallaId === l.tallaId);
+      const stockDisp = stockItem ? (stockItem.quantity - stockItem.reservedQuantity) : 0;
+      if (stockDisp < l.cantidad) {
+        tieneStockParaTodo = false;
+      }
+
+      const precioUnitario = (l.precioUnitario !== undefined && l.precioUnitario !== null && Number(l.precioUnitario) > 0)
+        ? Number(l.precioUnitario)
+        : Number(prod.salePrice);
       const subtotal = precioUnitario * l.cantidad;
       montoTotal += subtotal;
 
@@ -185,11 +199,18 @@ export class PedidosController {
       });
     }
 
+    // Determinar nuevo estado según stock si el pedido aún no está en preparación
+    let nuevoEstado = pedidoExistente.estado;
+    if (pedidoExistente.estado === 'PENDIENTE' || pedidoExistente.estado === 'EN_ESPERA_STOCK') {
+      nuevoEstado = tieneStockParaTodo ? EstadoPedido.PENDIENTE : EstadoPedido.EN_ESPERA_STOCK;
+    }
+
     // 3. Actualizar monto y datos del pedido
     await this.prisma.order.update({
       where: { id },
       data: {
         montoTotal,
+        estado: nuevoEstado,
         tipoPago: dto.tipoPago || pedidoExistente.tipoPago,
         notas: dto.notas !== undefined ? dto.notas : pedidoExistente.notas,
         adelanto: dto.adelanto !== undefined ? Number(dto.adelanto) : pedidoExistente.adelanto,
@@ -205,7 +226,7 @@ export class PedidosController {
       },
     });
 
-    return { id, message: 'Pedido actualizado exitosamente', montoTotal };
+    return { id, message: 'Pedido actualizado exitosamente', montoTotal, estado: nuevoEstado };
   }
 
   @Put(':id/adelanto')
@@ -544,12 +565,24 @@ export class PedidosController {
         },
       });
 
+      // Si se especificó un nuevo precio acordado para la entrega, actualizar la línea
+      const precioEfectivo = (item.precioUnitario !== undefined && item.precioUnitario !== null && Number(item.precioUnitario) > 0)
+        ? Number(item.precioUnitario)
+        : Number(line.precioUnitario);
+
+      if (precioEfectivo !== Number(line.precioUnitario)) {
+        await this.prisma.orderLine.update({
+          where: { id: line.id },
+          data: { precioUnitario: precioEfectivo },
+        });
+      }
+
       lineasEntregadasEnEstaTransaccion.push({
         productId: line.productId,
         serieId: line.serieId,
         tallaId: line.tallaId,
         cantidad: item.cantidadAEntregar,
-        precioUnitario: Number(line.precioUnitario),
+        precioUnitario: precioEfectivo,
       });
 
       totalEntregadoEnEstaTransaccion += item.cantidadAEntregar;
@@ -564,10 +597,15 @@ export class PedidosController {
       0,
     );
 
-    // 3. Evaluar estado global del pedido
+    // 3. Evaluar estado global del pedido y actualizar monto total recalculado
     const lineasActualizadas = await this.prisma.orderLine.findMany({
       where: { orderId: pedido.id },
     });
+
+    const nuevoMontoTotalCalculado = lineasActualizadas.reduce(
+      (acc, l) => acc + (Number(l.precioUnitario) * l.cantidad),
+      0,
+    );
 
     const todoCompletado = lineasActualizadas.every((l) => (l.cantidadEntregada || 0) >= l.cantidad);
     const algunEntregado = lineasActualizadas.some((l) => (l.cantidadEntregada || 0) > 0);
@@ -577,13 +615,19 @@ export class PedidosController {
       nuevoEstado = EstadoPedido.ENTREGADO;
       await this.prisma.order.update({
         where: { id: pedido.id },
-        data: { estado: EstadoPedido.ENTREGADO },
+        data: {
+          estado: EstadoPedido.ENTREGADO,
+          montoTotal: nuevoMontoTotalCalculado,
+        },
       });
     } else if (algunEntregado) {
       nuevoEstado = EstadoPedido.ENTREGADO_PARCIAL;
       await this.prisma.order.update({
         where: { id: pedido.id },
-        data: { estado: EstadoPedido.ENTREGADO_PARCIAL },
+        data: {
+          estado: EstadoPedido.ENTREGADO_PARCIAL,
+          montoTotal: nuevoMontoTotalCalculado,
+        },
       });
     }
 
@@ -611,6 +655,140 @@ export class PedidosController {
         ? 'Pedido completado y entregado al 100% con éxito.'
         : `Entrega parcial registrada (${totalEntregadoEnEstaTransaccion} pares entregados). El pedido queda con saldo pendiente.`,
       pedido: pedidoActualizado,
+    };
+  }
+
+  /**
+   * Endpoint para corregir el precio de calzados en un pedido (incluso entregado).
+   * Actualiza OrderLine, Order.montoTotal, SaleNote, Cobro y cuenta corriente de cartera.
+   */
+  @Patch(':id/corregir-precio')
+  @Roles(Rol.ROL_ADMIN, Rol.ROL_VENDEDOR)
+  async corregirPrecioPedido(
+    @Param('id') id: string,
+    @Body() dto: CorregirPrecioLineaDto,
+  ) {
+    const pedido = await this.prisma.order.findUnique({
+      where: { id },
+      include: { lines: true },
+    });
+
+    if (!pedido) {
+      throw new NotFoundException(`El pedido con ID "${id}" no existe`);
+    }
+
+    const nuevoPrecio = Number(dto.nuevoPrecioUnitario);
+    if (isNaN(nuevoPrecio) || nuevoPrecio <= 0) {
+      throw new BadRequestException('El nuevo precio unitario debe ser un valor numérico mayor a 0');
+    }
+
+    // Identificar las líneas a modificar (por lineId directo o por productId)
+    let lineasAModificar = pedido.lines;
+    if (dto.lineId) {
+      lineasAModificar = pedido.lines.filter((l) => l.id === dto.lineId);
+    } else if (dto.productId) {
+      lineasAModificar = pedido.lines.filter((l) => l.productId === dto.productId);
+    }
+
+    if (lineasAModificar.length === 0) {
+      throw new NotFoundException('No se encontraron líneas coincidentes para modificar el precio');
+    }
+
+    // 1. Actualizar precio unitario en OrderLine
+    for (const l of lineasAModificar) {
+      await this.prisma.orderLine.update({
+        where: { id: l.id },
+        data: { precioUnitario: nuevoPrecio },
+      });
+    }
+
+    // 2. Recalcular monto total de la orden
+    const todasLineas = await this.prisma.orderLine.findMany({
+      where: { orderId: id },
+    });
+    const montoAnterior = Number(pedido.montoTotal);
+    const nuevoMontoTotal = todasLineas.reduce(
+      (acc, l) => acc + Number(l.precioUnitario) * l.cantidad,
+      0,
+    );
+    const diferenciaMonto = nuevoMontoTotal - montoAnterior;
+
+    await this.prisma.order.update({
+      where: { id },
+      data: { montoTotal: nuevoMontoTotal },
+    });
+
+    // 3. Si existe SaleNote (Nota de Venta) asociada, actualizar sus ítems y totales
+    const saleNote = await this.prisma.saleNote.findFirst({
+      where: { orderId: id },
+      include: { lines: true },
+    });
+
+    if (saleNote) {
+      for (const sl of saleNote.lines) {
+        if (!dto.productId || sl.productId === dto.productId) {
+          await this.prisma.saleNoteLine.update({
+            where: { id: sl.id },
+            data: {
+              precioUnitario: nuevoPrecio,
+              subtotal: nuevoPrecio * sl.cantidad,
+            },
+          });
+        }
+      }
+
+      const noteLinesActualizadas = await this.prisma.saleNoteLine.findMany({
+        where: { saleNoteId: saleNote.id },
+      });
+      const nuevoTotalNote = noteLinesActualizadas.reduce((acc: number, l: any) => acc + Number(l.subtotal), 0);
+
+      await this.prisma.saleNote.update({
+        where: { id: saleNote.id },
+        data: {
+          subtotal: nuevoTotalNote,
+          total: nuevoTotalNote,
+        },
+      });
+
+      // 4. Si existe Cobro asociado, ajustar su monto y saldo
+      const cobro = await this.prisma.cobro.findFirst({
+        where: { saleNoteId: saleNote.id },
+      });
+
+      if (cobro) {
+        const saldoAnterior = Number(cobro.saldoPendiente);
+        const nuevoSaldo = Math.max(0, saldoAnterior + diferenciaMonto);
+
+        await this.prisma.cobro.update({
+          where: { id: cobro.id },
+          data: {
+            montoTotal: nuevoTotalNote,
+            saldoPendiente: nuevoSaldo,
+            estado: nuevoSaldo <= 0.01 ? 'SALDADO' : cobro.estado,
+          },
+        });
+
+        // 5. Ajustar creditoUtilizado del cliente si fue a crédito
+        if (pedido.tipoPago === 'CREDITO') {
+          await this.prisma.client.update({
+            where: { id: pedido.clientId },
+            data: {
+              creditoUtilizado: {
+                increment: diferenciaMonto,
+              },
+            },
+          });
+        }
+      }
+    }
+
+    const pedidoActualizado = await this.queryService.obtenerPedido(id);
+
+    return {
+      success: true,
+      message: `Precio actualizado correctamente a $${nuevoPrecio.toFixed(2)}. El total del pedido y el estado de cuenta han sido actualizados.`,
+      pedido: pedidoActualizado,
+      nuevoMontoTotal,
     };
   }
 

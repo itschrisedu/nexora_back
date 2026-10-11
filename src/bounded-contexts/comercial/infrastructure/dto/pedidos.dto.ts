@@ -31,6 +31,9 @@ class LineaPedidoDto {
   @IsString()
   @IsOptional()
   observacion?: string;
+
+  @IsOptional()
+  precioUnitario?: number;
 }
 
 export class CrearPedidoDto {
@@ -174,6 +177,22 @@ export class ItemAEntregarDto {
   @IsInt()
   @Min(1)
   cantidadAEntregar!: number;
+
+  @IsOptional()
+  precioUnitario?: number;
+}
+
+export class CorregirPrecioLineaDto {
+  @IsString()
+  @IsOptional()
+  lineId?: string;
+
+  @IsString()
+  @IsOptional()
+  productId?: string;
+
+  @IsNotEmpty()
+  nuevoPrecioUnitario!: number;
 }
 
 export class EntregarItemsPedidoDto {

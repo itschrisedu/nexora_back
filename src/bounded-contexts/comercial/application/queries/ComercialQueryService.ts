@@ -48,8 +48,9 @@ export class ComercialQueryService {
       where.tenantId = tenantId;
     }
 
-    // Auto-evaluar pedidos en EN_ESPERA_STOCK
+    // Auto-evaluar pedidos en EN_ESPERA_STOCK y PENDIENTE según stock físico real
     try {
+      // 1. Si tienen stock suficiente para todas sus líneas, promover EN_ESPERA_STOCK a EN_PREPARACION o PENDIENTE
       const enEspera = await this.prisma.order.findMany({
         where: {
           ...where,
@@ -59,7 +60,7 @@ export class ComercialQueryService {
       });
 
       for (const ped of enEspera) {
-        let tieneStock = true;
+        let tieneStockCompleto = true;
         for (const line of ped.lines) {
           const stock = await this.prisma.stockByTalla.findUnique({
             where: {
@@ -69,19 +70,54 @@ export class ComercialQueryService {
               },
             },
           });
-          if (!stock || stock.quantity <= 0) {
-            tieneStock = false;
+          const disp = stock ? (stock.quantity - stock.reservedQuantity) : 0;
+          if (disp < line.cantidad) {
+            tieneStockCompleto = false;
             break;
           }
         }
-        if (tieneStock && ped.lines.length > 0) {
+        if (tieneStockCompleto && ped.lines.length > 0) {
           await this.prisma.order.update({
             where: { id: ped.id },
-            data: { estado: PrismaEstadoPedido.EN_PREPARACION },
+            data: { estado: PrismaEstadoPedido.PENDIENTE },
           });
           await this.prisma.orderQueue.updateMany({
             where: { orderId: ped.id, activa: true },
             data: { activa: false, activadaAt: new Date() },
+          });
+        }
+      }
+
+      // 2. Si un pedido en PENDIENTE no tiene stock suficiente para sus líneas, pasarlo a EN_ESPERA_STOCK
+      const pendientes = await this.prisma.order.findMany({
+        where: {
+          ...where,
+          estado: PrismaEstadoPedido.PENDIENTE,
+        },
+        include: { lines: true },
+      });
+
+      for (const ped of pendientes) {
+        let faltaStock = false;
+        for (const line of ped.lines) {
+          const stock = await this.prisma.stockByTalla.findUnique({
+            where: {
+              productId_tallaId: {
+                productId: line.productId,
+                tallaId: line.tallaId,
+              },
+            },
+          });
+          const disp = stock ? (stock.quantity - stock.reservedQuantity) : 0;
+          if (disp < line.cantidad) {
+            faltaStock = true;
+            break;
+          }
+        }
+        if (faltaStock) {
+          await this.prisma.order.update({
+            where: { id: ped.id },
+            data: { estado: PrismaEstadoPedido.EN_ESPERA_STOCK },
           });
         }
       }
