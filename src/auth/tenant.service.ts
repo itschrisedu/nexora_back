@@ -57,6 +57,7 @@ export class TenantService {
    */
   async listTenants() {
     const allTenants = await this.prisma.tenant.findMany({
+      where: { name: { not: 'NEXORA_SAAS_PLATFORM' } },
       include: {
         businessConfig: {
           select: {
@@ -197,6 +198,9 @@ export class TenantService {
           activo: u.activo,
         }));
 
+      // Si la matriz no tiene logo configurado directamente, verificar si en alguna de sus sucursales se configuró logo
+      const resolvedLogoUrl = t.businessConfig?.logoUrl || rawSucursales.find((s) => s.businessConfig?.logoUrl)?.businessConfig?.logoUrl || null;
+
       return {
         id: t.id,
         name: t.name,
@@ -210,7 +214,7 @@ export class TenantService {
         precioMensualPlan: Number(t.precioMensualPlan),
         diasRestantes,
         createdAt: t.createdAt,
-        logoUrl: t.businessConfig?.logoUrl || null,
+        logoUrl: resolvedLogoUrl,
         stats: {
           users: t._count.users,
           models: t._count.productModels,
@@ -427,6 +431,7 @@ export class TenantService {
             ruc: true,
             direccion: true,
             telefono: true,
+            logoUrl: true,
           },
         },
         subscriptionPayments: {
@@ -546,6 +551,7 @@ export class TenantService {
       precioMensualPlan: Number(tenant.precioMensualPlan),
       diasRestantes,
       createdAt: tenant.createdAt,
+      logoUrl: tenant.businessConfig?.logoUrl || null,
       stats: {
         users: tenant._count.users,
         models: tenant._count.productModels,

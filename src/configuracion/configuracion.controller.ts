@@ -46,14 +46,18 @@ export class ConfiguracionController {
 
   @Get('negocio')
   @Roles(Rol.ROL_ADMIN, Rol.ROL_SUPER_ADMIN, Rol.ROL_VENDEDOR, Rol.ROL_BODEGUERO)
-  async getBusinessConfig(@Req() req: any) {
-    return this.configuracionService.getBusinessConfig(req.user?.tenantId);
+  async getBusinessConfig(@Req() req: any, @Query('tenantId') queryTenantId?: string) {
+    const isSuperAdmin = req.user?.rol === Rol.ROL_SUPER_ADMIN;
+    const targetTenantId = isSuperAdmin ? (queryTenantId || null) : req.user?.tenantId;
+    return this.configuracionService.getBusinessConfig(targetTenantId, isSuperAdmin);
   }
 
   @Put('negocio')
   @Roles(Rol.ROL_ADMIN, Rol.ROL_SUPER_ADMIN)
-  async upsertBusinessConfig(@Body() dto: UpdateBusinessConfigDto, @Req() req: any) {
-    return this.configuracionService.upsertBusinessConfig(dto, req.user?.tenantId);
+  async upsertBusinessConfig(@Body() dto: UpdateBusinessConfigDto, @Req() req: any, @Query('tenantId') queryTenantId?: string) {
+    const isSuperAdmin = req.user?.rol === Rol.ROL_SUPER_ADMIN;
+    const targetTenantId = isSuperAdmin ? (queryTenantId || null) : req.user?.tenantId;
+    return this.configuracionService.upsertBusinessConfig(dto, targetTenantId, isSuperAdmin);
   }
 
   // ══════════════════════════════

@@ -259,6 +259,8 @@ export class ComercialQueryService {
       const formatted = this.formatPedido(o, productMap, tallaMap, serieMap, orderNumberMap.get(o.id));
       return {
         ...formatted,
+        tenantId: o.tenantId,
+        sucursalId: o.tenantId,
         clienteNombre: clientMap.get(o.clientId) || 'Consumidor Final',
         vendedorNombre: userMap.get(o.userId) || 'Vendedor',
         sucursalNombre: o.tenant?.name || '',
@@ -275,6 +277,8 @@ export class ComercialQueryService {
   ) {
     return {
       id: record.id,
+      tenantId: record.tenantId,
+      sucursalId: record.tenantId,
       numeroCodigo: numeroCodigo || `PED-${record.id.slice(0, 4).toUpperCase()}`,
       clientId: record.clientId,
       estado: record.estado,

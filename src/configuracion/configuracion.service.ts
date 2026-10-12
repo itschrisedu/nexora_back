@@ -36,11 +36,44 @@ export class ConfiguracionService {
   // BUSINESS CONFIG
   // ══════════════════════════════
 
-  async getBusinessConfig(tenantId?: string) {
+  private async getOrCreateSaasPlatformTenant(): Promise<string> {
+    let saasTenant = await this.prisma.tenant.findFirst({
+      where: { name: 'NEXORA_SAAS_PLATFORM' },
+    });
+    if (!saasTenant) {
+      saasTenant = await this.prisma.tenant.create({
+        data: {
+          name: 'NEXORA_SAAS_PLATFORM',
+          active: true,
+          plan: 'PLAN_MAYORISTA',
+        },
+      });
+      await this.prisma.businessConfig.create({
+        data: {
+          tenantId: saasTenant.id,
+          nombre: 'NEXORA GLOBAL',
+          ruc: this.encryption.encrypt(''),
+          direccion: 'Plataforma Cloud Global',
+          telefono: '',
+          email: 'soporte@nexora.app',
+          logoUrl: '/logo.png',
+        },
+      });
+    }
+    return saasTenant.id;
+  }
+
+  async getBusinessConfig(tenantId?: string | null, isSuperAdmin?: boolean) {
     let targetTenantId = tenantId;
     if (!targetTenantId) {
-      const firstTenant = await this.prisma.tenant.findFirst();
-      targetTenantId = firstTenant?.id;
+      if (isSuperAdmin) {
+        targetTenantId = await this.getOrCreateSaasPlatformTenant();
+      } else {
+        const firstTenant = await this.prisma.tenant.findFirst({
+          where: { name: { not: 'NEXORA_SAAS_PLATFORM' } },
+        });
+        targetTenantId = firstTenant?.id;
+      }
     }
     if (!targetTenantId) {
       return {
@@ -88,11 +121,17 @@ export class ConfiguracionService {
     };
   }
 
-  async upsertBusinessConfig(dto: UpdateBusinessConfigDto, tenantId?: string) {
+  async upsertBusinessConfig(dto: UpdateBusinessConfigDto, tenantId?: string | null, isSuperAdmin?: boolean) {
     let targetTenantId = tenantId;
     if (!targetTenantId) {
-      const firstTenant = await this.prisma.tenant.findFirst();
-      targetTenantId = firstTenant?.id;
+      if (isSuperAdmin) {
+        targetTenantId = await this.getOrCreateSaasPlatformTenant();
+      } else {
+        const firstTenant = await this.prisma.tenant.findFirst({
+          where: { name: { not: 'NEXORA_SAAS_PLATFORM' } },
+        });
+        targetTenantId = firstTenant?.id;
+      }
     }
     if (!targetTenantId) {
       const createdTenant = await this.prisma.tenant.create({
@@ -206,7 +245,8 @@ export class ConfiguracionService {
 
   /**
    * Propaga los campos visuales de la Landing Page (hero, card, fondo, etc.)
-   * a TODOS los demás tenants activos para que la página pública se vea uniforme.
+   * exclusivamente a las sucursales hijas pertenecientes a la MISMA empresa matriz.
+   * Nunca propaga a otras empresas independientes ni a la plataforma SaaS.
    */
   private async propagateLandingVisuals(sourceTenantId: string, data: any) {
     const visualFields: Record<string, any> = {};
@@ -225,19 +265,38 @@ export class ConfiguracionService {
     if (Object.keys(visualFields).length === 0) return;
 
     try {
-      const otherConfigs = await this.prisma.businessConfig.findMany({
-        where: { tenantId: { not: sourceTenantId } },
+      const sourceTenant = await this.prisma.tenant.findUnique({
+        where: { id: sourceTenantId },
+        include: { businessConfig: true, users: true },
+      });
+      if (!sourceTenant || sourceTenant.name === 'NEXORA_SAAS_PLATFORM') return;
+
+      const sourceRuc = sourceTenant.businessConfig?.ruc;
+      const sourceUserIds = sourceTenant.users.map((u) => u.id);
+
+      const childConfigs = await this.prisma.businessConfig.findMany({
+        where: {
+          tenantId: { not: sourceTenantId },
+          tenant: {
+            name: { not: 'NEXORA_SAAS_PLATFORM' },
+            OR: [
+              { users: { some: { parentId: { in: sourceUserIds } } } },
+              ...(sourceRuc ? [{ businessConfig: { ruc: sourceRuc } }] : []),
+            ],
+          },
+        },
         select: { id: true },
       });
-      if (otherConfigs.length > 0) {
+
+      if (childConfigs.length > 0) {
         await this.prisma.businessConfig.updateMany({
-          where: { tenantId: { not: sourceTenantId } },
+          where: { id: { in: childConfigs.map((c) => c.id) } },
           data: visualFields,
         });
-        this.logger.log(`Campos visuales propagados a ${otherConfigs.length} tenant(s) adicionales`);
+        this.logger.log(`Campos visuales propagados a ${childConfigs.length} sucursal(es) de la misma empresa`);
       }
     } catch (err) {
-      this.logger.warn('No se pudieron propagar campos visuales a otros tenants: ' + (err as any).message);
+      this.logger.warn('No se pudieron propagar campos visuales a sucursales hijas: ' + (err as any).message);
     }
   }
 

@@ -73,8 +73,9 @@ export class PedidosController {
     @Query('clientId') clientId?: string,
     @Query('estado') estado?: EstadoPedido,
     @Query('incluirOtrasSucursales') incluirOtrasSucursales?: string,
+    @Query('sucursalId') sucursalId?: string,
   ) {
-    const targetTenantId = incluirOtrasSucursales === 'true' ? null : req.user.tenantId;
+    const targetTenantId = sucursalId || (incluirOtrasSucursales === 'true' ? null : req.user.tenantId);
     if (estado) {
       return this.queryService.obtenerPedidosPorEstado(estado, targetTenantId);
     }
