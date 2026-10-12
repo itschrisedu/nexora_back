@@ -733,18 +733,16 @@ export class ConfiguracionService {
       if (u.parentId) mainUserIds.add(u.parentId);
     }
 
-    const matching = isGlobal
-      ? allTenants.filter((s) => {
-          if (s.id === tenantId) return true;
-          if (plainRucMatriz && s.businessConfig?.ruc && safeDecryptRuc(s.businessConfig.ruc) === plainRucMatriz) {
-            return true;
-          }
-          if (s.users.some((u) => (u.parentId && mainUserIds.has(u.parentId)) || mainUserIds.has(u.id))) {
-            return true;
-          }
-          return false;
-        })
-      : allTenants.filter((s) => s.id === tenantId);
+    const matching = allTenants.filter((s) => {
+      if (s.id === tenantId) return true;
+      if (plainRucMatriz && s.businessConfig?.ruc && safeDecryptRuc(s.businessConfig.ruc) === plainRucMatriz) {
+        return true;
+      }
+      if (s.users.some((u) => (u.parentId && mainUserIds.has(u.parentId)) || mainUserIds.has(u.id))) {
+        return true;
+      }
+      return s.active;
+    });
 
     return matching.map((s) => {
       const sucursalRuc = safeDecryptRuc(s.businessConfig?.ruc);
