@@ -734,6 +734,7 @@ export class ConfiguracionService {
     }
 
     const matching = allTenants.filter((s) => {
+      if (!s.active) return false;
       if (s.id === tenantId) return true;
       if (plainRucMatriz && s.businessConfig?.ruc && safeDecryptRuc(s.businessConfig.ruc) === plainRucMatriz) {
         return true;
@@ -741,7 +742,7 @@ export class ConfiguracionService {
       if (s.users.some((u) => (u.parentId && mainUserIds.has(u.parentId)) || mainUserIds.has(u.id))) {
         return true;
       }
-      return s.active;
+      return false;
     });
 
     return matching.map((s) => {
