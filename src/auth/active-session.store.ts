@@ -42,9 +42,9 @@ export class ActiveSessionStore {
   }
 
   /**
-   * Verifica si la sesión de un usuario está actualmente online (activa en los últimos X ms, por defecto 90s).
+   * Verifica si la sesión de un usuario está actualmente online (activa en los últimos X ms, por defecto 5 min = 300_000 ms).
    */
-  static isSessionOnline(userId: string, timeoutMs: number = 90_000): boolean {
+  static isSessionOnline(userId: string, timeoutMs: number = 300_000): boolean {
     const entry = this.sessions.get(userId);
     if (!entry) return false;
     return Date.now() - entry.lastActiveAt < timeoutMs;

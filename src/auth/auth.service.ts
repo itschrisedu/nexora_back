@@ -279,7 +279,7 @@ export class AuthService implements OnApplicationBootstrap {
   /**
    * Login — Autentica al usuario y retorna access + refresh tokens.
    * Si ya existe una sesión activa y está ONLINE concurrentemente en otro dispositivo, solicita código OTP.
-   * Si el dispositivo anterior se apagó o cerró (sin latido en >90s), permite login directo.
+   * Si el dispositivo anterior se apagó o cerró (sin latido en >5 min), permite login directo.
    */
   async login(
     email: string,
@@ -359,8 +359,8 @@ export class AuthService implements OnApplicationBootstrap {
     }
 
     // ── Verificar si ya existe una sesión activa concurrente ONLINE ──
-    // Un usuario solo tiene conflicto si su sesión anterior ha enviado un latido en los últimos 90 segundos
-    const isOnlineNow = ActiveSessionStore.isSessionOnline(user.id, 90_000);
+    // Un usuario solo tiene conflicto si su sesión anterior ha enviado un latido en los últimos 5 minutos (300_000 ms)
+    const isOnlineNow = ActiveSessionStore.isSessionOnline(user.id, 300_000);
     const hasExistingSession = Boolean(ActiveSessionStore.get(user.id) || user.activeSessionId);
 
     if (hasExistingSession && isOnlineNow) {
@@ -402,7 +402,7 @@ export class AuthService implements OnApplicationBootstrap {
       };
     }
 
-    // Si la sesión anterior ya no está online (dispositivo apagado, pestaña cerrada o inactiva por >90s):
+    // Si la sesión anterior ya no está online (dispositivo apagado, pestaña cerrada o inactiva por >5 min):
     if (hasExistingSession && !isOnlineNow) {
       this.logger.log(`Sesión previa de ${email} inactiva o fuera de línea. Permitiendo login directo y cerrando sesión previa.`);
     }
