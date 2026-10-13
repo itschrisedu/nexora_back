@@ -16,7 +16,7 @@ import {
 import { JwtAuthGuard } from '../../../auth/jwt-auth.guard';
 import { RolesGuard } from '../../../shared/guards/roles.guard';
 import { Roles } from '../../../shared/guards/roles.decorator';
-import { Rol, EstadoPedido } from '@prisma/client';
+import { Rol, EstadoPedido, MovimientoTipo } from '@prisma/client';
 import {
   CrearPedidoDto,
   CancelarPedidoDto,
@@ -918,6 +918,97 @@ export class PedidosController {
     }
 
     return { success: true, message: 'Logística de envío y flete actualizada', order: updated };
+  }
+
+  @Post(':id/solicitar-inter-sucursal')
+  @Roles(Rol.ROL_ADMIN, Rol.ROL_VENDEDOR, Rol.ROL_BODEGUERO)
+  async solicitarInterSucursal(
+    @Param('id') id: string,
+    @Body() dto: { sucursalOrigenId: string; modalidad: 'DEVOLUCION_MERCADERIA' | 'PAGO_INTERNO'; notas?: string },
+    @Req() req: any,
+  ) {
+    const order = await this.prisma.order.findUnique({
+      where: { id },
+      include: { lines: true, tenant: true },
+    });
+    if (!order) throw new NotFoundException(`Pedido con ID "${id}" no encontrado`);
+
+    const sucursalOrigen = await this.prisma.tenant.findUnique({
+      where: { id: dto.sucursalOrigenId },
+    });
+    if (!sucursalOrigen) throw new NotFoundException('Sucursal de origen no encontrada');
+
+    // Transferir / prestar el stock requerido desde la sucursal prestamista
+    for (const line of order.lines) {
+      const prodOriginal = await this.prisma.product.findUnique({
+        where: { id: line.productId },
+        include: { model: true },
+      });
+
+      // Buscar producto equivalente en la sucursal de origen (Product no tiene tenantId, filtrar por model.tenantId)
+      const prodOrigen = await this.prisma.product.findFirst({
+        where: {
+          model: { tenantId: dto.sucursalOrigenId },
+          OR: [
+            { code: prodOriginal?.code },
+            { model: { name: prodOriginal?.model?.name } },
+          ],
+        },
+        include: { stockByTalla: true },
+      });
+
+      if (prodOrigen) {
+        // Encontrar la talla correspondiente
+        const stockTallaOrigen = prodOrigen.stockByTalla.find(
+          (s: any) => s.tallaId === line.tallaId,
+        );
+        if (stockTallaOrigen && stockTallaOrigen.quantity > 0) {
+          const cantADescontar = Math.min(stockTallaOrigen.quantity, line.cantidad);
+          await this.prisma.stockByTalla.update({
+            where: { id: stockTallaOrigen.id },
+            data: { quantity: { decrement: cantADescontar } },
+          });
+
+          await this.prisma.stockMovement.create({
+            data: {
+              productId: prodOrigen.id,
+              tallaId: line.tallaId,
+              type: MovimientoTipo.AJUSTE,
+              quantity: -cantADescontar,
+              reason: `Préstamo inter-sucursal a ${order.tenant?.name || 'otra sucursal'} para Pedido #${order.id.slice(0, 8)}`,
+              userId: req.user.id || req.user.sub,
+            },
+          });
+        }
+      }
+    }
+
+    // Actualizar notas y estado del pedido para que pase a preparación
+    const modalidadTexto = dto.modalidad === 'DEVOLUCION_MERCADERIA'
+      ? 'Reposición física de pares al recibir mercadería'
+      : 'Compensación económica interna';
+    const detallePrestamo = `[Préstamo Inter-Sucursal]: Recibido de ${sucursalOrigen.name}. Modalidad: ${modalidadTexto}${dto.notas ? ` - Obs: ${dto.notas}` : ''}`;
+    const notasActualizadas = order.notas ? `${order.notas} | ${detallePrestamo}` : detallePrestamo;
+
+    const updated = await this.prisma.order.update({
+      where: { id },
+      data: {
+        estado: EstadoPedido.EN_PREPARACION,
+        notas: notasActualizadas,
+      },
+    });
+
+    // Desactivar cola de espera si existía
+    await this.prisma.orderQueue.updateMany({
+      where: { orderId: id },
+      data: { activa: false },
+    });
+
+    return {
+      success: true,
+      message: `Préstamo de mercadería registrado con éxito desde ${sucursalOrigen.name}. El pedido ha avanzado a Preparación.`,
+      order: updated,
+    };
   }
 }
 

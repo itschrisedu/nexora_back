@@ -63,8 +63,12 @@ export class ProveedoresController {
     private readonly prisma: PrismaService,
   ) {}
 
+  // ══════════════════════════════════════════
+  // DESPACHO AUTOMÁTICO
+  // ══════════════════════════════════════════
+
   @Post('auto-despacho/ejecutar-manual')
-  @Roles(Rol.ROL_ADMIN)
+  @Roles(Rol.ROL_ADMIN, Rol.ROL_SUPER_ADMIN)
   async ejecutarDespachoManual(@Req() req: any) {
     const res = await this.autoDespachoService.ejecutarDespachoPorTenant(req.user.tenantId, req.user.tenantName);
     return {
@@ -77,11 +81,11 @@ export class ProveedoresController {
   }
 
   // ══════════════════════════════════════════
-  // PROVEEDORES
+  // PROVEEDORES - POST / PUT / PATCH (antes de GET)
   // ══════════════════════════════════════════
 
   @Post()
-  @Roles(Rol.ROL_ADMIN)
+  @Roles(Rol.ROL_ADMIN, Rol.ROL_SUPER_ADMIN)
   async registrarProveedor(@Body() dto: RegistrarSupplierDto, @Req() req: any) {
     if (dto.ruc && !validarRuc(dto.ruc) && !validarCedula(dto.ruc)) {
       throw new BadRequestException('El RUC o Cédula ingresado no es válido (10 o 13 dígitos numéricos).');
@@ -121,7 +125,7 @@ export class ProveedoresController {
   }
 
   @Put(':id')
-  @Roles(Rol.ROL_ADMIN)
+  @Roles(Rol.ROL_ADMIN, Rol.ROL_SUPER_ADMIN)
   async actualizarProveedor(
     @Param('id') id: string,
     @Body() dto: ActualizarSupplierDto,
@@ -146,7 +150,7 @@ export class ProveedoresController {
   }
 
   @Patch(':id')
-  @Roles(Rol.ROL_ADMIN)
+  @Roles(Rol.ROL_ADMIN, Rol.ROL_SUPER_ADMIN)
   async patchProveedor(
     @Param('id') id: string,
     @Body() dto: ActualizarSupplierDto,
@@ -154,26 +158,8 @@ export class ProveedoresController {
     return this.actualizarProveedor(id, dto);
   }
 
-  @Get('buscar-global')
-  @Roles(Rol.ROL_ADMIN, Rol.ROL_VENDEDOR, Rol.ROL_BODEGUERO)
-  async buscarProveedoresGlobales(@Req() req: any, @Query('q') q?: string) {
-    return this.queryService.buscarProveedoresGlobalesEmpresa(req.user.tenantId, q);
-  }
-
-  @Get()
-  @Roles(Rol.ROL_ADMIN, Rol.ROL_VENDEDOR, Rol.ROL_BODEGUERO)
-  async listarProveedores(@Req() req: any, @Query('q') q?: string) {
-    return this.queryService.buscarProveedores(req.user.tenantId, q);
-  }
-
-  @Get(':id')
-  @Roles(Rol.ROL_ADMIN, Rol.ROL_VENDEDOR, Rol.ROL_BODEGUERO)
-  async obtenerProveedor(@Param('id') id: string, @Req() req: any) {
-    return this.queryService.obtenerProveedor(id, req.user.tenantId);
-  }
-
   @Post('deuda-manual')
-  @Roles(Rol.ROL_ADMIN)
+  @Roles(Rol.ROL_ADMIN, Rol.ROL_SUPER_ADMIN)
   async registrarDeudaManual(
     @Body()
     body: {
@@ -189,18 +175,12 @@ export class ProveedoresController {
     return this.queryService.registrarDeudaManual(body, req.user.tenantId, req.user.sub);
   }
 
-  @Get('pagos/todos')
-  @Roles(Rol.ROL_ADMIN)
-  async listarTodosPagos(@Req() req: any) {
-    return this.queryService.listarTodosPagos(req.user.tenantId);
-  }
-
   // ══════════════════════════════════════════
-  // ÓRDENES DE COMPRA (SUPPLIER ORDERS)
+  // ÓRDENES DE COMPRA (SUPPLIER ORDERS) — RUTAS ESTÁTICAS PRIMERO
   // ══════════════════════════════════════════
 
   @Post('ordenes-compra')
-  @Roles(Rol.ROL_ADMIN, Rol.ROL_VENDEDOR, Rol.ROL_BODEGUERO)
+  @Roles(Rol.ROL_ADMIN, Rol.ROL_VENDEDOR, Rol.ROL_BODEGUERO, Rol.ROL_SUPER_ADMIN)
   async crearOrdenCompra(@Body() dto: CrearSupplierOrderDto) {
     const id = await this.crearOrderHandler.execute(
       new CrearSupplierOrderCommand(
@@ -214,19 +194,25 @@ export class ProveedoresController {
   }
 
   @Get('ordenes-compra')
-  @Roles(Rol.ROL_ADMIN, Rol.ROL_VENDEDOR, Rol.ROL_BODEGUERO)
-  async listarOrdenesCompra(@Req() req: any, @Query('supplierId') supplierId?: string) {
-    return this.queryService.listarOrdenesCompra(supplierId, req.user.tenantId);
+  @Roles(Rol.ROL_ADMIN, Rol.ROL_VENDEDOR, Rol.ROL_BODEGUERO, Rol.ROL_SUPER_ADMIN)
+  async listarOrdenesCompra(
+    @Req() req: any,
+    @Query('supplierId') supplierId?: string,
+    @Query('sucursalId') sucursalId?: string,
+  ) {
+    const isSuperAdmin = req.user?.rol === Rol.ROL_SUPER_ADMIN;
+    const effectiveTenantId = sucursalId || (isSuperAdmin ? null : req.user?.tenantId);
+    return this.queryService.listarOrdenesCompra(supplierId, effectiveTenantId);
   }
 
   @Get('ordenes-compra/:id')
-  @Roles(Rol.ROL_ADMIN, Rol.ROL_VENDEDOR, Rol.ROL_BODEGUERO)
+  @Roles(Rol.ROL_ADMIN, Rol.ROL_VENDEDOR, Rol.ROL_BODEGUERO, Rol.ROL_SUPER_ADMIN)
   async obtenerOrdenCompra(@Param('id') id: string) {
     return this.queryService.obtenerOrdenCompra(id);
   }
 
   @Put('ordenes-compra/:id')
-  @Roles(Rol.ROL_ADMIN, Rol.ROL_VENDEDOR, Rol.ROL_BODEGUERO)
+  @Roles(Rol.ROL_ADMIN, Rol.ROL_VENDEDOR, Rol.ROL_BODEGUERO, Rol.ROL_SUPER_ADMIN)
   async actualizarOrdenCompra(@Param('id') id: string, @Body() dto: ActualizarSupplierOrderDto) {
     await this.actualizarOrderHandler.execute(
       new ActualizarSupplierOrderCommand(
@@ -240,7 +226,7 @@ export class ProveedoresController {
   }
 
   @Patch('ordenes-compra/:id/confirmar')
-  @Roles(Rol.ROL_ADMIN, Rol.ROL_VENDEDOR, Rol.ROL_BODEGUERO)
+  @Roles(Rol.ROL_ADMIN, Rol.ROL_VENDEDOR, Rol.ROL_BODEGUERO, Rol.ROL_SUPER_ADMIN)
   async confirmarEnvioOrden(@Param('id') id: string) {
     await this.actualizarOrderHandler.execute(
       new ActualizarSupplierOrderCommand(id, undefined, undefined, 'PENDIENTE'),
@@ -249,7 +235,7 @@ export class ProveedoresController {
   }
 
   @Patch('ordenes-compra/:id/cancelar')
-  @Roles(Rol.ROL_ADMIN)
+  @Roles(Rol.ROL_ADMIN, Rol.ROL_SUPER_ADMIN)
   async cancelarOrden(@Param('id') id: string) {
     await this.actualizarOrderHandler.execute(
       new ActualizarSupplierOrderCommand(id, undefined, undefined, 'CANCELADA'),
@@ -258,7 +244,7 @@ export class ProveedoresController {
   }
 
   @Patch('ordenes-compra/:id/cancelar-y-desactivar-reorden')
-  @Roles(Rol.ROL_ADMIN)
+  @Roles(Rol.ROL_ADMIN, Rol.ROL_SUPER_ADMIN)
   async cancelarOrdenYDesactivarReorden(@Param('id') id: string) {
     // 1. Cancelar la orden de compra
     await this.actualizarOrderHandler.execute(
@@ -307,7 +293,7 @@ export class ProveedoresController {
   }
 
   @Patch('ordenes-compra/:id/reasignar-proveedor')
-  @Roles(Rol.ROL_ADMIN)
+  @Roles(Rol.ROL_ADMIN, Rol.ROL_SUPER_ADMIN)
   async reasignarProveedorOrden(
     @Param('id') id: string,
     @Body('nuevoSupplierId') nuevoSupplierId: string,
@@ -334,7 +320,7 @@ export class ProveedoresController {
   }
 
   @Patch('productos/:id/reorden-automatica')
-  @Roles(Rol.ROL_ADMIN)
+  @Roles(Rol.ROL_ADMIN, Rol.ROL_SUPER_ADMIN)
   async alternarReordenAutomatica(
     @Param('id') id: string,
     @Body('reordenAutomatica') reordenAutomatica: boolean,
@@ -347,11 +333,11 @@ export class ProveedoresController {
   }
 
   // ══════════════════════════════════════════
-  // INGRESO DE MERCANCÍA (MERCHANDISE ENTRIES)
+  // INGRESO DE MERCANCÍA (MERCHANDISE ENTRIES) — RUTAS ESTÁTICAS
   // ══════════════════════════════════════════
 
   @Post('entradas')
-  @Roles(Rol.ROL_ADMIN, Rol.ROL_BODEGUERO)
+  @Roles(Rol.ROL_ADMIN, Rol.ROL_BODEGUERO, Rol.ROL_SUPER_ADMIN)
   async registrarEntradaMercancia(@Body() dto: RegistrarMerchandiseEntryDto) {
     const id = await this.registrarEntryHandler.execute(
       new RegistrarMerchandiseEntryCommand(
@@ -366,23 +352,55 @@ export class ProveedoresController {
   }
 
   @Get('entradas')
-  @Roles(Rol.ROL_ADMIN, Rol.ROL_BODEGUERO)
+  @Roles(Rol.ROL_ADMIN, Rol.ROL_BODEGUERO, Rol.ROL_SUPER_ADMIN)
   async listarEntradasMercancia(@Req() req: any, @Query('supplierId') supplierId?: string) {
     return this.queryService.listarEntradasMercancia(supplierId, req.user.tenantId);
   }
 
   @Get('entradas/:id')
-  @Roles(Rol.ROL_ADMIN, Rol.ROL_BODEGUERO)
+  @Roles(Rol.ROL_ADMIN, Rol.ROL_BODEGUERO, Rol.ROL_SUPER_ADMIN)
   async obtenerEntradaMercancia(@Param('id') id: string) {
     return this.queryService.obtenerEntradaMercancia(id);
   }
 
   // ══════════════════════════════════════════
-  // PAGOS Y CUENTA CORRIENTE POR PROVEEDOR
+  // PAGOS — RUTAS ESTÁTICAS
+  // ══════════════════════════════════════════
+
+  @Get('pagos/todos')
+  @Roles(Rol.ROL_ADMIN, Rol.ROL_SUPER_ADMIN)
+  async listarTodosPagos(@Req() req: any) {
+    return this.queryService.listarTodosPagos(req.user.tenantId);
+  }
+
+  // ══════════════════════════════════════════
+  // BUSCAR PROVEEDORES GLOBAL — RUTA ESTÁTICA
+  // ══════════════════════════════════════════
+
+  @Get('buscar-global')
+  @Roles(Rol.ROL_ADMIN, Rol.ROL_VENDEDOR, Rol.ROL_BODEGUERO, Rol.ROL_SUPER_ADMIN)
+  async buscarProveedoresGlobales(@Req() req: any, @Query('q') q?: string) {
+    return this.queryService.buscarProveedoresGlobalesEmpresa(req.user.tenantId, q);
+  }
+
+  // ══════════════════════════════════════════
+  // LISTAR PROVEEDORES (ruta base sin parámetro)
+  // ══════════════════════════════════════════
+
+  @Get()
+  @Roles(Rol.ROL_ADMIN, Rol.ROL_VENDEDOR, Rol.ROL_BODEGUERO, Rol.ROL_SUPER_ADMIN)
+  async listarProveedores(@Req() req: any, @Query('q') q?: string) {
+    return this.queryService.buscarProveedores(req.user.tenantId, q);
+  }
+
+  // ══════════════════════════════════════════
+  // RUTAS CON PARÁMETRO :id — AL FINAL PARA EVITAR CONFLICTOS
+  // (NestJS evalúa rutas en orden: si :id va antes de 'ordenes-compra',
+  //  NestJS trata 'ordenes-compra' como un :id y nunca llega a la ruta correcta)
   // ══════════════════════════════════════════
 
   @Post(':id/pagos')
-  @Roles(Rol.ROL_ADMIN)
+  @Roles(Rol.ROL_ADMIN, Rol.ROL_SUPER_ADMIN)
   async registrarPagoProveedor(@Param('id') id: string, @Body() dto: RegistrarSupplierPaymentDto) {
     const pagoId = await this.registrarPaymentHandler.execute({
       supplierId: id,
@@ -397,10 +415,15 @@ export class ProveedoresController {
   }
 
   @Get(':id/cuenta-corriente')
-  @Roles(Rol.ROL_ADMIN)
+  @Roles(Rol.ROL_ADMIN, Rol.ROL_SUPER_ADMIN)
   async obtenerCuentaCorriente(@Param('id') id: string) {
     return this.queryService.obtenerCuentaCorriente(id);
   }
 
-}
+  @Get(':id')
+  @Roles(Rol.ROL_ADMIN, Rol.ROL_VENDEDOR, Rol.ROL_BODEGUERO, Rol.ROL_SUPER_ADMIN)
+  async obtenerProveedor(@Param('id') id: string, @Req() req: any) {
+    return this.queryService.obtenerProveedor(id, req.user.tenantId);
+  }
 
+}

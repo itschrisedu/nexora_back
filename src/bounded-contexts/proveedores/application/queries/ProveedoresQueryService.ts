@@ -458,7 +458,22 @@ export class ProveedoresQueryService {
     if (tenantId) {
       const targetTenants = await this.getOrganizationTenantIds(tenantId);
       const listTenants = targetTenants.length > 0 ? targetTenants : [tenantId];
-      where.supplier = { tenantId: { in: listTenants } };
+
+      const prodsTenant = await this.prisma.product.findMany({
+        where: { model: { tenantId: tenantId } },
+        select: { supplierId: true, modelId: true, model: { select: { supplierId: true } } },
+      });
+      const extraSupplierIds = Array.from(new Set(
+        prodsTenant.flatMap((p) => [p.supplierId, p.model?.supplierId]).filter(Boolean) as string[]
+      ));
+
+      const orConditions: any[] = [
+        { supplier: { tenantId: { in: listTenants } } },
+      ];
+      if (extraSupplierIds.length > 0) {
+        orConditions.push({ supplierId: { in: extraSupplierIds } });
+      }
+      where.OR = orConditions;
     }
     const orders = await this.prisma.supplierOrder.findMany({
       where,

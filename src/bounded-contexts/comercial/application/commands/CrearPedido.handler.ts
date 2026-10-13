@@ -306,6 +306,20 @@ export class CrearPedidoHandler {
                 orderBy: { createdAt: 'asc' },
               });
             }
+            if (!defaultSupplier) {
+              const defaultTenantId = effectiveTenantId || (await this.prisma.tenant.findFirst({ where: { active: true } }))?.id;
+              if (defaultTenantId) {
+                defaultSupplier = await this.prisma.supplier.create({
+                  data: {
+                    tenantId: defaultTenantId,
+                    razonSocial: 'Proveedor General de Fábrica / Taller',
+                    ruc: '1890000000001',
+                    contacto: 'Taller de Producción',
+                    activo: true,
+                  },
+                });
+              }
+            }
             supplierId = defaultSupplier?.id;
           }
 
