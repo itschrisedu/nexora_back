@@ -293,13 +293,19 @@ export class CrearPedidoHandler {
             continue;
           }
 
-          // Obtener el proveedor vinculado: producto → modelo → primer proveedor activo del tenant
+          // Obtener el proveedor vinculado: producto → modelo → primer proveedor activo del tenant / red
           let supplierId = prodWithModel?.supplierId || prodWithModel?.model?.supplierId;
           if (!supplierId) {
-            const defaultSupplier = await this.prisma.supplier.findFirst({
+            let defaultSupplier = await this.prisma.supplier.findFirst({
               where: { activo: true, tenantId: effectiveTenantId },
               orderBy: { createdAt: 'asc' },
             });
+            if (!defaultSupplier) {
+              defaultSupplier = await this.prisma.supplier.findFirst({
+                where: { activo: true },
+                orderBy: { createdAt: 'asc' },
+              });
+            }
             supplierId = defaultSupplier?.id;
           }
 
@@ -322,21 +328,18 @@ export class CrearPedidoHandler {
               observacion: obsLineaUsuario || undefined as any,
             });
           } else {
-            this.logger.warn(`No se encontró proveedor activo en tenant ${effectiveTenantId} para el producto ${prodId}. La orden automática para este producto no se generará.`);
+            this.logger.warn(`No se encontró ningún proveedor activo en el sistema para el producto ${prodId}.`);
           }
         }
 
-        const inicioHoy = new Date();
-        inicioHoy.setHours(0, 0, 0, 0);
-
         for (const [supId, items] of supplierGroups.entries()) {
-          // Buscar si ya existe una orden de compra generada HOY en estado BORRADOR (Pendiente del día) para este proveedor
+          // Buscar si ya existe una orden de compra pendiente en estado BORRADOR para este proveedor
           let ordenCompra = await this.prisma.supplierOrder.findFirst({
             where: {
               supplierId: supId,
               estado: 'BORRADOR',
-              createdAt: { gte: inicioHoy },
             },
+            orderBy: { createdAt: 'desc' },
             include: { lines: true },
           });
 
@@ -346,7 +349,7 @@ export class CrearPedidoHandler {
                 supplierId: supId,
                 total: 0,
                 estado: 'BORRADOR',
-                observaciones: command.notas?.trim() || undefined,
+                observaciones: command.notas?.trim() || 'Orden automática generada por déficit de stock',
               },
               include: { lines: true },
             });
