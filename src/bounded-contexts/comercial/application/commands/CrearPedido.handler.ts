@@ -293,11 +293,12 @@ export class CrearPedidoHandler {
             continue;
           }
 
-          // Obtener el proveedor vinculado o el primer proveedor activo de la empresa
-          let supplierId = prodWithModel?.model?.supplierId;
+          // Obtener el proveedor vinculado: producto → modelo → primer proveedor activo del tenant
+          let supplierId = prodWithModel?.supplierId || prodWithModel?.model?.supplierId;
           if (!supplierId) {
             const defaultSupplier = await this.prisma.supplier.findFirst({
-              where: { activo: true },
+              where: { activo: true, tenantId: effectiveTenantId },
+              orderBy: { createdAt: 'asc' },
             });
             supplierId = defaultSupplier?.id;
           }
@@ -320,6 +321,8 @@ export class CrearPedidoHandler {
               precioCosto: Number(prodWithModel?.costPrice || 10),
               observacion: obsLineaUsuario || undefined as any,
             });
+          } else {
+            this.logger.warn(`No se encontró proveedor activo en tenant ${effectiveTenantId} para el producto ${prodId}. La orden automática para este producto no se generará.`);
           }
         }
 
@@ -386,7 +389,7 @@ export class CrearPedidoHandler {
           });
         }
       } catch (e: any) {
-        this.logger.error(`Error al generar orden automática a proveedor: ${e?.message || e}`);
+        this.logger.error(`Error al generar orden automática a proveedor: ${e?.message || e}`, e?.stack);
       }
     }
 
