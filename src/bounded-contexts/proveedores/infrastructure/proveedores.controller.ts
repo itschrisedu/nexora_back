@@ -200,7 +200,7 @@ export class ProveedoresController {
   // ══════════════════════════════════════════
 
   @Post('ordenes-compra')
-  @Roles(Rol.ROL_ADMIN)
+  @Roles(Rol.ROL_ADMIN, Rol.ROL_VENDEDOR, Rol.ROL_BODEGUERO)
   async crearOrdenCompra(@Body() dto: CrearSupplierOrderDto) {
     const id = await this.crearOrderHandler.execute(
       new CrearSupplierOrderCommand(
@@ -214,19 +214,19 @@ export class ProveedoresController {
   }
 
   @Get('ordenes-compra')
-  @Roles(Rol.ROL_ADMIN)
+  @Roles(Rol.ROL_ADMIN, Rol.ROL_VENDEDOR, Rol.ROL_BODEGUERO)
   async listarOrdenesCompra(@Req() req: any, @Query('supplierId') supplierId?: string) {
     return this.queryService.listarOrdenesCompra(supplierId, req.user.tenantId);
   }
 
   @Get('ordenes-compra/:id')
-  @Roles(Rol.ROL_ADMIN)
+  @Roles(Rol.ROL_ADMIN, Rol.ROL_VENDEDOR, Rol.ROL_BODEGUERO)
   async obtenerOrdenCompra(@Param('id') id: string) {
     return this.queryService.obtenerOrdenCompra(id);
   }
 
   @Put('ordenes-compra/:id')
-  @Roles(Rol.ROL_ADMIN)
+  @Roles(Rol.ROL_ADMIN, Rol.ROL_VENDEDOR, Rol.ROL_BODEGUERO)
   async actualizarOrdenCompra(@Param('id') id: string, @Body() dto: ActualizarSupplierOrderDto) {
     await this.actualizarOrderHandler.execute(
       new ActualizarSupplierOrderCommand(
@@ -240,7 +240,7 @@ export class ProveedoresController {
   }
 
   @Patch('ordenes-compra/:id/confirmar')
-  @Roles(Rol.ROL_ADMIN)
+  @Roles(Rol.ROL_ADMIN, Rol.ROL_VENDEDOR, Rol.ROL_BODEGUERO)
   async confirmarEnvioOrden(@Param('id') id: string) {
     await this.actualizarOrderHandler.execute(
       new ActualizarSupplierOrderCommand(id, undefined, undefined, 'PENDIENTE'),

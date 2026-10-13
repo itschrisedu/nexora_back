@@ -457,7 +457,11 @@ export class ProveedoresQueryService {
     }
     if (tenantId) {
       const targetTenants = await this.getOrganizationTenantIds(tenantId);
-      where.supplier = targetTenants.length > 0 ? { tenantId: { in: targetTenants } } : { tenantId };
+      const listTenants = targetTenants.length > 0 ? targetTenants : [tenantId];
+      where.OR = [
+        { supplier: { tenantId: { in: listTenants } } },
+        { supplier: { tenantId: null } },
+      ];
     }
     const orders = await this.prisma.supplierOrder.findMany({
       where,
