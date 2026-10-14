@@ -36,6 +36,7 @@ export class CrearPedidoHandler {
     const lineasProducto: {
       productId: string;
       tallaId: string;
+      tallaNumero?: number;
       serieId: string;
       cantidad: number;
       precioUnitario: Money;
@@ -129,6 +130,7 @@ export class CrearPedidoHandler {
       lineasProducto.push({
         productId: lineaInput.productId,
         tallaId: resolvedTallaId,
+        tallaNumero: stockTalla?.talla?.numero,
         serieId: prod.serieId,
         cantidad: lineaInput.cantidad,
         precioUnitario: precioUnit,
@@ -267,28 +269,47 @@ export class CrearPedidoHandler {
 
       // Generar o acumular orden de compra automática al proveedor en estado BORRADOR
       try {
-        const supplierGroups = new Map<string, { productId: string; cantidad: number; precioCosto: number; observacion: string }[]>();
+        interface FaltanteData {
+          totalFaltante: number;
+          desgloseTallas: { tallaNumero?: number; faltante: number }[];
+        }
 
-        // 1. Agrupar faltantes por producto (para sumar 1 sola docena extra por modelo y no por cada talla)
-        const faltantesPorProducto = new Map<string, number>();
+        // 1. Agrupar faltantes por producto registrando el total y desglose por tallas
+        const faltantesPorProducto = new Map<string, FaltanteData>();
         for (const line of lineasProducto) {
           if (line.stockDisponible < line.cantidad) {
             const faltante = line.cantidad - line.stockDisponible;
-            const actual = faltantesPorProducto.get(line.productId) || 0;
-            faltantesPorProducto.set(line.productId, actual + faltante);
+            const actual = faltantesPorProducto.get(line.productId) || { totalFaltante: 0, desgloseTallas: [] };
+            actual.totalFaltante += faltante;
+            actual.desgloseTallas.push({
+              tallaNumero: line.tallaNumero,
+              faltante,
+            });
+            faltantesPorProducto.set(line.productId, actual);
           }
         }
 
+        const nombreCliente = [cli?.nombre, cli?.apellido].filter(Boolean).join(' ').trim() || 'Cliente';
+        const refPedido = pedido.id.substring(0, 8).toUpperCase();
+
+        const supplierGroups = new Map<string, {
+          productId: string;
+          cantidad: number;
+          precioCosto: number;
+          observacion: string;
+          detallePedido: string;
+        }[]>();
+
         // 2. Por cada producto con déficit, calcular: totalFaltante + 1 docena extra (12 pares) para stock
-        for (const [prodId, totalFaltante] of faltantesPorProducto.entries()) {
-          const cantidadAComprar = totalFaltante + 12;
+        for (const [prodId, info] of faltantesPorProducto.entries()) {
+          const cantidadAComprar = info.totalFaltante + 12;
 
           const prodWithModel = await this.prisma.product.findUnique({
             where: { id: prodId },
             include: { model: true },
           });
 
-          // Si el producto o modelo tiene la reorden automática desactivada (producto que ya no se vende), omitir
+          // Si el producto o modelo tiene la reorden automática desactivada, omitir
           if (prodWithModel?.reordenAutomatica === false || prodWithModel?.model?.reordenAutomatica === false) {
             continue;
           }
@@ -324,27 +345,28 @@ export class CrearPedidoHandler {
           }
 
           if (supplierId) {
-            const nombreCliente = [cli?.nombre, cli?.apellido].filter(Boolean).join(' ').trim() || 'Cliente';
-            const refPedido = pedido.id.substring(0, 6).toUpperCase();
+            const tallasStr = info.desgloseTallas
+              .map((t) => `T${t.tallaNumero || '?'}: ${t.faltante}p`)
+              .join(', ');
+            const detallePedido = `Pedido #${refPedido} (${nombreCliente}) - Faltan: ${tallasStr} (${info.totalFaltante} pares) + 12 extra de stock`;
 
-            let faltanteDesc = `${totalFaltante} pares`;
-            if (totalFaltante === 1) faltanteDesc = '1 par';
-            else if (totalFaltante === 6) faltanteDesc = '½ docena (6 pares)';
-            else if (totalFaltante === 12) faltanteDesc = '1 docena (12 pares)';
-
-            const obsLineaUsuario = command.lineas.find(l => l.productId === prodId && l.observacion?.trim())?.observacion?.trim();
+            const obsLineaUsuario = command.lineas.find((l) => l.productId === prodId && l.observacion?.trim())?.observacion?.trim();
+            const obsFinalLinea = obsLineaUsuario ? `${detallePedido} | Nota: ${obsLineaUsuario}` : detallePedido;
 
             if (!supplierGroups.has(supplierId)) supplierGroups.set(supplierId, []);
             supplierGroups.get(supplierId)!.push({
               productId: prodId,
               cantidad: cantidadAComprar,
               precioCosto: Number(prodWithModel?.costPrice || 10),
-              observacion: obsLineaUsuario || undefined as any,
+              observacion: obsFinalLinea,
+              detallePedido,
             });
           } else {
             this.logger.warn(`No se encontró ningún proveedor activo en el sistema para el producto ${prodId}.`);
           }
         }
+
+        const ordenesGeneradasIds: string[] = [];
 
         for (const [supId, items] of supplierGroups.entries()) {
           // Buscar si ya existe una orden de compra pendiente en estado BORRADOR para este proveedor
@@ -357,28 +379,47 @@ export class CrearPedidoHandler {
             include: { lines: true },
           });
 
+          const detallePedidosItems = items.map((i) => i.detallePedido).join('; ');
+
           if (!ordenCompra) {
+            const obsInicial = `Generada automáticamente por pedidos sin stock: [${detallePedidosItems}]${command.notas?.trim() ? ` | Notas pedido: ${command.notas.trim()}` : ''}`;
             ordenCompra = await this.prisma.supplierOrder.create({
               data: {
                 supplierId: supId,
                 total: 0,
                 estado: 'BORRADOR',
-                observaciones: command.notas?.trim() || 'Orden automática generada por déficit de stock',
+                observaciones: obsInicial,
               },
               include: { lines: true },
             });
+          } else {
+            // Anexar la referencia de este pedido a las observaciones de la orden existente
+            const yaContienePedido = ordenCompra.observaciones?.includes(`#${refPedido}`);
+            if (!yaContienePedido) {
+              const nuevaObs = ordenCompra.observaciones
+                ? `${ordenCompra.observaciones}\n+ Anexo pedido sin stock: [${detallePedidosItems}]`
+                : `Generada automáticamente por pedidos sin stock: [${detallePedidosItems}]`;
+              await this.prisma.supplierOrder.update({
+                where: { id: ordenCompra.id },
+                data: { observaciones: nuevaObs },
+              });
+            }
           }
+
+          ordenesGeneradasIds.push(`OC-${ordenCompra.numero || ordenCompra.id.substring(0, 8)}`);
 
           // Anexar o acumular líneas en la orden
           for (const item of items) {
             const existingLine = ordenCompra.lines.find((l) => l.productId === item.productId);
             if (existingLine) {
               const nuevaCant = existingLine.cantidadPedida + item.cantidad;
+              const obsActual = existingLine.observacionLinea ? `${existingLine.observacionLinea} | ` : '';
               await this.prisma.supplierOrderLine.update({
                 where: { id: existingLine.id },
                 data: {
                   cantidadPedida: nuevaCant,
                   subtotal: nuevaCant * item.precioCosto,
+                  observacionLinea: `${obsActual}+${item.cantidad}p (Pedido #${refPedido})`,
                 },
               });
             } else {
@@ -403,6 +444,19 @@ export class CrearPedidoHandler {
           await this.prisma.supplierOrder.update({
             where: { id: ordenCompra.id },
             data: { total: totalRecalculado },
+          });
+        }
+
+        // 3. Vincular visualmente la orden de compra generada en las notas del pedido de venta
+        if (ordenesGeneradasIds.length > 0) {
+          const tagOC = `[Orden de Compra generada: ${ordenesGeneradasIds.join(', ')}]`;
+          const currentOrder = await this.prisma.order.findUnique({ where: { id: pedidoId } });
+          const notasActualizadas = currentOrder?.notas
+            ? `${currentOrder.notas} | ${tagOC}`
+            : tagOC;
+          await this.prisma.order.update({
+            where: { id: pedidoId },
+            data: { notas: notasActualizadas },
           });
         }
       } catch (e: any) {
