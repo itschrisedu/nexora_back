@@ -895,9 +895,13 @@ export class ConfiguracionService {
       }
 
       // 3. Crear configuración comercial inicial para la sucursal sin datos inventados
-      const cleanTelefono = data.telefono && data.telefono.trim()
-        ? data.telefono.replace(/\D/g, '').slice(0, 10)
-        : null;
+      let rawTelDigits = data.telefono && data.telefono.trim() ? data.telefono.replace(/\D/g, '') : '';
+      if (rawTelDigits.startsWith('593') && rawTelDigits.length === 12) {
+        rawTelDigits = '0' + rawTelDigits.slice(3);
+      } else if (rawTelDigits.startsWith('9') && rawTelDigits.length === 9) {
+        rawTelDigits = '0' + rawTelDigits;
+      }
+      const cleanTelefono = rawTelDigits ? rawTelDigits.slice(0, 15) : null;
 
       const cleanEmail = data.email && data.email.trim()
         ? data.email.trim().toLowerCase()
@@ -1019,9 +1023,13 @@ export class ConfiguracionService {
         if (data.name !== undefined) configData.nombre = data.name.trim();
         if (data.direccion !== undefined) configData.direccion = data.direccion?.trim() || 'Cevallos, Ecuador';
         if (data.telefono !== undefined) {
-          configData.telefono = data.telefono && data.telefono.trim()
-            ? data.telefono.replace(/\D/g, '').slice(0, 10)
-            : null;
+          let rawTelDigits = data.telefono && data.telefono.trim() ? data.telefono.replace(/\D/g, '') : '';
+          if (rawTelDigits.startsWith('593') && rawTelDigits.length === 12) {
+            rawTelDigits = '0' + rawTelDigits.slice(3);
+          } else if (rawTelDigits.startsWith('9') && rawTelDigits.length === 9) {
+            rawTelDigits = '0' + rawTelDigits;
+          }
+          configData.telefono = rawTelDigits ? rawTelDigits.slice(0, 15) : null;
         }
         if (data.email !== undefined) {
           configData.email = data.email && data.email.trim()
