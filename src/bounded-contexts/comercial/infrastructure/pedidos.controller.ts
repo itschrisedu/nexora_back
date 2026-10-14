@@ -12,6 +12,7 @@ import {
   UseGuards,
   NotFoundException,
   BadRequestException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../../../auth/jwt-auth.guard';
 import { RolesGuard } from '../../../shared/guards/roles.guard';
@@ -286,6 +287,12 @@ export class PedidosController {
       throw new NotFoundException(`El pedido con ID "${id}" no existe`);
     }
 
+    const userRole = req.user?.rol || req.user?.role;
+    const userTenant = req.user?.tenantId;
+    if (dto.estado === EstadoPedido.ENTREGADO && userRole !== Rol.ROL_SUPER_ADMIN && userTenant && pedido.tenantId && pedido.tenantId !== userTenant) {
+      throw new ForbiddenException('Solo la sucursal que posee el pedido puede registrar la entrega física de la mercadería');
+    }
+
     // Ejecutar lógica según el estado de destino
     switch (dto.estado) {
       case EstadoPedido.EN_PREPARACION:
@@ -409,6 +416,14 @@ export class PedidosController {
   @Post(':id/confirmar-entrega')
   @Roles(Rol.ROL_ADMIN, Rol.ROL_VENDEDOR, Rol.ROL_BODEGUERO)
   async confirmarEntrega(@Param('id') id: string, @Req() req: any) {
+    const pedido = await this.prisma.order.findUnique({ where: { id } });
+    if (!pedido) throw new NotFoundException(`El pedido con ID "${id}" no existe`);
+    const userRole = req.user?.rol || req.user?.role;
+    const userTenant = req.user?.tenantId;
+    if (userRole !== Rol.ROL_SUPER_ADMIN && userTenant && pedido.tenantId && pedido.tenantId !== userTenant) {
+      throw new ForbiddenException('Solo la sucursal que posee el pedido puede registrar la entrega física de la mercadería');
+    }
+
     await this.confirmarEntregaHandler.execute({
       pedidoId: id,
       userId: req.user.sub,
@@ -435,6 +450,12 @@ export class PedidosController {
 
     if (!pedido) {
       throw new NotFoundException(`El pedido con ID "${id}" no existe`);
+    }
+
+    const userRole = req.user?.rol || req.user?.role;
+    const userTenant = req.user?.tenantId;
+    if (userRole !== Rol.ROL_SUPER_ADMIN && userTenant && pedido.tenantId && pedido.tenantId !== userTenant) {
+      throw new ForbiddenException('Solo la sucursal que posee el pedido puede registrar la entrega física de la mercadería');
     }
 
     if (pedido.estado === EstadoPedido.CANCELADO || pedido.estado === EstadoPedido.ENTREGADO) {

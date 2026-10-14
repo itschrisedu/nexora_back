@@ -198,13 +198,15 @@ export class ComercialQueryService {
       });
     }
 
+    const userTenantMap = new Map<string, string>();
     if (userIds.length > 0) {
       const users = await this.prisma.user.findMany({
         where: { id: { in: userIds as string[] } },
-        select: { id: true, nombre: true, email: true },
+        select: { id: true, nombre: true, email: true, tenantId: true },
       });
       users.forEach((u) => {
         userMap.set(u.id, u.nombre || u.email || 'Vendedor');
+        if (u.tenantId) userTenantMap.set(u.id, u.tenantId);
       });
     }
 
@@ -246,6 +248,24 @@ export class ComercialQueryService {
       series.forEach((s) => serieMap.set(s.id, s.nombre));
     }
 
+    // Resolver sucursales (tenants) tanto de destino (tenantId de la orden) como de origen (tenantId del usuario creador)
+    const allTenantIds = Array.from(
+      new Set(
+        [
+          ...orders.map((o) => o.tenantId),
+          ...Array.from(userTenantMap.values()),
+        ].filter(Boolean) as string[],
+      ),
+    );
+    const tenantNameMap = new Map<string, string>();
+    if (allTenantIds.length > 0) {
+      const tenants = await this.prisma.tenant.findMany({
+        where: { id: { in: allTenantIds } },
+        select: { id: true, name: true },
+      });
+      tenants.forEach((t) => tenantNameMap.set(t.id, t.name));
+    }
+
     // Calcular numeración correlativa cronológica (PED-0001, PED-0002, ...)
     const sortedChronologically = [...orders].sort(
       (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
@@ -257,13 +277,19 @@ export class ComercialQueryService {
 
     return orders.map((o) => {
       const formatted = this.formatPedido(o, productMap, tallaMap, serieMap, orderNumberMap.get(o.id));
+      const creadoPorSucursalId = userTenantMap.get(o.userId) || o.tenantId;
+      const creadoPorSucursalNombre = tenantNameMap.get(creadoPorSucursalId) || o.tenant?.name || '';
+      const sucursalNombre = o.tenant?.name || tenantNameMap.get(o.tenantId) || 'Sucursal';
+
       return {
         ...formatted,
         tenantId: o.tenantId,
         sucursalId: o.tenantId,
+        creadoPorSucursalId,
+        creadoPorSucursalNombre,
         clienteNombre: clientMap.get(o.clientId) || 'Consumidor Final',
         vendedorNombre: userMap.get(o.userId) || 'Vendedor',
-        sucursalNombre: o.tenant?.name || '',
+        sucursalNombre,
       };
     });
   }
