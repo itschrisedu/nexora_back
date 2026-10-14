@@ -358,6 +358,42 @@ export class AuthService implements OnApplicationBootstrap {
       }
     }
 
+    // ── Verificar Horario Operativo de Atención para Vendedores y Bodegueros (Fase 3) ──
+    const esAdmin = user.rol === Rol.ROL_ADMIN || user.rol === Rol.ROL_SUPER_ADMIN;
+    if (!esAdmin && user.tenantId) {
+      const config = await this.prisma.businessConfig.findUnique({
+        where: { tenantId: user.tenantId },
+      });
+      const horaInicio = config?.horaInicioOperativa || '08:00';
+      const horaFin = config?.horaFinOperativa || '19:00';
+
+      const [hIni, mIni] = horaInicio.split(':').map(Number);
+      const [hFin, mFin] = horaFin.split(':').map(Number);
+
+      const ahora = new Date();
+      // Calcular hora local estándar de Ecuador (UTC-5)
+      const utc = ahora.getTime() + ahora.getTimezoneOffset() * 60000;
+      const ecuadorDate = new Date(utc - 5 * 3600000);
+      const minutosAhora = ecuadorDate.getHours() * 60 + ecuadorDate.getMinutes();
+
+      const minutosInicio = (hIni || 8) * 60 + (mIni || 0);
+      const minutosFin = (hFin || 19) * 60 + (mFin || 0);
+
+      let estaEnHorario = false;
+      if (minutosInicio <= minutosFin) {
+        estaEnHorario = minutosAhora >= minutosInicio && minutosAhora <= minutosFin;
+      } else {
+        estaEnHorario = minutosAhora >= minutosInicio || minutosAhora <= minutosFin;
+      }
+
+      if (!estaEnHorario) {
+        this.logger.warn(`Intento de acceso fuera de horario: ${email} (${user.rol}) a las ${ecuadorDate.toLocaleTimeString()}`);
+        throw new ForbiddenException(
+          `Sistema Fuera de Horario Operativo: El acceso para su perfil está habilitado únicamente durante la jornada laboral establecida para esta sucursal [${horaInicio} a ${horaFin}]. Si requiere acceso extraordinario, solicite autorización a la administración.`,
+        );
+      }
+    }
+
     // ── Verificar si ya existe una sesión activa concurrente ONLINE ──
     // Un usuario solo tiene conflicto si su sesión anterior ha enviado un latido en los últimos 5 minutos (300_000 ms)
     const isOnlineNow = ActiveSessionStore.isSessionOnline(user.id, 300_000);
@@ -498,7 +534,23 @@ export class AuthService implements OnApplicationBootstrap {
       }
     }
 
-    this.logger.log(`Sesión iniciada exitosamente para: ${user.email} (${user.rol})`);
+    let horarioAtencion = { horaInicio: '08:00', horaFin: '19:00' };
+    if (user.tenantId) {
+      try {
+        const bConf = await this.prisma.businessConfig.findUnique({
+          where: { tenantId: user.tenantId },
+          select: { horaInicioOperativa: true, horaFinOperativa: true },
+        });
+        if (bConf) {
+          horarioAtencion = {
+            horaInicio: bConf.horaInicioOperativa || '08:00',
+            horaFin: bConf.horaFinOperativa || '19:00',
+          };
+        }
+      } catch (e) {
+        // Ignorar si falla lectura opcional
+      }
+    }
 
     return {
       accessToken,
@@ -516,6 +568,7 @@ export class AuthService implements OnApplicationBootstrap {
         termsAcceptedAt: user.termsAcceptedAt,
         termsVersion: user.termsVersion,
         gpsConsentAt: user.gpsConsentAt,
+        horarioAtencion,
       },
     };
   }

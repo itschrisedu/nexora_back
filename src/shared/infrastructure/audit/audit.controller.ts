@@ -6,6 +6,9 @@ import {
   Request,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../../../auth/jwt-auth.guard';
+import { RolesGuard } from '../../guards/roles.guard';
+import { Roles } from '../../guards/roles.decorator';
+import { Rol } from '@prisma/client';
 import { AuditService } from './audit.service';
 import type { AuditSegmento } from './audit.service';
 import { AccionAuditoria } from '@prisma/client';
@@ -13,7 +16,8 @@ import { PrismaService } from '../prisma/prisma.service';
 import { EncryptionService } from '../encryption/encryption.service';
 
 @Controller('auditoria')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, RolesGuard)
+@Roles(Rol.ROL_ADMIN, Rol.ROL_SUPER_ADMIN)
 export class AuditController {
   constructor(
     private readonly auditService: AuditService,
