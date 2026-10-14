@@ -525,7 +525,8 @@ export class ProveedoresQueryService {
 
     return orders.map((o) => ({
       ...o,
-      tenantId: o.supplier?.tenantId || '',
+      tenantId: o.supplier?.tenantId || tenantId || '',
+      sucursalId: o.supplier?.tenantId || tenantId || '',
       supplier: this.formatSupplier(o.supplier),
       sucursalNombre: o.supplier?.tenant?.name || '',
       total: Number(o.total),

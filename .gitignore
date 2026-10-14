@@ -50,3 +50,10 @@ Thumbs.db
 /uploads/
 *.p12
 *.pfx
+
+*.check_postgres_db.js
+*.ckeck_puma.js
+*.check_raw.js
+*.list_all_prods.js
+*.list_all.js
+*.test_local_pg.js

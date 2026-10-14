@@ -300,7 +300,7 @@ export class CrearPedidoHandler {
           detallePedido: string;
         }[]>();
 
-        // 2. Por cada producto con déficit, calcular: totalFaltante + 1 docena extra (12 pares) para stock
+        // 2. Por cada producto con déficit, calcular: totalFaltante + 1 docena extra (12 pares) para abastecer el pedido y stock
         for (const [prodId, info] of faltantesPorProducto.entries()) {
           const cantidadAComprar = info.totalFaltante + 12;
 
@@ -309,12 +309,7 @@ export class CrearPedidoHandler {
             include: { model: true },
           });
 
-          // Si el producto o modelo tiene la reorden automática desactivada, omitir
-          if (prodWithModel?.reordenAutomatica === false || prodWithModel?.model?.reordenAutomatica === false) {
-            continue;
-          }
-
-          // Obtener el proveedor vinculado: producto → modelo → primer proveedor activo del tenant / red
+          // Obtener el proveedor vinculado: producto → modelo → proveedor del tenant / organización
           let supplierId = prodWithModel?.supplierId || prodWithModel?.model?.supplierId;
           if (!supplierId) {
             let defaultSupplier = await this.prisma.supplier.findFirst({
@@ -330,11 +325,12 @@ export class CrearPedidoHandler {
             if (!defaultSupplier) {
               const defaultTenantId = effectiveTenantId || (await this.prisma.tenant.findFirst({ where: { active: true } }))?.id;
               if (defaultTenantId) {
+                const randomSuffix = Math.floor(1000 + Math.random() * 9000);
                 defaultSupplier = await this.prisma.supplier.create({
                   data: {
                     tenantId: defaultTenantId,
-                    razonSocial: 'Proveedor General de Fábrica / Taller',
-                    ruc: '1890000000001',
+                    razonSocial: 'Taller / Fábrica de Calzado Principal',
+                    ruc: `189000${randomSuffix}001`,
                     contacto: 'Taller de Producción',
                     activo: true,
                   },
@@ -461,6 +457,14 @@ export class CrearPedidoHandler {
         }
       } catch (e: any) {
         this.logger.error(`Error al generar orden automática a proveedor: ${e?.message || e}`, e?.stack);
+        try {
+          const currentOrder = await this.prisma.order.findUnique({ where: { id: pedidoId } });
+          const errorTag = `[Aviso: Falla al generar OC automática: ${e?.message || 'Error'}]`;
+          await this.prisma.order.update({
+            where: { id: pedidoId },
+            data: { notas: currentOrder?.notas ? `${currentOrder.notas} | ${errorTag}` : errorTag },
+          });
+        } catch {}
       }
     }
 
