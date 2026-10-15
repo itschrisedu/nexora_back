@@ -340,7 +340,8 @@ export class PedidosController {
           await this.cancelarPedidoHandler.execute(
             new CancelarPedidoCommand(id, dto.motivo || 'Cancelado por el usuario'),
           );
-        } catch (e) {
+        } catch (e: any) {
+          console.error(`[PedidosController] Error al ejecutar CancelarPedidoHandler para pedido ${id}:`, e?.message || e);
           await this.prisma.order.update({
             where: { id },
             data: { estado: EstadoPedido.CANCELADO },
@@ -941,6 +942,132 @@ export class PedidosController {
     return { success: true, message: 'Logística de envío y flete actualizada', order: updated };
   }
 
+  @Get(':id/verificar-stock-inter-sucursal/:sucursalOrigenId')
+  @Roles(Rol.ROL_ADMIN, Rol.ROL_VENDEDOR, Rol.ROL_BODEGUERO)
+  async verificarStockInterSucursal(
+    @Param('id') id: string,
+    @Param('sucursalOrigenId') sucursalOrigenId: string,
+  ) {
+    const order = await this.prisma.order.findUnique({
+      where: { id },
+      include: {
+        lines: true,
+        tenant: true,
+      },
+    });
+    if (!order) throw new NotFoundException(`Pedido con ID "${id}" no encontrado`);
+
+    const sucursalOrigen = await this.prisma.tenant.findUnique({
+      where: { id: sucursalOrigenId },
+    });
+    if (!sucursalOrigen) throw new NotFoundException('Sucursal de origen no encontrada');
+
+    let tieneStockCompleto = true;
+    let totalParesRequeridos = 0;
+    let totalParesDisponibles = 0;
+    const desgloseLineas: Array<{
+      lineId: string;
+      productId: string;
+      modelName: string;
+      color: string;
+      tallaId: string;
+      tallaNumero: number | string;
+      cantidadRequerida: number;
+      stockDisponible: number;
+      cumple: boolean;
+      faltante: number;
+    }> = [];
+
+    for (const line of order.lines) {
+      totalParesRequeridos += line.cantidad;
+
+      const prodOriginal = await this.prisma.product.findUnique({
+        where: { id: line.productId },
+        include: { model: true },
+      });
+
+      const tallaOriginal = await this.prisma.tallaConfig.findUnique({
+        where: { id: line.tallaId },
+      });
+
+      const numeroTalla = tallaOriginal?.numero || '?';
+      const modelName = prodOriginal?.model?.name || 'Calzado';
+      const color = prodOriginal?.color || '';
+
+      // Buscar producto equivalente en la sucursal de origen
+      const prodOrigen = await this.prisma.product.findFirst({
+        where: {
+          model: { tenantId: sucursalOrigenId },
+          OR: [
+            { code: prodOriginal?.code },
+            {
+              AND: [
+                { model: { name: { equals: prodOriginal?.model?.name, mode: 'insensitive' } } },
+                { color: { equals: prodOriginal?.color, mode: 'insensitive' } },
+              ],
+            },
+            { model: { name: { equals: prodOriginal?.model?.name, mode: 'insensitive' } } },
+          ],
+        },
+        include: {
+          stockByTalla: { include: { talla: true } },
+          model: true,
+        },
+      });
+
+      let stockDisponibleEnOrigen = 0;
+
+      if (prodOrigen) {
+        const stockTalla = prodOrigen.stockByTalla.find(
+          (s: any) =>
+            s.tallaId === line.tallaId ||
+            (tallaOriginal && s.talla?.numero === tallaOriginal.numero),
+        );
+
+        if (stockTalla) {
+          stockDisponibleEnOrigen = Math.max(
+            0,
+            (stockTalla.quantity || 0) - (stockTalla.reservedQuantity || 0),
+          );
+        }
+      }
+
+      const cumple = stockDisponibleEnOrigen >= line.cantidad;
+      if (!cumple) {
+        tieneStockCompleto = false;
+      }
+
+      const faltante = Math.max(0, line.cantidad - stockDisponibleEnOrigen);
+      totalParesDisponibles += Math.min(stockDisponibleEnOrigen, line.cantidad);
+
+      desgloseLineas.push({
+        lineId: line.id,
+        productId: line.productId,
+        modelName,
+        color,
+        tallaId: line.tallaId,
+        tallaNumero: numeroTalla,
+        cantidadRequerida: line.cantidad,
+        stockDisponible: stockDisponibleEnOrigen,
+        cumple,
+        faltante,
+      });
+    }
+
+    const totalFaltante = Math.max(0, totalParesRequeridos - totalParesDisponibles);
+
+    return {
+      pedidoId: id,
+      sucursalOrigenId,
+      sucursalOrigenNombre: sucursalOrigen.name,
+      tieneStockCompleto,
+      totalParesRequeridos,
+      totalParesDisponibles,
+      totalFaltante,
+      desgloseLineas,
+    };
+  }
+
   @Post(':id/solicitar-inter-sucursal')
   @Roles(Rol.ROL_ADMIN, Rol.ROL_VENDEDOR, Rol.ROL_BODEGUERO)
   async solicitarInterSucursal(
@@ -959,44 +1086,59 @@ export class PedidosController {
     });
     if (!sucursalOrigen) throw new NotFoundException('Sucursal de origen no encontrada');
 
-    // Transferir / prestar el stock requerido desde la sucursal prestamista
-    for (const line of order.lines) {
+    // 1. Verificación previa y estricta de stock disponible en la sucursal origen
+    const verificacion = await this.verificarStockInterSucursal(id, dto.sucursalOrigenId);
+    if (!verificacion.tieneStockCompleto) {
+      throw new BadRequestException(
+        `La sucursal "${sucursalOrigen.name}" no dispone del stock suficiente para este calzado (faltan ${verificacion.totalFaltante} pares). No es posible solicitar el préstamo.`,
+      );
+    }
+
+    // 2. Transferir / descontar el stock requerido desde la sucursal prestamista
+    for (const item of verificacion.desgloseLineas) {
       const prodOriginal = await this.prisma.product.findUnique({
-        where: { id: line.productId },
+        where: { id: item.productId },
         include: { model: true },
       });
 
-      // Buscar producto equivalente en la sucursal de origen (Product no tiene tenantId, filtrar por model.tenantId)
       const prodOrigen = await this.prisma.product.findFirst({
         where: {
           model: { tenantId: dto.sucursalOrigenId },
           OR: [
             { code: prodOriginal?.code },
-            { model: { name: prodOriginal?.model?.name } },
+            {
+              AND: [
+                { model: { name: { equals: prodOriginal?.model?.name, mode: 'insensitive' } } },
+                { color: { equals: prodOriginal?.color, mode: 'insensitive' } },
+              ],
+            },
+            { model: { name: { equals: prodOriginal?.model?.name, mode: 'insensitive' } } },
           ],
         },
-        include: { stockByTalla: true },
+        include: { stockByTalla: { include: { talla: true } } },
       });
 
       if (prodOrigen) {
-        // Encontrar la talla correspondiente
         const stockTallaOrigen = prodOrigen.stockByTalla.find(
-          (s: any) => s.tallaId === line.tallaId,
+          (s: any) =>
+            s.tallaId === item.tallaId ||
+            s.talla?.numero === item.tallaNumero,
         );
-        if (stockTallaOrigen && stockTallaOrigen.quantity > 0) {
-          const cantADescontar = Math.min(stockTallaOrigen.quantity, line.cantidad);
+
+        if (stockTallaOrigen && stockTallaOrigen.quantity >= item.cantidadRequerida) {
           await this.prisma.stockByTalla.update({
             where: { id: stockTallaOrigen.id },
-            data: { quantity: { decrement: cantADescontar } },
+            data: { quantity: { decrement: item.cantidadRequerida } },
           });
 
           await this.prisma.stockMovement.create({
             data: {
               productId: prodOrigen.id,
-              tallaId: line.tallaId,
+              tallaId: stockTallaOrigen.tallaId,
               type: MovimientoTipo.AJUSTE,
-              quantity: -cantADescontar,
+              quantity: -item.cantidadRequerida,
               reason: `Préstamo inter-sucursal a ${order.tenant?.name || 'otra sucursal'} para Pedido #${order.id.slice(0, 8)}`,
+              referenceId: order.id,
               userId: req.user.id || req.user.sub,
             },
           });
@@ -1008,7 +1150,7 @@ export class PedidosController {
     const modalidadTexto = dto.modalidad === 'DEVOLUCION_MERCADERIA'
       ? 'Reposición física de pares al recibir mercadería'
       : 'Compensación económica interna';
-    const detallePrestamo = `[Préstamo Inter-Sucursal]: Recibido de ${sucursalOrigen.name}. Modalidad: ${modalidadTexto}${dto.notas ? ` - Obs: ${dto.notas}` : ''}`;
+    const detallePrestamo = `[Préstamo Inter-Sucursal]: Recibido de ${sucursalOrigen.name} (OrigenId: ${sucursalOrigen.id}). Modalidad: ${modalidadTexto}${dto.notas ? ` - Obs: ${dto.notas}` : ''}`;
     const notasActualizadas = order.notas ? `${order.notas} | ${detallePrestamo}` : detallePrestamo;
 
     const updated = await this.prisma.order.update({

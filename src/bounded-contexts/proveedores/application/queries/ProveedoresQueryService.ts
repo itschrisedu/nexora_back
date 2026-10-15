@@ -452,6 +452,13 @@ export class ProveedoresQueryService {
   }
 
   async listarOrdenesCompra(supplierId?: string, tenantId?: string | null) {
+    // Sincronizar órdenes BORRADOR con pedidos cancelados para limpiar pruebas anteriores huérfanas
+    try {
+      await this.sincronizarOrdenesBorradorConPedidosCancelados();
+    } catch (e) {
+      // Ignorar para no bloquear la consulta en caso de error transitorio
+    }
+
     const where: any = {};
     if (supplierId) {
       where.supplierId = supplierId;
@@ -798,5 +805,128 @@ export class ProveedoresQueryService {
       createdAt: raw.createdAt,
       updatedAt: raw.updatedAt,
     };
+  }
+
+  private async sincronizarOrdenesBorradorConPedidosCancelados() {
+    const ordenesBorrador = await this.prisma.supplierOrder.findMany({
+      where: { estado: 'BORRADOR' },
+      include: { lines: true },
+    });
+
+    if (ordenesBorrador.length === 0) return;
+
+    const pedidosCancelados = await this.prisma.order.findMany({
+      where: { estado: 'CANCELADO' },
+      select: { id: true },
+    });
+
+    if (pedidosCancelados.length === 0) return;
+
+    const setIdsCancelados = new Set(pedidosCancelados.map((p) => p.id.toLowerCase()));
+    const setRefsCancelados = new Set(pedidosCancelados.map((p) => p.id.substring(0, 8).toLowerCase()));
+
+    for (const oc of ordenesBorrador) {
+      let huboCambio = false;
+
+      for (const line of oc.lines) {
+        if (!line.observacionLinea) continue;
+        const obs = line.observacionLinea;
+        const obsLower = obs.toLowerCase();
+
+        let refDetectada: string | null = null;
+        for (const r of setRefsCancelados) {
+          if (obsLower.includes(r)) {
+            refDetectada = r;
+            break;
+          }
+        }
+        if (!refDetectada) {
+          for (const fullId of setIdsCancelados) {
+            if (obsLower.includes(fullId)) {
+              refDetectada = fullId.substring(0, 8);
+              break;
+            }
+          }
+        }
+
+        if (!refDetectada) continue;
+
+        huboCambio = true;
+
+        let paresARestar = 0;
+        const regexAcumulado = new RegExp(`\\+(\\d+)p\\s*\\(Pedido\\s*#?${refDetectada}\\)`, 'i');
+        const matchAcumulado = obs.match(regexAcumulado);
+
+        const regexOriginal = new RegExp(`Pedido\\s*#?${refDetectada}[^)]*\\((\\d+)\\s*pares?\\)\\s*\\+\\s*12\\s*extra`, 'i');
+        const matchOriginal = obs.match(regexOriginal);
+
+        const regexDirecto = /\((\d+)\s*pares?\)\s*\+\s*12\s*extra/i;
+        const matchDirecto = obs.match(regexDirecto);
+
+        if (matchAcumulado) {
+          paresARestar = parseInt(matchAcumulado[1], 10);
+        } else if (matchOriginal) {
+          paresARestar = parseInt(matchOriginal[1], 10) + 12;
+        } else if (matchDirecto && !obs.includes(' | +')) {
+          paresARestar = line.cantidadPedida;
+        } else if (!obs.includes(' | +')) {
+          paresARestar = line.cantidadPedida;
+        } else {
+          paresARestar = line.cantidadPedida;
+        }
+
+        const nuevaCantidad = line.cantidadPedida - paresARestar;
+
+        if (nuevaCantidad <= 0) {
+          await this.prisma.supplierOrderLine.delete({ where: { id: line.id } });
+        } else {
+          const precioCosto = Number(line.precioCosto);
+          let obsLimpia = obs;
+          if (matchAcumulado) {
+            obsLimpia = obsLimpia.replace(regexAcumulado, '').trim();
+          } else if (matchOriginal) {
+            obsLimpia = obsLimpia.replace(regexOriginal, '').trim();
+          }
+          obsLimpia = obsLimpia.replace(/\|\s*$/, '').trim();
+          obsLimpia = obsLimpia.replace(/^\s*\|/, '').trim();
+          obsLimpia = obsLimpia || `Ajustada por anulación de Pedido #${refDetectada.toUpperCase()}`;
+
+          await this.prisma.supplierOrderLine.update({
+            where: { id: line.id },
+            data: {
+              cantidadPedida: nuevaCantidad,
+              subtotal: nuevaCantidad * precioCosto,
+              observacionLinea: `${obsLimpia} | [-${paresARestar}p por anulación Pedido #${refDetectada.toUpperCase()}]`,
+            },
+          });
+        }
+      }
+
+      if (huboCambio) {
+        const lineasRestantes = await this.prisma.supplierOrderLine.findMany({
+          where: { supplierOrderId: oc.id },
+        });
+
+        if (lineasRestantes.length === 0) {
+          await this.prisma.supplierOrder.update({
+            where: { id: oc.id },
+            data: {
+              estado: 'CANCELADA',
+              total: 0,
+              observaciones: `${oc.observaciones || ''} | [Cancelada automáticamente al anularse pedidos de clientes asociados]`,
+            },
+          });
+        } else {
+          const nuevoTotal = lineasRestantes.reduce((acc: number, l: any) => acc + Number(l.subtotal || 0), 0);
+          await this.prisma.supplierOrder.update({
+            where: { id: oc.id },
+            data: {
+              total: nuevoTotal,
+              observaciones: `${oc.observaciones || ''} | [Ajustada automáticamente al anularse pedidos de clientes asociados]`,
+            },
+          });
+        }
+      }
+    }
   }
 }
