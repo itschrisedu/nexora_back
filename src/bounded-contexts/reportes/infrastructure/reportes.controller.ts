@@ -56,23 +56,7 @@ export class ReportesController {
       canal,
     };
 
-    // Regla de Sucursales / Tenants:
-    // - Super Admin: intacto (mantiene su lógica original)
-    // - Vendedor o Admin de Sucursal (local): restringido únicamente a su propia sucursal
-    // - Admin General: puede ver 'TODAS' las sucursales de su negocio o una seleccionada
-    let tenantIds: string[];
-    if (isSuperAdmin) {
-      tenantIds = sucursalId
-        ? await this.resolverTenantIds(req.user.tenantId, sucursalId)
-        : [req.user.tenantId];
-    } else if (isVendedor || (!esAdminGeneral && userRole === Rol.ROL_ADMIN)) {
-      tenantIds = [req.user.originalTenantId || req.user.tenantId];
-    } else {
-      tenantIds = sucursalId
-        ? await this.resolverTenantIds(req.user.tenantId, sucursalId)
-        : [req.user.tenantId];
-    }
-
+    const tenantIds = await this.determinarTenantIds(req, sucursalId);
     return this.reportesService.obtenerReporteEjecutivo(tenantIds, filtros);
   }
 
@@ -125,9 +109,7 @@ export class ReportesController {
     @Query('sucursalId') sucursalId?: string,
   ) {
     const filtros: FiltrosReporteDto = { periodo, fechaDesde, fechaHasta };
-    const tenantIds = sucursalId
-      ? await this.resolverTenantIds(req.user.tenantId, sucursalId)
-      : [req.user.tenantId];
+    const tenantIds = await this.determinarTenantIds(req, sucursalId);
     return this.reportesService.obtenerReporteCobranzas(tenantIds, filtros);
   }
 
@@ -141,9 +123,7 @@ export class ReportesController {
     @Req() req: any,
     @Query('sucursalId') sucursalId?: string,
   ) {
-    const tenantIds = sucursalId
-      ? await this.resolverTenantIds(req.user.tenantId, sucursalId)
-      : [req.user.tenantId];
+    const tenantIds = await this.determinarTenantIds(req, sucursalId);
     return this.reportesService.obtenerReporteCampanas(tenantIds);
   }
 
@@ -166,24 +146,10 @@ export class ReportesController {
   ) {
     const userRole = req.user?.rol || req.user?.role;
     const isVendedor = userRole === Rol.ROL_VENDEDOR;
-    const esAdminGeneral = Boolean(req.user?.esAdminGeneral);
-    const isSuperAdmin = userRole === Rol.ROL_SUPER_ADMIN;
 
     const effectiveVendedorId = isVendedor ? (req.user.sub || req.user.id) : vendedorId;
     const filtros = { periodo, fechaDesde, fechaHasta, vendedorId: effectiveVendedorId, metodoPago, modelo, busqueda };
-
-    let tenantIds: string[];
-    if (isSuperAdmin) {
-      tenantIds = sucursalId
-        ? await this.resolverTenantIds(req.user.tenantId, sucursalId)
-        : [req.user.tenantId];
-    } else if (isVendedor || (!esAdminGeneral && userRole === Rol.ROL_ADMIN)) {
-      tenantIds = [req.user.originalTenantId || req.user.tenantId];
-    } else {
-      tenantIds = sucursalId
-        ? await this.resolverTenantIds(req.user.tenantId, sucursalId)
-        : [req.user.tenantId];
-    }
+    const tenantIds = await this.determinarTenantIds(req, sucursalId);
     return this.reportesService.obtenerReportePos(tenantIds, filtros);
   }
 
@@ -200,10 +166,52 @@ export class ReportesController {
     @Query('fechaHasta') fechaHasta?: string,
     @Query('sucursalId') sucursalId?: string,
   ) {
+    const userRole = req.user?.rol || req.user?.role;
+    const esAdminGeneral = Boolean(req.user?.esAdminGeneral);
+    const isSuperAdmin = userRole === Rol.ROL_SUPER_ADMIN;
+
     const filtros = { periodo, fechaDesde, fechaHasta };
-    const allTenantIds = await this.resolverTenantIds(req.user.tenantId, 'TODAS');
-    const targetSucursalId = sucursalId && sucursalId !== 'TODAS' ? sucursalId : undefined;
+    let allTenantIds: string[];
+    let targetSucursalId: string | undefined;
+
+    if (isSuperAdmin || esAdminGeneral) {
+      allTenantIds = await this.resolverTenantIds(req.user.tenantId, 'TODAS');
+      targetSucursalId = sucursalId && sucursalId !== 'TODAS' ? sucursalId : undefined;
+    } else {
+      // Administrador de Sucursal o Vendedor: estrictamente limitado a su propio local
+      const localTenant = req.user.originalTenantId || req.user.tenantId;
+      allTenantIds = [localTenant];
+      targetSucursalId = localTenant;
+    }
+
     return this.reportesService.obtenerReporteRendimientoSucursales(allTenantIds, targetSucursalId, filtros);
+  }
+
+  /**
+   * Determina los tenantIds permitidos según el rol del usuario autenticado:
+   * - Super Administrador: intacto (mantiene su lógica original).
+   * - Vendedor o Admin de Sucursal: forzado a su propio local (tenantId).
+   * - Admin General: puede alternar entre "TODAS" (todas las sedes) o una sede en particular.
+   */
+  private async determinarTenantIds(req: any, sucursalId?: string): Promise<string[]> {
+    const userRole = req.user?.rol || req.user?.role;
+    const isVendedor = userRole === Rol.ROL_VENDEDOR;
+    const esAdminGeneral = Boolean(req.user?.esAdminGeneral);
+    const isSuperAdmin = userRole === Rol.ROL_SUPER_ADMIN;
+
+    if (isSuperAdmin) {
+      return sucursalId
+        ? await this.resolverTenantIds(req.user.tenantId, sucursalId)
+        : [req.user.tenantId];
+    }
+
+    if (isVendedor || (!esAdminGeneral && userRole === Rol.ROL_ADMIN)) {
+      return [req.user.originalTenantId || req.user.tenantId];
+    }
+
+    return sucursalId
+      ? await this.resolverTenantIds(req.user.tenantId, sucursalId)
+      : [req.user.tenantId];
   }
 
   /**
