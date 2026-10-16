@@ -836,31 +836,63 @@ export class PedidosController {
   async obtenerUltimoPrecioCliente(
     @Req() req: any,
     @Query('clientId') clientId: string,
-    @Query('productId') productId: string,
+    @Query('productId') productId?: string,
+    @Query('modelId') modelId?: string,
   ) {
-    if (!clientId || !productId) {
+    if (!clientId || (!productId && !modelId)) {
       return { precioAnterior: null };
     }
 
+    let effectiveModelId = modelId;
+    if (!effectiveModelId && productId) {
+      const prod = await this.prisma.product.findUnique({
+        where: { id: productId },
+        select: { modelId: true },
+      });
+      effectiveModelId = prod?.modelId;
+    }
+
+    let matchingProductIds: string[] = [];
+    if (effectiveModelId) {
+      const prods = await this.prisma.product.findMany({
+        where: { modelId: effectiveModelId },
+        select: { id: true },
+      });
+      matchingProductIds = prods.map((p) => p.id);
+    } else if (productId) {
+      matchingProductIds = [productId];
+    }
+
+    if (matchingProductIds.length === 0) {
+      return { precioAnterior: null };
+    }
+
+    // Buscar en toda la red comercial (todas las sucursales) la última venta de este modelo al cliente
     const ultimaLinea = await this.prisma.orderLine.findFirst({
       where: {
-        productId,
+        productId: { in: matchingProductIds },
         order: {
           clientId,
-          tenantId: req.user.tenantId,
           estado: { not: 'CANCELADO' },
         },
       },
       orderBy: { order: { createdAt: 'desc' } },
       select: {
         precioUnitario: true,
-        order: { select: { createdAt: true } },
+        order: {
+          select: {
+            createdAt: true,
+            tenant: { select: { id: true, name: true } },
+          },
+        },
       },
     });
 
     return {
       precioAnterior: ultimaLinea ? Number(ultimaLinea.precioUnitario) : null,
       fechaUltimaVenta: ultimaLinea?.order?.createdAt || null,
+      sucursalNombre: ultimaLinea?.order?.tenant?.name || null,
+      sucursalId: ultimaLinea?.order?.tenant?.id || null,
     };
   }
 
