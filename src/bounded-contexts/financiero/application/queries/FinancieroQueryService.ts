@@ -259,6 +259,17 @@ export class FinancieroQueryService {
     const orderMap = new Map(orders.map((o) => [o.id, o]));
     const orderUserMap = new Map(orders.map((o) => [o.id, o.userId]));
 
+    // Generar códigos de pedido PED-XXXX consistentes con ComercialQueryService
+    const allTenantOrders = await this.prisma.order.findMany({
+      where: where.tenantId ? { tenantId: where.tenantId } : {},
+      select: { id: true, createdAt: true },
+      orderBy: { createdAt: 'asc' },
+    });
+    const orderCodigoMap = new Map<string, string>();
+    allTenantOrders.forEach((o, idx) => {
+      orderCodigoMap.set(o.id, `PED-${String(idx + 1).padStart(4, '0')}`);
+    });
+
     // Obtener información de productos y tallas para las líneas de pedidos y notas de venta
     const allSaleNoteLines = cobros.flatMap((c) => (c.saleNote?.lines as any[]) || []);
     const allOrderLines = orders.flatMap((o) => o.lines || []);
@@ -371,8 +382,23 @@ export class FinancieroQueryService {
         };
       });
 
+      const orderId = cobro.saleNote?.orderId || order?.id || null;
+      const orderCodigo = orderId
+        ? orderCodigoMap.get(orderId) || `PED-${orderId.slice(0, 4).toUpperCase()}`
+        : null;
+
       return {
         ...cobro,
+        orderId,
+        orderCodigo,
+        orderNumero: orderCodigo,
+        saleNote: cobro.saleNote
+          ? {
+              ...cobro.saleNote,
+              orderId,
+              orderCodigo,
+            }
+          : undefined,
         abonos: abonosEnriquecidos,
         clienteNombre: client ? `${client.nombre} ${client.apellido}`.trim() : 'Cliente sin registrar',
         clienteCedula: client?.cedula || client?.ruc || '—',
