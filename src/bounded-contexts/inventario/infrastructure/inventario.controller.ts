@@ -234,17 +234,16 @@ export class InventarioController {
       const stockPorTallaList: StockPorTalla[] = [];
       const customTallaIds = dto.customTallas?.[serieConfig.id];
 
-      if (customTallaIds && customTallaIds.length > 0) {
+      if (customTallaIds !== undefined && customTallaIds !== null) {
         const tallaCountMap = new Map<string, number>();
         for (const tid of customTallaIds) {
           tallaCountMap.set(tid, (tallaCountMap.get(tid) || 0) + 1);
         }
-        for (const [tallaId, count] of tallaCountMap.entries()) {
-          const tallaConfig = serieConfig.tallas.find(t => t.id === tallaId);
-          if (!tallaConfig) continue;
+        for (const tallaConfig of serieConfig.tallas) {
+          const count = tallaCountMap.get(tallaConfig.id) || 0;
           Talla.create(tallaConfig.numero, serieVO);
           stockPorTallaList.push(
-            StockPorTalla.create(tallaId, stockInicial * count, 0, 0)
+            StockPorTalla.create(tallaConfig.id, stockInicial * count, 0, 0)
           );
         }
       } else {
