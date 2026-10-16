@@ -24,12 +24,12 @@ export class MlBridgeService {
     // 1. Extraer ventas históricas del tenant
     const ventas = await this.extraerVentasHistoricas(tenantId);
 
-    // Obtener stock actual de todos los productos del tenant para calcular déficit
-    const stockActualMap = await this.obtenerStockActualMap(tenantId);
+    // Obtener stock actual de todos los productos del tenant para calcular déficit y mapear modelos/fotos
+    const { stockActualMap, modelsMap, productModels } = await this.obtenerStockActualYModelosMap(tenantId);
 
     if (ventas.length < 10) {
       // Heurística de predicción estacional para negocios con historial inicial
-      return this.generarPrediccionHeuristica(tenantId, ventas, horizonteDias, temporada, stockActualMap);
+      return this.generarPrediccionHeuristica(tenantId, ventas, horizonteDias, temporada, stockActualMap, modelsMap, productModels);
     }
 
     // 2. Llamar al microservicio ML
@@ -54,13 +54,26 @@ export class MlBridgeService {
 
       const prediccion = await response.json();
 
-      // Enriquecer cada predicción con stock actual y cálculo de déficit
+      // Enriquecer cada predicción con stock actual, cálculo de déficit, fotos y variantes
       if (Array.isArray(prediccion.predicciones)) {
         prediccion.predicciones = prediccion.predicciones.map((p: any) => {
-          const key = `${p.modelo.toLowerCase().trim()}_${p.talla}`;
-          const stockInfo = stockActualMap.get(key) || { stock: 0, precioCosto: 22, precioVenta: 35, productId: null };
+          const modelKey = (p.modelo || '').toLowerCase().trim();
+          const key = `${modelKey}_${p.talla}`;
+          const stockInfo = stockActualMap.get(key) || {
+            stock: 0,
+            precioCosto: 22,
+            precioVenta: 35,
+            productId: null,
+            imageUrl: null,
+            color: null,
+            modelId: null,
+            variantes: [],
+          };
+          const modelInfo = modelsMap.get(modelKey);
           const stockActual = stockInfo.stock;
           const deficit = Math.max(0, p.demanda_estimada - stockActual);
+          const imageUrl = stockInfo.imageUrl || modelInfo?.primaryImageUrl || null;
+          const variantes = modelInfo?.variantes || [];
           return {
             ...p,
             stock_actual: stockActual,
@@ -68,6 +81,11 @@ export class MlBridgeService {
             precio_costo: stockInfo.precioCosto,
             precio_venta: stockInfo.precioVenta,
             productId: stockInfo.productId,
+            imageUrl,
+            fotoUrl: imageUrl,
+            color: stockInfo.color || (variantes.length === 1 ? variantes[0].color : null),
+            modelId: stockInfo.modelId || modelInfo?.modelId,
+            variantes,
             inversion_reorden_estimada: deficit * stockInfo.precioCosto,
           };
         });
@@ -79,50 +97,117 @@ export class MlBridgeService {
       return prediccion;
     } catch (error: any) {
       this.logger.warn(`Fallback a heurística estacional por error ML: ${error.message}`);
-      return this.generarPrediccionHeuristica(tenantId, ventas, horizonteDias, temporada, stockActualMap);
+      return this.generarPrediccionHeuristica(tenantId, ventas, horizonteDias, temporada, stockActualMap, modelsMap, productModels);
     }
   }
 
   /**
-   * Mapea el stock actual por modelo y talla.
+   * Mapea el stock actual por modelo y talla, y agrupa variantes y fotos por modelo.
    */
-  private async obtenerStockActualMap(tenantId: string) {
-    const products = await this.prisma.product.findMany({
-      where: {
-        model: { tenantId },
-      },
+  private async obtenerStockActualYModelosMap(tenantId: string) {
+    const productModels = await this.prisma.productModel.findMany({
+      where: { tenantId },
       include: {
-        model: true,
-        stockByTalla: {
+        products: {
           include: {
-            talla: true,
+            serie: true,
+            stockByTalla: {
+              include: {
+                talla: true,
+              },
+            },
           },
         },
       },
     });
 
-    const map = new Map<string, { stock: number; precioCosto: number; precioVenta: number; productId: string }>();
+    const stockActualMap = new Map<
+      string,
+      {
+        stock: number;
+        precioCosto: number;
+        precioVenta: number;
+        productId: string;
+        modelId: string;
+        imageUrl: string | null;
+        color: string;
+        variantes: any[];
+      }
+    >();
 
-    for (const prod of products) {
-      const modelName = prod.model?.name?.toLowerCase().trim() || '';
-      for (const item of prod.stockByTalla) {
-        const tallaNum = item.talla.numero;
-        const key = `${modelName}_${tallaNum}`;
-        const existing = map.get(key);
-        const qty = item.quantity;
-        if (existing) {
-          existing.stock += qty;
-        } else {
-          map.set(key, {
-            stock: qty,
-            precioCosto: Number(prod.costPrice) || 22,
-            precioVenta: Number(prod.salePrice) || 35,
-            productId: prod.id,
-          });
+    const modelsMap = new Map<
+      string,
+      {
+        modelId: string;
+        nombre: string;
+        marca: string;
+        primaryImageUrl: string | null;
+        variantes: any[];
+      }
+    >();
+
+    for (const pm of productModels) {
+      const modelNameClean = (pm.name || '').toLowerCase().trim();
+
+      const variantes = pm.products.map((p) => {
+        const foto = p.imageUrl || null;
+        const totalStock = (p.stockByTalla || []).reduce((acc, s) => acc + (s.quantity || 0), 0);
+        return {
+          id: p.id,
+          codigo: p.code,
+          color: p.color,
+          imageUrl: foto,
+          fotoUrl: foto,
+          precioCosto: Number(p.costPrice) || 22,
+          precioVenta: Number(p.salePrice) || 35,
+          serie: p.serie?.nombre || '',
+          stockTotal: totalStock,
+          tallas: (p.stockByTalla || []).map((s) => ({
+            numero: s.talla.numero,
+            stock: s.quantity,
+          })),
+        };
+      });
+
+      const primaryImageUrl = variantes.find((v) => v.imageUrl)?.imageUrl || null;
+
+      modelsMap.set(modelNameClean, {
+        modelId: pm.id,
+        nombre: pm.name,
+        marca: pm.brand,
+        primaryImageUrl,
+        variantes,
+      });
+
+      for (const prod of pm.products) {
+        const prodFoto = prod.imageUrl || primaryImageUrl;
+        for (const item of prod.stockByTalla) {
+          const tallaNum = item.talla.numero;
+          const key = `${modelNameClean}_${tallaNum}`;
+          const existing = stockActualMap.get(key);
+          const qty = item.quantity;
+          if (existing) {
+            existing.stock += qty;
+            if (!existing.imageUrl && prodFoto) {
+              existing.imageUrl = prodFoto;
+            }
+          } else {
+            stockActualMap.set(key, {
+              stock: qty,
+              precioCosto: Number(prod.costPrice) || 22,
+              precioVenta: Number(prod.salePrice) || 35,
+              productId: prod.id,
+              modelId: pm.id,
+              imageUrl: prodFoto,
+              color: prod.color,
+              variantes,
+            });
+          }
         }
       }
     }
-    return map;
+
+    return { stockActualMap, modelsMap, productModels };
   }
 
   /**
@@ -134,25 +219,29 @@ export class MlBridgeService {
     horizonteDias: number,
     temporada: string,
     stockMap: Map<string, any>,
+    modelsMap?: Map<string, any>,
+    cachedProducts?: any[],
   ) {
-    const products = await this.prisma.product.findMany({
-      where: {
-        model: { tenantId },
-      },
-      include: {
-        model: true,
-        serie: {
-          include: {
-            tallas: true,
+    const products = cachedProducts && cachedProducts.length > 0
+      ? cachedProducts.flatMap((pm: any) => pm.products || [])
+      : await this.prisma.product.findMany({
+          where: {
+            model: { tenantId },
           },
-        },
-        stockByTalla: {
           include: {
-            talla: true,
+            model: true,
+            serie: {
+              include: {
+                tallas: true,
+              },
+            },
+            stockByTalla: {
+              include: {
+                talla: true,
+              },
+            },
           },
-        },
-      },
-    });
+        });
 
     const TEMPORADAS_INFO: Record<string, { nombre: string; desc: string; multDef: number; keywords: string[]; multMatch: number }> = {
       REGULAR: {
@@ -214,6 +303,11 @@ export class MlBridgeService {
       const isMatch = tempCfg.keywords.some((k) => fullText.includes(k));
       const factorEstacional = isMatch ? tempCfg.multMatch : tempCfg.multDef;
 
+      const modelKey = modelName.toLowerCase().trim();
+      const modelInfo = modelsMap?.get(modelKey);
+      const imgUrl = prod.imageUrl || modelInfo?.primaryImageUrl || null;
+      const variantesList = modelInfo?.variantes || [];
+
       // Desglose por tallas
       const tallas = prod.stockByTalla?.length
         ? prod.stockByTalla.map((st: any) => ({ numero: st.talla.numero, stock: st.quantity }))
@@ -249,6 +343,11 @@ export class MlBridgeService {
           precio_costo: precioCosto,
           precio_venta: precioVenta,
           productId: prod.id,
+          modelId: prod.modelId,
+          imageUrl: imgUrl,
+          fotoUrl: imgUrl,
+          color: prod.color,
+          variantes: variantesList,
           inversion_reorden_estimada: deficit * precioCosto,
           confianza: totalVendidas >= 5 ? 0.92 : 0.85,
           tendencia: factorEstacional >= 1.3 ? 'ALZA' : 'ESTABLE',
