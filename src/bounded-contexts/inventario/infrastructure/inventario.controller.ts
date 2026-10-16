@@ -298,7 +298,26 @@ export class InventarioController {
       dto.motivo,
     );
     await this.cambiarPrecioHandler.execute(command);
-    return { message: 'Precio actualizado exitosamente' };
+
+    // Sincronizar automáticamente en todas las variantes del mismo modelo, misma serie y mismo proveedor
+    const prod = await this.prisma.product.findUnique({ where: { id } });
+    if (prod && prod.modelId) {
+      await this.prisma.$transaction(async (tx) => {
+        await this.sincronizarPreciosMismoModeloYProveedor(
+          tx,
+          id,
+          prod.modelId,
+          prod.serieId,
+          prod.supplierId,
+          dto.nuevoPrecioCosto,
+          dto.nuevoPrecioVenta,
+          req.user.sub,
+          dto.motivo,
+        );
+      });
+    }
+
+    return { message: 'Precio actualizado y sincronizado exitosamente en todas las variantes correspondientes' };
   }
 
   @Post('productos/:id/reservar')
@@ -925,6 +944,20 @@ export class InventarioController {
             reason: dto.motivoCambioPrecio || (newCost !== prevCost ? 'Ajuste de costo de entrega del taller' : 'Ajuste de precio de venta'),
           },
         });
+
+        // Sincronizar automáticamente en todas las variantes del mismo modelo, misma serie y mismo proveedor
+        const targetSup = dto.supplierId !== undefined ? dto.supplierId : product.supplierId;
+        await this.sincronizarPreciosMismoModeloYProveedor(
+          tx,
+          id,
+          product.modelId,
+          targetSerieId,
+          targetSup,
+          newCost,
+          newSale,
+          req.user?.userId || req.user?.id || 'SISTEMA',
+          dto.motivoCambioPrecio,
+        );
       }
 
       await tx.product.update({
@@ -1418,6 +1451,67 @@ export class InventarioController {
         }
       } catch (err) {
         // Ignorar si no se puede eliminar por restricciones de FK
+      }
+    }
+  }
+
+  private async sincronizarPreciosMismoModeloYProveedor(
+    tx: any,
+    sourceProductId: string,
+    modelId: string | null | undefined,
+    serieId: string | null | undefined,
+    supplierId: string | null | undefined,
+    newCost: number,
+    newSale: number,
+    userId: string,
+    motivo?: string,
+  ) {
+    if (!modelId) return;
+
+    const matchingCondition: any = {
+      modelId,
+      id: { not: sourceProductId },
+    };
+    if (serieId) {
+      matchingCondition.serieId = serieId;
+    }
+    if (supplierId) {
+      matchingCondition.supplierId = supplierId;
+    } else {
+      matchingCondition.supplierId = null;
+    }
+
+    const hermanos = await tx.product.findMany({
+      where: matchingCondition,
+    });
+
+    for (const h of hermanos) {
+      const hCost = Number(h.costPrice);
+      const hSale = Number(h.salePrice);
+      const hChanged = Math.abs(newCost - hCost) > 0.001 || Math.abs(newSale - hSale) > 0.001;
+
+      if (hChanged) {
+        await tx.priceHistory.create({
+          data: {
+            productId: h.id,
+            previousCostPrice: hCost,
+            previousSalePrice: hSale,
+            newCostPrice: newCost,
+            newSalePrice: newSale,
+            changedById: userId || 'SISTEMA',
+            reason: motivo
+              ? `Unificación de precio: ${motivo}`
+              : `Actualización unificada por tarifa de proveedor (${h.color})`,
+          },
+        });
+
+        await tx.product.update({
+          where: { id: h.id },
+          data: {
+            costPrice: newCost,
+            salePrice: newSale,
+          },
+        });
       }
     }
   }
