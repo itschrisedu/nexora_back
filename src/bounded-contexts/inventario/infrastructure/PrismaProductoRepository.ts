@@ -153,6 +153,10 @@ export class PrismaProductoRepository extends IProductoRepository {
     });
 
     for (const [tallaId, stock] of producto.stockPorTalla) {
+      const safeQty = Math.max(0, stock.cantidad);
+      const safeReserved = Math.max(0, Math.min(stock.cantidadReservada, safeQty));
+      const safeMin = Math.max(0, stock.stockMinimo);
+
       await this.prisma.stockByTalla.upsert({
         where: {
           productId_tallaId: {
@@ -161,16 +165,16 @@ export class PrismaProductoRepository extends IProductoRepository {
           },
         },
         update: {
-          quantity: stock.cantidad,
-          reservedQuantity: stock.cantidadReservada,
-          minStock: stock.stockMinimo,
+          quantity: safeQty,
+          reservedQuantity: safeReserved,
+          minStock: safeMin,
         },
         create: {
           productId: producto.id,
           tallaId,
-          quantity: stock.cantidad,
-          reservedQuantity: stock.cantidadReservada,
-          minStock: stock.stockMinimo,
+          quantity: safeQty,
+          reservedQuantity: safeReserved,
+          minStock: safeMin,
         },
       });
     }
@@ -212,9 +216,9 @@ export class PrismaProductoRepository extends IProductoRepository {
       (s: any) =>
         StockPorTalla.create(
           s.tallaId,
-          s.quantity,
-          Math.min(s.reservedQuantity, s.quantity),
-          s.minStock,
+          Math.max(0, Number(s.quantity) || 0),
+          Math.max(0, Math.min(Number(s.reservedQuantity) || 0, Number(s.quantity) || 0)),
+          Math.max(0, Number(s.minStock) || 0),
           s.talla?.numero,
           modelName,
         ),

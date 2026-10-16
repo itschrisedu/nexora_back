@@ -531,41 +531,39 @@ export class PedidosController {
       let porLiberar = item.cantidadAEntregar;
       for (const res of reservas) {
         if (porLiberar <= 0) break;
-        if (res.quantity <= porLiberar) {
+        const cantALiberar = Math.min(porLiberar, res.quantity);
+
+        if (cantALiberar >= res.quantity) {
           await this.prisma.stockReservation.update({
             where: { id: res.id },
             data: { canceled: true },
           });
-          await this.prisma.stockByTalla.update({
-            where: {
-              productId_tallaId: {
-                productId: line.productId,
-                tallaId: line.tallaId,
-              },
-            },
-            data: {
-              reservedQuantity: { decrement: res.quantity },
-            },
-          });
-          porLiberar -= res.quantity;
         } else {
           await this.prisma.stockReservation.update({
             where: { id: res.id },
-            data: { quantity: { decrement: porLiberar } },
+            data: { quantity: { decrement: cantALiberar } },
           });
-          await this.prisma.stockByTalla.update({
-            where: {
-              productId_tallaId: {
-                productId: line.productId,
-                tallaId: line.tallaId,
-              },
-            },
-            data: {
-              reservedQuantity: { decrement: porLiberar },
-            },
-          });
-          porLiberar = 0;
         }
+
+        // Obtener el stock actual y asegurar que NUNCA sea decrementado a valores negativos
+        const currentStock = await this.prisma.stockByTalla.findUnique({
+          where: {
+            productId_tallaId: {
+              productId: line.productId,
+              tallaId: line.tallaId,
+            },
+          },
+        });
+
+        if (currentStock) {
+          const nuevaReserva = Math.max(0, (currentStock.reservedQuantity || 0) - cantALiberar);
+          await this.prisma.stockByTalla.update({
+            where: { id: currentStock.id },
+            data: { reservedQuantity: nuevaReserva },
+          });
+        }
+
+        porLiberar -= cantALiberar;
       }
 
       // 2. Descontar del inventario físico real

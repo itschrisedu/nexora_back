@@ -25,11 +25,14 @@ export class StockPorTalla extends ValueObject<StockPorTallaProps> {
     numeroTalla?: number | string,
     modeloNombre?: string,
   ): StockPorTalla {
+    const safeCantidad = Math.max(0, Number(cantidad) || 0);
+    const safeReservada = Math.max(0, Math.min(Number(cantidadReservada) || 0, safeCantidad));
+    const safeMinStock = Math.max(0, Number(stockMinimo) || 0);
     return new StockPorTalla({
       tallaId,
-      cantidad,
-      cantidadReservada,
-      stockMinimo,
+      cantidad: safeCantidad,
+      cantidadReservada: safeReservada,
+      stockMinimo: safeMinStock,
       numeroTalla,
       modeloNombre,
     });
@@ -60,7 +63,7 @@ export class StockPorTalla extends ValueObject<StockPorTallaProps> {
   }
 
   get cantidadDisponible(): number {
-    return this.cantidad - this.cantidadReservada;
+    return Math.max(0, this.cantidad - this.cantidadReservada);
   }
 
   // ── Operaciones inmutables ──────────────────
@@ -77,7 +80,7 @@ export class StockPorTalla extends ValueObject<StockPorTallaProps> {
     if (cantidad < 0) throw new Error('Cantidad debe ser positiva');
     const nuevaCantidad = Math.max(0, this.cantidad - cantidad);
     // Si la entrega física consume unidades reservadas, la reserva se reduce al tope de la cantidad física
-    const nuevaReserva = Math.min(this.cantidadReservada, nuevaCantidad);
+    const nuevaReserva = Math.max(0, Math.min(this.cantidadReservada, nuevaCantidad));
     return new StockPorTalla({
       ...this.props,
       cantidad: nuevaCantidad,
@@ -87,9 +90,10 @@ export class StockPorTalla extends ValueObject<StockPorTallaProps> {
 
   aumentarReserva(cantidad: number): StockPorTalla {
     if (cantidad < 0) throw new Error('Cantidad debe ser positiva');
+    const nuevaReserva = Math.min(this.cantidad, this.cantidadReservada + cantidad);
     return new StockPorTalla({
       ...this.props,
-      cantidadReservada: this.cantidadReservada + cantidad,
+      cantidadReservada: nuevaReserva,
     });
   }
 
