@@ -162,6 +162,7 @@ export class InventarioController {
   async agregarColorAModelo(
     @Param('id') modelId: string,
     @Body() dto: AgregarColorDto,
+    @Req() req: any,
   ) {
     const model = await this.prisma.productModel.findUnique({
       where: { id: modelId },
@@ -275,6 +276,19 @@ export class InventarioController {
 
       await this.productoRepository.save(producto);
       createdProductIds.push(productoId);
+
+      // Sincronizar automáticamente el nuevo precio en todos los demás colores del mismo modelo y proveedor
+      await this.sincronizarPreciosMismoModeloYProveedor(
+        this.prisma,
+        productoId,
+        modelId,
+        serieConfig.id,
+        variantSupplierId,
+        finalCostPrice,
+        finalSalePrice,
+        req?.user?.userId || req?.user?.sub || req?.user?.id || 'SISTEMA',
+        `Tarifa unificada al agregar nuevo color "${colorClean}"`,
+      );
     }
 
     return {
@@ -1468,17 +1482,34 @@ export class InventarioController {
   ) {
     if (!modelId) return;
 
+    // Obtener el proveedor base del modelo padre
+    const parentModel = await tx.productModel.findUnique({
+      where: { id: modelId },
+      select: { supplierId: true },
+    });
+    const defaultSupId = parentModel?.supplierId || null;
+
+    // Si el proveedor de la variante coincide con el del modelo (o viene null),
+    // debe coincidir con todas las variantes que tengan ese proveedor explícito o null (heredado).
+    const effectiveSupId = supplierId || defaultSupId;
+    let supplierCondition: any;
+    if (effectiveSupId) {
+      if (defaultSupId && effectiveSupId === defaultSupId) {
+        supplierCondition = { in: [effectiveSupId, null] };
+      } else {
+        supplierCondition = effectiveSupId;
+      }
+    } else {
+      supplierCondition = null;
+    }
+
     const matchingCondition: any = {
       modelId,
       id: { not: sourceProductId },
+      supplierId: supplierCondition,
     };
     if (serieId) {
       matchingCondition.serieId = serieId;
-    }
-    if (supplierId) {
-      matchingCondition.supplierId = supplierId;
-    } else {
-      matchingCondition.supplierId = null;
     }
 
     const hermanos = await tx.product.findMany({
