@@ -862,43 +862,87 @@ export class PedidosController {
    * Útil para recordar precios anteriores al crear nuevos pedidos.
    */
   @Get('ultimo-precio')
-  @Roles(Rol.ROL_ADMIN, Rol.ROL_VENDEDOR)
+  @Roles(Rol.ROL_ADMIN, Rol.ROL_VENDEDOR, Rol.ROL_BODEGUERO)
   async obtenerUltimoPrecioCliente(
     @Req() req: any,
     @Query('clientId') clientId: string,
     @Query('productId') productId?: string,
     @Query('modelId') modelId?: string,
+    @Query('modelName') modelName?: string,
   ) {
-    if (!clientId || (!productId && !modelId)) {
+    if (!clientId) {
       return { precioAnterior: null };
     }
 
-    let effectiveModelId = modelId;
-    if (!effectiveModelId && productId) {
+    let targetModelName = modelName ? modelName.trim() : '';
+    let targetBaseCode = '';
+
+    if (productId && !targetModelName) {
       const prod = await this.prisma.product.findUnique({
         where: { id: productId },
-        select: { modelId: true },
+        include: { model: true },
       });
-      effectiveModelId = prod?.modelId;
+      if (prod?.model) {
+        targetModelName = prod.model.name;
+        targetBaseCode = prod.model.baseCode;
+      }
+    } else if (modelId && !targetModelName) {
+      const model = await this.prisma.productModel.findUnique({
+        where: { id: modelId },
+      });
+      if (model) {
+        targetModelName = model.name;
+        targetBaseCode = model.baseCode;
+      }
+    }
+
+    // 1. Encontrar todos los modelos homólogos en todas las sucursales (por nombre o baseCode)
+    const matchingModelFilters: any[] = [];
+    if (modelId) matchingModelFilters.push({ id: modelId });
+    if (targetModelName) {
+      matchingModelFilters.push({
+        name: { equals: targetModelName, mode: 'insensitive' },
+      });
+    }
+    if (targetBaseCode) {
+      matchingModelFilters.push({
+        baseCode: { equals: targetBaseCode, mode: 'insensitive' },
+      });
+    }
+
+    let allMatchingModelIds: string[] = [];
+    if (matchingModelFilters.length > 0) {
+      const models = await this.prisma.productModel.findMany({
+        where: { OR: matchingModelFilters },
+        select: { id: true },
+      });
+      allMatchingModelIds = models.map((m) => m.id);
+    }
+
+    // 2. Encontrar todos los productos asociados a estos modelos en cualquier sucursal
+    const productFilters: any[] = [];
+    if (allMatchingModelIds.length > 0) {
+      productFilters.push({ modelId: { in: allMatchingModelIds } });
+    }
+    if (productId) {
+      productFilters.push({ id: productId });
     }
 
     let matchingProductIds: string[] = [];
-    if (effectiveModelId) {
+    if (productFilters.length > 0) {
       const prods = await this.prisma.product.findMany({
-        where: { modelId: effectiveModelId },
+        where: { OR: productFilters },
         select: { id: true },
       });
       matchingProductIds = prods.map((p) => p.id);
-    } else if (productId) {
-      matchingProductIds = [productId];
     }
 
     if (matchingProductIds.length === 0) {
       return { precioAnterior: null };
     }
 
-    // Buscar en toda la red comercial (todas las sucursales) la última venta de este modelo al cliente
-    const ultimaLinea = await this.prisma.orderLine.findFirst({
+    // 3. Buscar la última venta en OrderLine (en cualquier sucursal de la empresa)
+    const ultimaOrderLine = await this.prisma.orderLine.findFirst({
       where: {
         productId: { in: matchingProductIds },
         order: {
@@ -918,11 +962,51 @@ export class PedidosController {
       },
     });
 
+    // 4. Buscar también en SaleNoteLine (ventas directas y notas de entrega)
+    const ultimaSaleNoteLine: any = await this.prisma.saleNoteLine.findFirst({
+      where: {
+        productId: { in: matchingProductIds },
+        saleNote: {
+          clientId,
+        },
+      },
+      orderBy: { saleNote: { createdAt: 'desc' } },
+      select: {
+        precioUnitario: true,
+        saleNote: {
+          select: {
+            createdAt: true,
+            tenant: { select: { id: true, name: true } },
+          },
+        },
+      },
+    });
+
+    let precioAnterior: number | null = null;
+    let fechaUltimaVenta: Date | null = null;
+    let sucursalNombre: string | null = null;
+    let sucursalId: string | null = null;
+
+    const fechaOrder = ultimaOrderLine?.order?.createdAt;
+    const fechaSaleNote = ultimaSaleNoteLine?.saleNote?.createdAt;
+
+    if (fechaOrder && (!fechaSaleNote || fechaOrder >= fechaSaleNote)) {
+      precioAnterior = Number(ultimaOrderLine.precioUnitario);
+      fechaUltimaVenta = fechaOrder;
+      sucursalNombre = ultimaOrderLine.order?.tenant?.name || null;
+      sucursalId = ultimaOrderLine.order?.tenant?.id || null;
+    } else if (fechaSaleNote) {
+      precioAnterior = Number(ultimaSaleNoteLine.precioUnitario);
+      fechaUltimaVenta = fechaSaleNote;
+      sucursalNombre = ultimaSaleNoteLine.saleNote?.tenant?.name || null;
+      sucursalId = ultimaSaleNoteLine.saleNote?.tenant?.id || null;
+    }
+
     return {
-      precioAnterior: ultimaLinea ? Number(ultimaLinea.precioUnitario) : null,
-      fechaUltimaVenta: ultimaLinea?.order?.createdAt || null,
-      sucursalNombre: ultimaLinea?.order?.tenant?.name || null,
-      sucursalId: ultimaLinea?.order?.tenant?.id || null,
+      precioAnterior,
+      fechaUltimaVenta,
+      sucursalNombre,
+      sucursalId,
     };
   }
 
