@@ -125,7 +125,7 @@ export class RegistrarMerchandiseEntryLineDto {
 
   @IsNotEmpty()
   @IsNumber()
-  @Min(1, { message: 'La cantidad ingresada debe ser al menos 1.' })
+  @Min(0, { message: 'La cantidad ingresada no puede ser menor a 0.' })
   cantidadIngresada: number;
 
   @IsOptional()

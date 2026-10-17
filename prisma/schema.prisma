@@ -787,7 +787,7 @@ model SupplierOrder {
   estado        SupplierOrderStatus @default(BORRADOR)
   observaciones String?
   lines         SupplierOrderLine[]
-  entry         MerchandiseEntry?
+  entries       MerchandiseEntry[]
   payments      SupplierPayment[]
   supplier      Supplier            @relation(fields: [supplierId], references: [id])
   createdAt     DateTime            @default(now())
@@ -812,7 +812,7 @@ model SupplierOrderLine {
 model MerchandiseEntry {
   id              String                 @id @default(uuid())
   numero          Int                    @unique @default(autoincrement())
-  supplierOrderId String?                @unique
+  supplierOrderId String?
   supplierId      String
   total           Decimal                @db.Decimal(10, 2)
   fechaIngreso    DateTime               @default(now())

@@ -39,10 +39,28 @@ export class RegistrarMerchandiseEntryHandler {
         throw new BadRequestException('El proveedor de la orden no coincide con el proveedor del ingreso.');
       }
 
-      // Check if there are missing items
-      const hasMissing = command.lines.some((l) => (l.diferencia !== undefined && l.diferencia < 0));
-      const isPartial = hasMissing || estadoCalculado === 'RECIBIDA_PARCIAL' || estadoCalculado === 'CON_DIFERENCIAS';
-      
+      // Total de pares pedidos en la orden
+      const totalParesOrden = order.lines.reduce((acc, l) => acc + l.cantidadPedida, 0);
+
+      // Total de pares ingresados previamente en entradas de esta orden
+      const entradasAnteriores = await this.prisma.merchandiseEntry.findMany({
+        where: { supplierOrderId: command.supplierOrderId },
+        include: { lines: true },
+      });
+      const paresAnteriores = entradasAnteriores.reduce(
+        (acc, entry) => acc + entry.lines.reduce((s, l) => s + l.cantidadIngresada, 0),
+        0,
+      );
+
+      // Pares que están ingresando en este recibo actual
+      const paresIngresando = command.lines.reduce((s, l) => s + (l.cantidadIngresada || 0), 0);
+      const totalAcumulado = paresAnteriores + paresIngresando;
+
+      // Si aún faltan pares para cubrir la orden, queda RECIBIDA_PARCIAL; si ya se cubrió todo, RECIBIDA
+      const hasMissingInThisDelivery = command.lines.some((l) => (l.diferencia !== undefined && l.diferencia < 0));
+      const quedanPendientesGlobal = totalAcumulado < totalParesOrden;
+      const isPartial = quedanPendientesGlobal || hasMissingInThisDelivery || estadoCalculado === 'RECIBIDA_PARCIAL' || estadoCalculado === 'CON_DIFERENCIAS';
+
       order.marcarComoRecibida(isPartial);
       await this.orderRepository.update(order);
       this.eventBus.publishAll(order.clearDomainEvents());

@@ -368,8 +368,9 @@ export class ProveedoresQueryService {
             tenant: { select: { id: true, name: true } },
           },
         },
-        entry: {
-          select: { id: true, numero: true, fechaIngreso: true, estado: true },
+        entries: {
+          select: { id: true, numero: true, fechaIngreso: true, estado: true, lines: true },
+          orderBy: { fechaIngreso: 'desc' },
         },
       },
     });
@@ -409,29 +410,57 @@ export class ProveedoresQueryService {
     const productMap = new Map<string, any>();
     products.forEach((p) => productMap.set(p.id, p));
 
+    // Mapa de cantidades ya recibidas por producto en recepciones anteriores
+    const recibidosPorProducto = new Map<string, number>();
+    const recibidosPorProductoYTalla = new Map<string, number>();
+    (order.entries || []).forEach((e: any) => {
+      (e.lines || []).forEach((el: any) => {
+        const prodId = el.productId;
+        recibidosPorProducto.set(prodId, (recibidosPorProducto.get(prodId) || 0) + (el.cantidadIngresada || 0));
+        const keyPT = `${prodId}_${el.tallaId}`;
+        recibidosPorProductoYTalla.set(keyPT, (recibidosPorProductoYTalla.get(keyPT) || 0) + (el.cantidadIngresada || 0));
+      });
+    });
+
     return {
       ...order,
+      entry: order.entries[0] || null,
+      entries: order.entries,
       tenantId: order.supplier?.tenantId || '',
       supplier: this.formatSupplier(order.supplier),
       sucursalNombre: order.supplier?.tenant?.name || '',
       total: Number(order.total),
       lines: order.lines.map((l) => {
         const prod = productMap.get(l.productId);
-        const tallas = prod?.serie?.tallas?.map((t: any) => ({
-          id: t.id,
-          numero: t.numero,
-          talla: t.numero,
-        })) || prod?.stockByTalla?.map((st: any) => ({
-          id: st.talla?.id || st.tallaId,
-          numero: st.talla?.numero,
-          talla: st.talla?.numero,
-        })) || [];
+        const tallas = prod?.serie?.tallas?.map((t: any) => {
+          const yaRecibidoTalla = recibidosPorProductoYTalla.get(`${l.productId}_${t.id}`) || 0;
+          return {
+            id: t.id,
+            numero: t.numero,
+            talla: t.numero,
+            yaRecibido: yaRecibidoTalla,
+          };
+        }) || prod?.stockByTalla?.map((st: any) => {
+          const tId = st.talla?.id || st.tallaId;
+          const yaRecibidoTalla = recibidosPorProductoYTalla.get(`${l.productId}_${tId}`) || 0;
+          return {
+            id: tId,
+            numero: st.talla?.numero,
+            talla: st.talla?.numero,
+            yaRecibido: yaRecibidoTalla,
+          };
+        }) || [];
 
         const fallbackImg = prod?.model?.products?.find((p: any) => p.imageUrl)?.imageUrl || '';
         const resolvedImageUrl = prod?.imageUrl || fallbackImg || '';
 
+        const yaRecibido = recibidosPorProducto.get(l.productId) || 0;
+        const cantidadPendiente = Math.max(0, l.cantidadPedida - yaRecibido);
+
         return {
           ...l,
+          cantidadYaRecibida: yaRecibido,
+          cantidadPendiente,
           precioCosto: Number(l.precioCosto),
           subtotal: Number(l.subtotal),
           producto: prod ? {
@@ -492,8 +521,9 @@ export class ProveedoresQueryService {
           },
         },
         lines: true,
-        entry: {
+        entries: {
           select: { id: true, numero: true, fechaIngreso: true, estado: true, createdAt: true },
+          orderBy: { createdAt: 'desc' },
         },
       },
       orderBy: { createdAt: 'desc' },
@@ -532,6 +562,8 @@ export class ProveedoresQueryService {
 
     return orders.map((o) => ({
       ...o,
+      entry: o.entries[0] || null,
+      entries: o.entries,
       tenantId: o.supplier?.tenantId || tenantId || '',
       sucursalId: o.supplier?.tenantId || tenantId || '',
       supplier: this.formatSupplier(o.supplier),
