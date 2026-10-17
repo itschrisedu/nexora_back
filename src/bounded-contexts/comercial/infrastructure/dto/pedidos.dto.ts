@@ -182,6 +182,23 @@ export class ItemAEntregarDto {
   precioUnitario?: number;
 }
 
+export class ItemCorregirPrecioDto {
+  @IsString()
+  @IsOptional()
+  lineId?: string;
+
+  @IsString()
+  @IsOptional()
+  productId?: string;
+
+  @IsArray()
+  @IsOptional()
+  productIds?: string[];
+
+  @IsNotEmpty()
+  nuevoPrecioUnitario!: number;
+}
+
 export class CorregirPrecioLineaDto {
   @IsString()
   @IsOptional()
@@ -191,8 +208,18 @@ export class CorregirPrecioLineaDto {
   @IsOptional()
   productId?: string;
 
-  @IsNotEmpty()
-  nuevoPrecioUnitario!: number;
+  @IsArray()
+  @IsOptional()
+  productIds?: string[];
+
+  @IsOptional()
+  nuevoPrecioUnitario?: number;
+
+  @IsArray()
+  @IsOptional()
+  @ValidateNested({ each: true })
+  @Type(() => ItemCorregirPrecioDto)
+  items?: ItemCorregirPrecioDto[];
 }
 
 export class EntregarItemsPedidoDto {

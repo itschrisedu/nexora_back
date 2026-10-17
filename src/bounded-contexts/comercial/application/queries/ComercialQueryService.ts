@@ -348,6 +348,7 @@ export class ComercialQueryService {
           precioUnitario: Number(l.precioUnitario),
           subtotal: l.cantidad * Number(l.precioUnitario),
           tipoVenta: l.tipoVenta,
+          modelId: prod?.modelId || prod?.model?.id || l.modelId || null,
           modelName: prod?.model?.name || l.modelName || 'Calzado',
           color: prod?.color || l.color || '',
           imageUrl: prod?.imageUrl || l.imageUrl || null,

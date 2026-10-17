@@ -698,29 +698,58 @@ export class PedidosController {
       throw new NotFoundException(`El pedido con ID "${id}" no existe`);
     }
 
-    const nuevoPrecio = Number(dto.nuevoPrecioUnitario);
-    if (isNaN(nuevoPrecio) || nuevoPrecio <= 0) {
-      throw new BadRequestException('El nuevo precio unitario debe ser un valor numérico mayor a 0');
-    }
+    // Normalizar items a procesar (permite procesar por modelo, lista de productIds o individual)
+    const itemsAProcesar: Array<{ lineId?: string; productId?: string; productIds?: string[]; nuevoPrecio: number }> = [];
 
-    // Identificar las líneas a modificar (por lineId directo o por productId)
-    let lineasAModificar = pedido.lines;
-    if (dto.lineId) {
-      lineasAModificar = pedido.lines.filter((l) => l.id === dto.lineId);
-    } else if (dto.productId) {
-      lineasAModificar = pedido.lines.filter((l) => l.productId === dto.productId);
-    }
-
-    if (lineasAModificar.length === 0) {
-      throw new NotFoundException('No se encontraron líneas coincidentes para modificar el precio');
-    }
-
-    // 1. Actualizar precio unitario en OrderLine
-    for (const l of lineasAModificar) {
-      await this.prisma.orderLine.update({
-        where: { id: l.id },
-        data: { precioUnitario: nuevoPrecio },
+    if (dto.items && dto.items.length > 0) {
+      for (const it of dto.items) {
+        const p = Number(it.nuevoPrecioUnitario);
+        if (!isNaN(p) && p > 0) {
+          itemsAProcesar.push({
+            lineId: it.lineId,
+            productId: it.productId,
+            productIds: it.productIds,
+            nuevoPrecio: p,
+          });
+        }
+      }
+    } else if (dto.nuevoPrecioUnitario !== undefined && dto.nuevoPrecioUnitario !== null) {
+      const p = Number(dto.nuevoPrecioUnitario);
+      if (isNaN(p) || p <= 0) {
+        throw new BadRequestException('El nuevo precio unitario debe ser un valor numérico mayor a 0');
+      }
+      itemsAProcesar.push({
+        lineId: dto.lineId,
+        productId: dto.productId,
+        productIds: dto.productIds,
+        nuevoPrecio: p,
       });
+    }
+
+    if (itemsAProcesar.length === 0) {
+      throw new BadRequestException('No se proporcionaron precios válidos a corregir');
+    }
+
+    // 1. Actualizar precio unitario en OrderLine y mapear precios por producto
+    const nuevoPrecioPorProducto = new Map<string, number>();
+
+    for (const item of itemsAProcesar) {
+      let lineas = pedido.lines;
+      if (item.lineId) {
+        lineas = pedido.lines.filter((l) => l.id === item.lineId);
+      } else if (item.productIds && item.productIds.length > 0) {
+        lineas = pedido.lines.filter((l) => item.productIds!.includes(l.productId));
+      } else if (item.productId) {
+        lineas = pedido.lines.filter((l) => l.productId === item.productId);
+      }
+
+      for (const l of lineas) {
+        await this.prisma.orderLine.update({
+          where: { id: l.id },
+          data: { precioUnitario: item.nuevoPrecio },
+        });
+        nuevoPrecioPorProducto.set(l.productId, item.nuevoPrecio);
+      }
     }
 
     // 2. Recalcular monto total de la orden
@@ -747,12 +776,13 @@ export class PedidosController {
 
     if (saleNote) {
       for (const sl of saleNote.lines) {
-        if (!dto.productId || sl.productId === dto.productId) {
+        if (nuevoPrecioPorProducto.has(sl.productId)) {
+          const np = nuevoPrecioPorProducto.get(sl.productId)!;
           await this.prisma.saleNoteLine.update({
             where: { id: sl.id },
             data: {
-              precioUnitario: nuevoPrecio,
-              subtotal: nuevoPrecio * sl.cantidad,
+              precioUnitario: np,
+              subtotal: np * sl.cantidad,
             },
           });
         }
@@ -807,7 +837,7 @@ export class PedidosController {
 
     return {
       success: true,
-      message: `Precio actualizado correctamente a $${nuevoPrecio.toFixed(2)}. El total del pedido y el estado de cuenta han sido actualizados.`,
+      message: `Precios actualizados exitosamente. Total del pedido y saldos recalculados.`,
       pedido: pedidoActualizado,
       nuevoMontoTotal,
     };
