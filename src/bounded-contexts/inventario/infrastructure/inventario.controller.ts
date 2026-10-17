@@ -13,6 +13,7 @@ import {
   UseGuards,
   NotFoundException,
   BadRequestException,
+  Logger,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../../../auth/jwt-auth.guard';
 import { RolesGuard } from '../../../shared/guards/roles.guard';
@@ -58,6 +59,8 @@ import { generarSiglaProveedor } from '../../../shared/utils/text-formatters';
 @Controller('inventario')
 @UseGuards(JwtAuthGuard, RolesGuard)
 export class InventarioController {
+  private readonly logger = new Logger(InventarioController.name);
+
   constructor(
     private readonly crearProductoHandler: CrearProductoHandler,
     private readonly cambiarPrecioHandler: CambiarPrecioHandler,
@@ -1482,68 +1485,74 @@ export class InventarioController {
   ) {
     if (!modelId) return;
 
-    // Obtener el proveedor base del modelo padre
-    const parentModel = await tx.productModel.findUnique({
-      where: { id: modelId },
-      select: { supplierId: true },
-    });
-    const defaultSupId = parentModel?.supplierId || null;
+    try {
+      // Obtener el proveedor base del modelo padre
+      const parentModel = await tx.productModel.findUnique({
+        where: { id: modelId },
+        select: { supplierId: true },
+      });
+      const defaultSupId = parentModel?.supplierId || null;
 
-    // Si el proveedor de la variante coincide con el del modelo (o viene null),
-    // debe coincidir con todas las variantes que tengan ese proveedor explícito o null (heredado).
-    const effectiveSupId = supplierId || defaultSupId;
-    let supplierCondition: any;
-    if (effectiveSupId) {
-      if (defaultSupId && effectiveSupId === defaultSupId) {
-        supplierCondition = { in: [effectiveSupId, null] };
+      // Si el proveedor de la variante coincide con el del modelo (o viene null),
+      // debe coincidir con todas las variantes que tengan ese proveedor explícito o null (heredado).
+      const effectiveSupId = supplierId || defaultSupId;
+      const matchingCondition: any = {
+        modelId,
+        id: { not: sourceProductId },
+      };
+      if (serieId) {
+        matchingCondition.serieId = serieId;
+      }
+
+      if (effectiveSupId) {
+        if (defaultSupId && effectiveSupId === defaultSupId) {
+          // En Prisma, no se puede usar { in: [id, null] }. Se debe usar la cláusula OR:
+          matchingCondition.OR = [
+            { supplierId: effectiveSupId },
+            { supplierId: null },
+          ];
+        } else {
+          matchingCondition.supplierId = effectiveSupId;
+        }
       } else {
-        supplierCondition = effectiveSupId;
+        matchingCondition.supplierId = null;
       }
-    } else {
-      supplierCondition = null;
-    }
 
-    const matchingCondition: any = {
-      modelId,
-      id: { not: sourceProductId },
-      supplierId: supplierCondition,
-    };
-    if (serieId) {
-      matchingCondition.serieId = serieId;
-    }
+      const hermanos = await tx.product.findMany({
+        where: matchingCondition,
+      });
 
-    const hermanos = await tx.product.findMany({
-      where: matchingCondition,
-    });
+      for (const h of hermanos) {
+        const hCost = Number(h.costPrice);
+        const hSale = Number(h.salePrice);
+        const hChanged = Math.abs(newCost - hCost) > 0.001 || Math.abs(newSale - hSale) > 0.001;
 
-    for (const h of hermanos) {
-      const hCost = Number(h.costPrice);
-      const hSale = Number(h.salePrice);
-      const hChanged = Math.abs(newCost - hCost) > 0.001 || Math.abs(newSale - hSale) > 0.001;
+        if (hChanged) {
+          await tx.priceHistory.create({
+            data: {
+              productId: h.id,
+              previousCostPrice: hCost,
+              previousSalePrice: hSale,
+              newCostPrice: newCost,
+              newSalePrice: newSale,
+              changedById: userId || 'SISTEMA',
+              reason: motivo
+                ? `Unificación de precio: ${motivo}`
+                : `Actualización unificada por tarifa de proveedor (${h.color})`,
+            },
+          });
 
-      if (hChanged) {
-        await tx.priceHistory.create({
-          data: {
-            productId: h.id,
-            previousCostPrice: hCost,
-            previousSalePrice: hSale,
-            newCostPrice: newCost,
-            newSalePrice: newSale,
-            changedById: userId || 'SISTEMA',
-            reason: motivo
-              ? `Unificación de precio: ${motivo}`
-              : `Actualización unificada por tarifa de proveedor (${h.color})`,
-          },
-        });
-
-        await tx.product.update({
-          where: { id: h.id },
-          data: {
-            costPrice: newCost,
-            salePrice: newSale,
-          },
-        });
+          await tx.product.update({
+            where: { id: h.id },
+            data: {
+              costPrice: newCost,
+              salePrice: newSale,
+            },
+          });
+        }
       }
+    } catch (err: any) {
+      this.logger.error(`Error al sincronizar precios en variantes del modelo ${modelId}: ${err?.message || err}`);
     }
   }
 }
