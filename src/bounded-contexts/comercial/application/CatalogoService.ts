@@ -205,7 +205,11 @@ export class CatalogoService {
             }
           });
 
-          const tallasSerieOficiales = (p.serie?.tallas || []).slice().sort((a, b) => a.numero - b.numero);
+          const isAdultoEstandar = (p.serie?.nombre || '').toUpperCase().includes('ADULTO') && !(p.serie?.nombre || '').toUpperCase().includes('GRANDE');
+          const tallasSerieOficiales = (p.serie?.tallas || [])
+            .filter((t) => !(isAdultoEstandar && t.numero === 43 && (stockMap.get(t.id)?.quantity || 0) === 0))
+            .slice()
+            .sort((a, b) => a.numero - b.numero);
 
           let listaTallasFinal: Array<{
             tallaId: string;
@@ -346,7 +350,11 @@ export class CatalogoService {
         });
 
         // Tallas oficiales de la serie asignada
-        const tallasSerieOficiales = (p.serie?.tallas || []).slice().sort((a, b) => a.numero - b.numero);
+        const isAdultoEstandar = (p.serie?.nombre || '').toUpperCase().includes('ADULTO') && !(p.serie?.nombre || '').toUpperCase().includes('GRANDE');
+        const tallasSerieOficiales = (p.serie?.tallas || [])
+          .filter((t) => !(isAdultoEstandar && t.numero === 43 && (stockMap.get(t.id)?.quantity || 0) === 0))
+          .slice()
+          .sort((a, b) => a.numero - b.numero);
 
         // Si la serie tiene tallas definidas, usamos las de la serie; si no, fallback a stockByTalla
         let listaTallasFinal: Array<{

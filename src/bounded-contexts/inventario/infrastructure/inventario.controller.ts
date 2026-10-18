@@ -245,6 +245,7 @@ export class InventarioController {
         }
         for (const tallaConfig of serieConfig.tallas) {
           const count = tallaCountMap.get(tallaConfig.id) || 0;
+          if (customTallaIds.length > 0 && count === 0) continue;
           Talla.create(tallaConfig.numero, serieVO);
           stockPorTallaList.push(
             StockPorTalla.create(tallaConfig.id, stockInicial * count, 0, 0)
