@@ -27,14 +27,14 @@ export class MlBridgeService {
 
   public esTodoNegro(color?: string | null): boolean {
     if (!color) return false;
-    const c = color.trim().toLowerCase();
-    return c.includes('negro') && !c.includes('/') && !c.includes(' con ') && !c.includes(' y ') && !c.includes('+') && !c.includes('rojo') && !c.includes('azul');
+    const c = color.trim().toLowerCase().replace(/[.,;:_-]+$/, '');
+    return c === 'negro' || c === 'negra';
   }
 
   public esTodoBlanco(color?: string | null): boolean {
     if (!color) return false;
-    const c = color.trim().toLowerCase();
-    return c.includes('blanco') && !c.includes('/') && !c.includes(' con ') && !c.includes(' y ') && !c.includes('+') && !c.includes('azul') && !c.includes('rojo');
+    const c = color.trim().toLowerCase().replace(/[.,;:_-]+$/, '');
+    return c === 'blanco' || c === 'blanca';
   }
 
   /**
@@ -131,12 +131,20 @@ export class MlBridgeService {
 
         // Filtrado por color exacto vs compuesto o filtro escolar
         if (colorFiltro && colorFiltro.trim()) {
+          const cTarget = colorFiltro.trim().toLowerCase();
           if (colorFiltro === 'ESCOLAR_NEGRO_BLANCO') {
             prediccion.predicciones = prediccion.predicciones.filter(
               (p: any) => this.esTodoNegro(p.color) || this.esTodoBlanco(p.color),
             );
+          } else if (colorFiltro === 'TODO_NEGRO' || cTarget === 'negro') {
+            prediccion.predicciones = prediccion.predicciones.filter(
+              (p: any) => this.esTodoNegro(p.color),
+            );
+          } else if (colorFiltro === 'TODO_BLANCO' || cTarget === 'blanco') {
+            prediccion.predicciones = prediccion.predicciones.filter(
+              (p: any) => this.esTodoBlanco(p.color),
+            );
           } else {
-            const cTarget = colorFiltro.trim().toLowerCase();
             prediccion.predicciones = prediccion.predicciones.filter((p: any) => {
               const pColor = (p.color || '').trim().toLowerCase();
               if (colorExacto) {
@@ -454,12 +462,20 @@ export class MlBridgeService {
 
     // Filtrar por color exacto vs compuesto o filtro escolar
     if (colorFiltro && colorFiltro.trim()) {
+      const cTarget = colorFiltro.trim().toLowerCase();
       if (colorFiltro === 'ESCOLAR_NEGRO_BLANCO') {
         predicciones = predicciones.filter(
           (p: any) => this.esTodoNegro(p.color) || this.esTodoBlanco(p.color),
         );
+      } else if (colorFiltro === 'TODO_NEGRO' || cTarget === 'negro') {
+        predicciones = predicciones.filter(
+          (p: any) => this.esTodoNegro(p.color),
+        );
+      } else if (colorFiltro === 'TODO_BLANCO' || cTarget === 'blanco') {
+        predicciones = predicciones.filter(
+          (p: any) => this.esTodoBlanco(p.color),
+        );
       } else {
-        const cTarget = colorFiltro.trim().toLowerCase();
         predicciones = predicciones.filter((p: any) => {
           const pColor = (p.color || '').trim().toLowerCase();
           if (colorExacto) {
