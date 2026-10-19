@@ -266,6 +266,23 @@ export class ComercialQueryService {
       tenants.forEach((t) => tenantNameMap.set(t.id, t.name));
     }
 
+    // Cargar devoluciones asociadas a los pedidos
+    const orderIds = orders.map((o) => o.id);
+    const devoluciones = orderIds.length > 0
+      ? await this.prisma.clienteDevolucion.findMany({
+          where: { orderId: { in: orderIds } },
+          include: { lines: true },
+        })
+      : [];
+
+    const devolucionesByOrder = new Map<string, any[]>();
+    devoluciones.forEach((d) => {
+      if (!d.orderId) return;
+      const list = devolucionesByOrder.get(d.orderId) || [];
+      list.push(d);
+      devolucionesByOrder.set(d.orderId, list);
+    });
+
     // Calcular numeración correlativa cronológica (PED-0001, PED-0002, ...)
     const sortedChronologically = [...orders].sort(
       (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
@@ -276,7 +293,8 @@ export class ComercialQueryService {
     });
 
     return orders.map((o) => {
-      const formatted = this.formatPedido(o, productMap, tallaMap, serieMap, orderNumberMap.get(o.id));
+      const orderDevs = devolucionesByOrder.get(o.id) || [];
+      const formatted = this.formatPedido(o, productMap, tallaMap, serieMap, orderNumberMap.get(o.id), orderDevs);
       const creadoPorSucursalId = userTenantMap.get(o.userId) || o.tenantId;
       const creadoPorSucursalNombre = tenantNameMap.get(creadoPorSucursalId) || o.tenant?.name || '';
       const sucursalNombre = o.tenant?.name || tenantNameMap.get(o.tenantId) || 'Sucursal';
@@ -300,7 +318,17 @@ export class ComercialQueryService {
     tallaMap?: Map<string, number>,
     serieMap?: Map<string, string>,
     numeroCodigo?: string,
+    orderDevoluciones: any[] = [],
   ) {
+    const totalParesDevueltos = orderDevoluciones.reduce(
+      (acc, dev) => acc + (dev.lines || []).reduce((s: number, dl: any) => s + dl.cantidad, 0),
+      0,
+    );
+    const totalMontoDevuelto = orderDevoluciones.reduce(
+      (acc, dev) => acc + Number(dev.totalDevuelto || 0),
+      0,
+    );
+
     return {
       id: record.id,
       tenantId: record.tenantId,
@@ -325,6 +353,27 @@ export class ComercialQueryService {
       referenciaAdelanto: record.referenciaAdelanto || null,
       createdAt: record.createdAt,
       updatedAt: record.updatedAt,
+      devolucionesCount: orderDevoluciones.length,
+      totalParesDevueltos,
+      totalMontoDevuelto,
+      devoluciones: orderDevoluciones.map((d) => ({
+        id: d.id,
+        motivo: d.motivo,
+        totalDevuelto: Number(d.totalDevuelto),
+        estado: d.estado,
+        destinoStock: d.destinoStock,
+        deudaDescontada: Number(d.deudaDescontada || 0),
+        saldoAFavor: Number(d.saldoAFavor || 0),
+        createdAt: d.createdAt,
+        lines: (d.lines || []).map((dl: any) => ({
+          id: dl.id,
+          productId: dl.productId,
+          tallaId: dl.tallaId,
+          cantidad: dl.cantidad,
+          precioUnitario: Number(dl.precioUnitario),
+          subtotal: Number(dl.subtotal),
+        })),
+      })),
       lines: record.lines?.map((l: any) => {
         const prod = productMap?.get(l.productId);
         const numeroTalla = tallaMap?.get(l.tallaId) ?? l.numeroTalla;
@@ -335,6 +384,14 @@ export class ComercialQueryService {
         const cantidadPendiente = Math.max(0, l.cantidad - cantidadEntregada);
         const serieResuelta = (l.serieId ? serieMap?.get(l.serieId) : null) || prod?.serie?.nombre || (prod?.serieId ? serieMap?.get(prod.serieId) : null) || l.serieNombre || 'Estándar';
 
+        // Calcular cuántos pares de esta línea específica ya fueron devueltos
+        const cantidadDevuelta = orderDevoluciones.reduce((acc, dev) => {
+          const match = (dev.lines || []).filter((dl: any) => dl.productId === l.productId && dl.tallaId === l.tallaId);
+          return acc + match.reduce((s: number, dl: any) => s + dl.cantidad, 0);
+        }, 0);
+
+        const disponibleParaDevolver = Math.max(0, cantidadEntregada - cantidadDevuelta);
+
         return {
           id: l.id,
           productId: l.productId,
@@ -343,6 +400,8 @@ export class ComercialQueryService {
           cantidad: l.cantidad,
           cantidadEntregada,
           cantidadPendiente,
+          cantidadDevuelta,
+          disponibleParaDevolver,
           stockDisponible,
           stockFisico,
           precioUnitario: Number(l.precioUnitario),

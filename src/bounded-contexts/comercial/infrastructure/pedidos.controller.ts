@@ -26,6 +26,7 @@ import {
   ActualizarEnvioPedidoDto,
   EntregarItemsPedidoDto,
   RevertirEntregaDto,
+  RegistrarDevolucionPedidoDto,
   ActualizarAdelantoPedidoDto,
   CorregirPrecioLineaDto,
 } from './dto/pedidos.dto';
@@ -1163,6 +1164,320 @@ export class PedidosController {
       message: `Se revirtieron ${totalParesARevertir} pares correctamente. El calzado ha regresado a bodega y la deuda del cliente fue reducida en $${montoTotalRevertido.toFixed(2)}.`,
       pedido: pedidoActualizado,
     };
+  }
+
+  /**
+   * Endpoint para registrar una devolución formal de mercadería de un pedido (Fase 3).
+   * Valida anti-duplicados (cantidadDevuelta + previas <= entregadas).
+   * Restituye stock vendible si destinoStock === 'REINGRESO_INVENTARIO' o lo manda a baja por falla.
+   * Crea el registro formal ClienteDevolucion y ClienteDevolucionLinea.
+   * Descuenta deuda del cliente en Cobro / SaleNote, genera saldo a favor si aplica,
+   * y reduce el crédito utilizado del cliente.
+   */
+  @Post(':id/devolucion')
+  @Roles(Rol.ROL_ADMIN, Rol.ROL_VENDEDOR)
+  async registrarDevolucionPedido(
+    @Param('id') id: string,
+    @Body() dto: RegistrarDevolucionPedidoDto,
+    @Req() req: any,
+  ) {
+    const pedido = await this.prisma.order.findUnique({
+      where: { id },
+      include: {
+        lines: true,
+      },
+    });
+
+    if (!pedido) {
+      throw new NotFoundException(`El pedido con ID "${id}" no existe`);
+    }
+
+    const userRole = req.user?.rol || req.user?.role;
+    const userTenant = req.user?.tenantId;
+    if (userRole !== Rol.ROL_SUPER_ADMIN && userTenant && pedido.tenantId && pedido.tenantId !== userTenant) {
+      throw new ForbiddenException('Solo la sucursal propietaria del pedido puede registrar devoluciones');
+    }
+
+    if (!dto.items || dto.items.length === 0) {
+      throw new BadRequestException('Debe especificar al menos un ítem para devolver');
+    }
+
+    const destinoStock = dto.destinoStock || 'REINGRESO_INVENTARIO';
+    const userId = req.user?.sub || req.user?.id || pedido.userId || 'system';
+
+    // 1. Obtener todas las devoluciones previas de este pedido para validación anti-duplicados
+    const prevDevoluciones = await this.prisma.clienteDevolucion.findMany({
+      where: { orderId: pedido.id },
+      include: { lines: true },
+    });
+
+    const yaDevueltoMap = new Map<string, number>();
+    for (const dev of prevDevoluciones) {
+      for (const dl of dev.lines) {
+        const key = `${dl.productId}-${dl.tallaId}`;
+        yaDevueltoMap.set(key, (yaDevueltoMap.get(key) || 0) + dl.cantidad);
+      }
+    }
+
+    // 2. Validar cada ítem del DTO contra las líneas del pedido
+    let totalParesADevolver = 0;
+    let montoTotalDevuelto = 0;
+    const lineasAProcesar: {
+      line: any;
+      cantidadADevolver: number;
+      subtotal: number;
+    }[] = [];
+
+    const payloadAcumuladoMap = new Map<string, number>();
+
+    for (const item of dto.items) {
+      if (item.cantidadADevolver <= 0) continue;
+
+      const line = pedido.lines.find((l) => l.id === item.lineId);
+      if (!line) {
+        throw new NotFoundException(`La línea de pedido con ID "${item.lineId}" no pertenece a este pedido`);
+      }
+
+      const yaEntregado = line.cantidadEntregada || 0;
+      if (yaEntregado <= 0) {
+        throw new BadRequestException(
+          `La línea seleccionada no tiene pares entregados registrados. No es posible procesar una devolución.`,
+        );
+      }
+
+      const prodKey = `${line.productId}-${line.tallaId}`;
+      const previoDevuelto = yaDevueltoMap.get(prodKey) || 0;
+      const enEstePayload = payloadAcumuladoMap.get(prodKey) || 0;
+      const totalDevolviendo = previoDevuelto + enEstePayload + item.cantidadADevolver;
+
+      if (totalDevolviendo > yaEntregado) {
+        const disponible = Math.max(0, yaEntregado - previoDevuelto - enEstePayload);
+        throw new BadRequestException(
+          `No es posible devolver ${item.cantidadADevolver} pares del calzado seleccionado: solo hay ${disponible} pares disponibles para devolución (${yaEntregado} entregados, ${previoDevuelto} devueltos anteriormente).`,
+        );
+      }
+
+      payloadAcumuladoMap.set(prodKey, enEstePayload + item.cantidadADevolver);
+      totalParesADevolver += item.cantidadADevolver;
+      const subtotalLinea = item.cantidadADevolver * Number(line.precioUnitario);
+      montoTotalDevuelto += subtotalLinea;
+
+      lineasAProcesar.push({
+        line,
+        cantidadADevolver: item.cantidadADevolver,
+        subtotal: subtotalLinea,
+      });
+    }
+
+    if (totalParesADevolver === 0) {
+      throw new BadRequestException('No se especificaron cantidades válidas mayores a 0 para devolver');
+    }
+
+    // 3. Ejecutar transacción atómica de devolución
+    const resultadoTransaccion = await this.prisma.$transaction(async (tx) => {
+      // A. Manejo de Stock físico
+      if (destinoStock === 'REINGRESO_INVENTARIO') {
+        for (const item of lineasAProcesar) {
+          const stockTalla = await tx.stockByTalla.findFirst({
+            where: { productId: item.line.productId, tallaId: item.line.tallaId },
+          });
+
+          if (stockTalla) {
+            await tx.stockByTalla.update({
+              where: { id: stockTalla.id },
+              data: { quantity: { increment: item.cantidadADevolver } },
+            });
+          }
+
+          await tx.stockMovement.create({
+            data: {
+              productId: item.line.productId,
+              tallaId: item.line.tallaId,
+              type: MovimientoTipo.AJUSTE,
+              quantity: item.cantidadADevolver,
+              reason: `Devolución de cliente: ${dto.motivo} (Pedido #${pedido.id.slice(0, 8)})`,
+              referenceId: pedido.id,
+              userId,
+            },
+          });
+        }
+      }
+
+      // B. Ajuste de Cartera / Cobro del Pedido y FIFO de Deuda
+      let montoRestante = montoTotalDevuelto;
+      let deudaDescontadaTotal = 0;
+
+      const saleNote = await tx.saleNote.findFirst({
+        where: { orderId: pedido.id },
+        include: { cobro: true },
+      });
+
+      const cobrosPendientes = await tx.cobro.findMany({
+        where: {
+          clientId: pedido.clientId,
+          tenantId: pedido.tenantId,
+          saldoPendiente: { gt: 0 },
+        },
+        orderBy: { createdAt: 'asc' },
+      });
+
+      // Si el cobro del pedido existe y está pendiente, priorizarlo al frente
+      if (saleNote?.cobro && cobrosPendientes.some((c) => c.id === saleNote.cobro!.id)) {
+        const idx = cobrosPendientes.findIndex((c) => c.id === saleNote.cobro!.id);
+        if (idx > -1) {
+          const [cobroPed] = cobrosPendientes.splice(idx, 1);
+          cobrosPendientes.unshift(cobroPed);
+        }
+      }
+
+      for (const cobro of cobrosPendientes) {
+        if (montoRestante <= 0) break;
+        const saldoActual = Number(cobro.saldoPendiente);
+        const descuento = Math.min(montoRestante, saldoActual);
+
+        const nuevoSaldo = Math.max(0, Math.round((saldoActual - descuento) * 100) / 100);
+        const nuevoMonto = Math.max(0, Math.round((Number(cobro.montoTotal) - descuento) * 100) / 100);
+        const nuevoEstado = nuevoSaldo === 0 ? CobroEstado.SALDADO : cobro.estado;
+
+        await tx.cobro.update({
+          where: { id: cobro.id },
+          data: {
+            saldoPendiente: nuevoSaldo,
+            montoTotal: nuevoMonto,
+            estado: nuevoEstado,
+          },
+        });
+
+        montoRestante -= descuento;
+        deudaDescontadaTotal += descuento;
+
+        await tx.movimientoFinanciero.create({
+          data: {
+            tenantId: pedido.tenantId,
+            tipo: 'DESCUENTO_DEVOLUCION_CLIENTE',
+            referenciaId: cobro.id,
+            referenciaTabla: 'Cobro',
+            clientId: pedido.clientId,
+            monto: descuento,
+            descripcion: `Descuento de $${descuento.toFixed(2)} por devolución de calzado (${totalParesADevolver} pares) en Pedido #${pedido.id.slice(0, 8)}`,
+            userId,
+          },
+        });
+      }
+
+      // C. Saldo a favor si el monto devuelto supera la deuda pendiente del cliente
+      const saldoAFavor = Math.max(0, Math.round(montoRestante * 100) / 100);
+      if (saldoAFavor > 0) {
+        const clienteActual = await tx.client.findUnique({ where: { id: pedido.clientId } });
+        const saldoAnterior = clienteActual ? Number(clienteActual.saldoAFavor || 0) : 0;
+        await tx.client.update({
+          where: { id: pedido.clientId },
+          data: { saldoAFavor: saldoAnterior + saldoAFavor },
+        });
+
+        await tx.movimientoFinanciero.create({
+          data: {
+            tenantId: pedido.tenantId,
+            tipo: 'SALDO_FAVOR_CLIENTE',
+            referenciaId: pedido.clientId,
+            referenciaTabla: 'Client',
+            clientId: pedido.clientId,
+            monto: saldoAFavor,
+            descripcion: `Saldo a favor de $${saldoAFavor.toFixed(2)} generado por devolución en Pedido #${pedido.id.slice(0, 8)}`,
+            userId,
+          },
+        });
+      }
+
+      // D. Ajustar crédito utilizado del cliente
+      if (deudaDescontadaTotal > 0) {
+        const client = await tx.client.findUnique({ where: { id: pedido.clientId } });
+        if (client) {
+          const nuevoCreditoUtilizado = Math.max(0, Number(client.creditoUtilizado || 0) - deudaDescontadaTotal);
+          await tx.client.update({
+            where: { id: pedido.clientId },
+            data: { creditoUtilizado: nuevoCreditoUtilizado },
+          });
+        }
+      }
+
+      // E. Crear registro formal ClienteDevolucion y sus líneas
+      const estadoDevolucion = destinoStock === 'BAJA_POR_FALLA'
+        ? 'PENDIENTE_DEVOLUCION_PROVEEDOR'
+        : 'COMPLETADO';
+
+      const motivoCompleto = `[${destinoStock === 'BAJA_POR_FALLA' ? 'MERMA/BAJA POR FALLA' : 'REINGRESO A BODEGA'}] ${dto.motivo.trim()}`;
+
+      const devolucion = await tx.clienteDevolucion.create({
+        data: {
+          tenantId: pedido.tenantId,
+          saleNoteId: saleNote?.id || null,
+          orderId: pedido.id,
+          clientId: pedido.clientId,
+          motivo: motivoCompleto,
+          totalDevuelto: montoTotalDevuelto,
+          estado: estadoDevolucion,
+          destinoStock,
+          deudaDescontada: deudaDescontadaTotal,
+          saldoAFavor,
+          lines: {
+            create: lineasAProcesar.map((item) => ({
+              productId: item.line.productId,
+              tallaId: item.line.tallaId,
+              cantidad: item.cantidadADevolver,
+              precioUnitario: Number(item.line.precioUnitario),
+              subtotal: item.subtotal,
+            })),
+          },
+        },
+        include: { lines: true },
+      });
+
+      // F. Actualizar notas del pedido para bitácora trazable
+      const notaDevolucion = `[Devolución ${totalParesADevolver} pares ($${montoTotalDevuelto.toFixed(2)}) - ${dto.motivo}]: ${new Date().toLocaleDateString('es-EC')}`;
+      const notasActualizadas = pedido.notas ? `${pedido.notas} | ${notaDevolucion}` : notaDevolucion;
+
+      await tx.order.update({
+        where: { id: pedido.id },
+        data: { notas: notasActualizadas },
+      });
+
+      return {
+        devolucion,
+        resumen: {
+          totalParesDevueltos: totalParesADevolver,
+          montoTotalDevuelto,
+          deudaDescontada: deudaDescontadaTotal,
+          saldoAFavor,
+          destinoStock,
+        },
+      };
+    });
+
+    const pedidoActualizado = await this.queryService.obtenerPedido(pedido.id);
+
+    return {
+      success: true,
+      message: `Devolución de ${resultadoTransaccion.resumen.totalParesDevueltos} pares registrada con éxito. Se descontó $${resultadoTransaccion.resumen.deudaDescontada.toFixed(2)} de la cartera.${resultadoTransaccion.resumen.saldoAFavor > 0 ? ` Saldo a favor del cliente: $${resultadoTransaccion.resumen.saldoAFavor.toFixed(2)}.` : ''}`,
+      devolucion: resultadoTransaccion.devolucion,
+      resumen: resultadoTransaccion.resumen,
+      pedido: pedidoActualizado,
+    };
+  }
+
+  /**
+   * Endpoint para consultar las devoluciones registradas de un pedido.
+   */
+  @Get(':id/devoluciones')
+  @Roles(Rol.ROL_ADMIN, Rol.ROL_VENDEDOR, Rol.ROL_SUPER_ADMIN)
+  async obtenerDevolucionesPedido(@Param('id') id: string) {
+    const devoluciones = await this.prisma.clienteDevolucion.findMany({
+      where: { orderId: id },
+      include: { lines: true },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    return devoluciones;
   }
 
   /**

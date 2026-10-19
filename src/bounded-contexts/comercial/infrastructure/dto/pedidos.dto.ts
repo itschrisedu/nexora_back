@@ -262,3 +262,32 @@ export class RevertirEntregaDto {
   @IsString()
   motivo?: string;
 }
+
+export class ItemADevolverPedidoDto {
+  @IsString()
+  @IsNotEmpty()
+  lineId!: string;
+
+  @IsInt()
+  @Min(1)
+  cantidadADevolver!: number;
+
+  @IsOptional()
+  @IsString()
+  motivoLinea?: string;
+}
+
+export class RegistrarDevolucionPedidoDto {
+  @IsString()
+  @IsNotEmpty()
+  motivo!: string;
+
+  @IsOptional()
+  @IsString()
+  destinoStock?: 'REINGRESO_INVENTARIO' | 'BAJA_POR_FALLA';
+
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => ItemADevolverPedidoDto)
+  items!: ItemADevolverPedidoDto[];
+}

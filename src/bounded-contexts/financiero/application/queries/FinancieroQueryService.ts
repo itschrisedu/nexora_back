@@ -446,7 +446,7 @@ export class FinancieroQueryService {
 
     const whereTenant = tenantId ? { tenantId } : {};
 
-    const [pedidos, notasVenta, cobros] = await Promise.all([
+    const [pedidos, notasVenta, cobros, devolucionesCliente] = await Promise.all([
       this.prisma.order.findMany({
         where: {
           clientId,
@@ -466,10 +466,18 @@ export class FinancieroQueryService {
         include: { abonos: { orderBy: { createdAt: 'desc' } }, saleNote: true },
         orderBy: { createdAt: 'desc' },
       }),
+      this.prisma.clienteDevolucion.findMany({
+        where: { clientId, ...whereTenant },
+        include: { lines: true },
+        orderBy: { createdAt: 'desc' },
+      }),
     ]);
 
-    // Recolectar productos y tallas para formatear las líneas de pedido
-    const allLines = pedidos.flatMap((p) => p.lines || []);
+    // Recolectar productos y tallas para formatear las líneas de pedido y devoluciones
+    const allLines = [
+      ...pedidos.flatMap((p: any) => p.lines || []),
+      ...devolucionesCliente.flatMap((d: any) => d.lines || []),
+    ];
     const productIds = Array.from(new Set(allLines.map((l) => l.productId).filter(Boolean)));
     const tallaIds = Array.from(new Set(allLines.map((l) => l.tallaId).filter(Boolean)));
 
@@ -634,7 +642,50 @@ export class FinancieroQueryService {
       });
     });
 
-    // 3. Corrida contable estricta: Ordenar cronológicamente (más antiguo primero) para calcular Saldo Anterior y Nuevo Saldo
+    // 3. Devoluciones de mercadería del cliente
+    devolucionesCliente.forEach((d: any) => {
+      const formattedDevLines = (d.lines || []).map((l: any) => {
+        const prod = productMap.get(l.productId);
+        const numeroTalla = tallaMap.get(l.tallaId);
+        return {
+          id: l.id,
+          productId: l.productId,
+          cantidad: l.cantidad,
+          precioUnitario: Number(l.precioUnitario || 0),
+          subtotal: Number(l.subtotal || l.cantidad * Number(l.precioUnitario || 0)),
+          modelName: prod?.model?.name || 'Calzado',
+          color: prod?.color || '',
+          imageUrl: prod?.imageUrl || null,
+          serieNombre: prod?.serie?.nombre || 'Estándar',
+          numeroTalla: numeroTalla ?? 0,
+        };
+      });
+
+      const totalPares = (d.lines || []).reduce((acc: number, l: any) => acc + l.cantidad, 0);
+
+      movimientos.push({
+        id: `devolucion-${d.id}`,
+        tipo: 'DEVOLUCION',
+        titulo: `Devolución de Calzado (${totalPares} pares)`,
+        descripcion: d.motivo || 'Devolución de mercadería',
+        monto: Number(d.deudaDescontada || d.totalDevuelto),
+        totalDevuelto: Number(d.totalDevuelto),
+        deudaDescontada: Number(d.deudaDescontada || 0),
+        saldoAFavor: Number(d.saldoAFavor || 0),
+        fecha: d.createdAt,
+        detalles: {
+          devolucionId: d.id,
+          orderId: d.orderId,
+          saleNoteId: d.saleNoteId,
+          destinoStock: d.destinoStock,
+          estado: d.estado,
+          totalPares,
+          lineas: formattedDevLines,
+        },
+      });
+    });
+
+    // 4. Corrida contable estricta: Ordenar cronológicamente (más antiguo primero) para calcular Saldo Anterior y Nuevo Saldo
     const movsCronologicos = [...movimientos].sort(
       (a, b) => new Date(a.fecha).getTime() - new Date(b.fecha).getTime(),
     );
