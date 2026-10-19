@@ -24,10 +24,19 @@ export class MlController {
     @Request() req: any,
     @Query('dias') dias?: string,
     @Query('temporada') temporada?: string,
+    @Query('colorExacto') colorExacto?: string,
+    @Query('color') color?: string,
   ) {
     const tenantId = req.user.tenantId;
     const horizonte = dias ? parseInt(dias, 10) : 30;
-    return this.mlBridge.obtenerPrediccion(tenantId, horizonte, temporada || 'REGULAR');
+    const isColorExacto = colorExacto === undefined ? true : colorExacto === 'true';
+    return this.mlBridge.obtenerPrediccion(
+      tenantId,
+      horizonte,
+      temporada || 'REGULAR',
+      isColorExacto,
+      color,
+    );
   }
 
   /**
@@ -37,13 +46,21 @@ export class MlController {
   @Post('prediccion')
   async prediccion(
     @Request() req: any,
-    @Body() body: { horizonteDias?: number; temporada?: string },
+    @Body()
+    body: {
+      horizonteDias?: number;
+      temporada?: string;
+      colorExacto?: boolean;
+      color?: string;
+    },
   ) {
     const tenantId = req.user.tenantId;
     return this.mlBridge.obtenerPrediccion(
       tenantId,
       body.horizonteDias ?? 30,
       body.temporada ?? 'REGULAR',
+      body.colorExacto ?? true,
+      body.color,
     );
   }
 

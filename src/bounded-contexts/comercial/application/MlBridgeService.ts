@@ -17,10 +17,25 @@ export class MlBridgeService {
   constructor(private readonly prisma: PrismaService) {}
 
   /**
+   * Helper para determinar si un color es puro o compuesto.
+   */
+  public esColorPuro(color?: string | null): boolean {
+    if (!color) return true;
+    const c = color.trim().toLowerCase();
+    return !c.includes(' con ') && !c.includes(' y ') && !c.includes('/') && !c.includes('+') && !c.includes('-');
+  }
+
+  /**
    * Obtener predicción de demanda para un tenant.
    * Extrae las ventas históricas y las envía al microservicio Python, enriqueciendo con stock actual.
    */
-  async obtenerPrediccion(tenantId: string, horizonteDias = 30, temporada = 'REGULAR') {
+  async obtenerPrediccion(
+    tenantId: string,
+    horizonteDias = 30,
+    temporada = 'REGULAR',
+    colorExacto = true,
+    colorFiltro?: string,
+  ) {
     // 1. Extraer ventas históricas del tenant
     const ventas = await this.extraerVentasHistoricas(tenantId);
 
@@ -29,7 +44,17 @@ export class MlBridgeService {
 
     if (ventas.length < 10) {
       // Heurística de predicción estacional para negocios con historial inicial
-      return this.generarPrediccionHeuristica(tenantId, ventas, horizonteDias, temporada, stockActualMap, modelsMap, productModels);
+      return this.generarPrediccionHeuristica(
+        tenantId,
+        ventas,
+        horizonteDias,
+        temporada,
+        stockActualMap,
+        modelsMap,
+        productModels,
+        colorExacto,
+        colorFiltro,
+      );
     }
 
     // 2. Llamar al microservicio ML
@@ -74,6 +99,7 @@ export class MlBridgeService {
           const deficit = Math.max(0, p.demanda_estimada - stockActual);
           const imageUrl = stockInfo.imageUrl || modelInfo?.primaryImageUrl || null;
           const variantes = modelInfo?.variantes || [];
+          const colorVal = stockInfo.color || (variantes.length === 1 ? variantes[0].color : null) || p.color;
           return {
             ...p,
             stock_actual: stockActual,
@@ -83,21 +109,48 @@ export class MlBridgeService {
             productId: stockInfo.productId,
             imageUrl,
             fotoUrl: imageUrl,
-            color: stockInfo.color || (variantes.length === 1 ? variantes[0].color : null),
+            color: colorVal,
+            colorPuro: this.esColorPuro(colorVal),
             modelId: stockInfo.modelId || modelInfo?.modelId,
             variantes,
             inversion_reorden_estimada: deficit * stockInfo.precioCosto,
           };
         });
+
+        // Filtrado por color exacto vs compuesto si se solicita
+        if (colorFiltro && colorFiltro.trim()) {
+          const cTarget = colorFiltro.trim().toLowerCase();
+          prediccion.predicciones = prediccion.predicciones.filter((p: any) => {
+            const pColor = (p.color || '').trim().toLowerCase();
+            if (colorExacto) {
+              return pColor === cTarget;
+            } else {
+              return pColor.includes(cTarget);
+            }
+          });
+          prediccion.total_productos_analizados = prediccion.predicciones.length;
+        }
       }
 
       this.logger.log(
         `Predicción estacional (${temporada}) generada para tenant=${tenantId}: ${prediccion.total_productos_analizados} productos`,
       );
+      prediccion.color_filtro = colorFiltro || null;
+      prediccion.color_exacto = colorExacto;
       return prediccion;
     } catch (error: any) {
       this.logger.warn(`Fallback a heurística estacional por error ML: ${error.message}`);
-      return this.generarPrediccionHeuristica(tenantId, ventas, horizonteDias, temporada, stockActualMap, modelsMap, productModels);
+      return this.generarPrediccionHeuristica(
+        tenantId,
+        ventas,
+        horizonteDias,
+        temporada,
+        stockActualMap,
+        modelsMap,
+        productModels,
+        colorExacto,
+        colorFiltro,
+      );
     }
   }
 
@@ -221,6 +274,8 @@ export class MlBridgeService {
     stockMap: Map<string, any>,
     modelsMap?: Map<string, any>,
     cachedProducts?: any[],
+    colorExacto = true,
+    colorFiltro?: string,
   ) {
     const products = cachedProducts && cachedProducts.length > 0
       ? cachedProducts.flatMap((pm: any) => pm.products || [])
@@ -291,7 +346,7 @@ export class MlBridgeService {
     const tempCfg = TEMPORADAS_INFO[temporada] || TEMPORADAS_INFO.REGULAR;
     const factorBaseHorizonte = horizonteDias / 30;
 
-    const predicciones: any[] = [];
+    let predicciones: any[] = [];
     const alertas: string[] = [];
 
     for (const prod of products) {
@@ -347,6 +402,7 @@ export class MlBridgeService {
           imageUrl: imgUrl,
           fotoUrl: imgUrl,
           color: prod.color,
+          colorPuro: this.esColorPuro(prod.color),
           variantes: variantesList,
           inversion_reorden_estimada: deficit * precioCosto,
           confianza: totalVendidas >= 5 ? 0.92 : 0.85,
@@ -354,6 +410,19 @@ export class MlBridgeService {
           sugerencia_reorden: sugerenciaReorden,
         });
       }
+    }
+
+    // Filtrar por color exacto vs compuesto si se solicitó
+    if (colorFiltro && colorFiltro.trim()) {
+      const cTarget = colorFiltro.trim().toLowerCase();
+      predicciones = predicciones.filter((p: any) => {
+        const pColor = (p.color || '').trim().toLowerCase();
+        if (colorExacto) {
+          return pColor === cTarget;
+        } else {
+          return pColor.includes(cTarget);
+        }
+      });
     }
 
     // Ordenar por mayor demanda estimada
@@ -377,6 +446,8 @@ export class MlBridgeService {
       modelo_score: 0.88,
       alerta_stock_bajo: alertas,
       es_heuristico: ventas.length < 10,
+      color_filtro: colorFiltro || null,
+      color_exacto: colorExacto,
     };
   }
 
@@ -496,6 +567,7 @@ export class MlBridgeService {
     const ventas: Array<{
       fecha: string;
       modelo: string;
+      color: string;
       serie: string;
       talla: number;
       cantidad: number;
@@ -514,6 +586,7 @@ export class MlBridgeService {
         ventas.push({
           fecha: order.createdAt.toISOString().split('T')[0],
           modelo: producto.model?.name ?? 'Desconocido',
+          color: producto.color ?? '',
           serie: serie.nombre,
           talla: talla.numero,
           cantidad: line.cantidad,
