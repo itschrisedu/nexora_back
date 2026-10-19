@@ -179,6 +179,176 @@ export class ProveedoresController {
   // ÓRDENES DE COMPRA (SUPPLIER ORDERS) — RUTAS ESTÁTICAS PRIMERO
   // ══════════════════════════════════════════
 
+  // ──────────────────────────────────────────
+  // FASE 5.2 — Consolidación de Demanda para Órdenes de Compra
+  // ──────────────────────────────────────────
+  @Get('demanda-pendiente')
+  @Roles(Rol.ROL_ADMIN, Rol.ROL_VENDEDOR, Rol.ROL_BODEGUERO, Rol.ROL_SUPER_ADMIN)
+  async obtenerDemandaPendiente(@Query('supplierId') supplierId?: string) {
+    // 1. Buscar todos los pedidos no cancelados que están esperando stock o pendientes
+    const pedidosPendientes = await this.prisma.order.findMany({
+      where: {
+        estado: { in: ['EN_ESPERA_STOCK', 'PENDIENTE', 'EN_PREPARACION'] },
+      },
+      include: {
+        lines: true,
+      },
+      orderBy: { createdAt: 'asc' },
+    });
+
+    // 2. Extraer todas las líneas que tengan déficit de stock
+    const demandaMap = new Map<string, {
+      productId: string;
+      modelName: string;
+      color: string;
+      serieNombre: string;
+      imageUrl: string | null;
+      costPrice: number;
+      supplierId: string | null;
+      supplierName: string | null;
+      tallasMap: Map<string, { tallaId: string; tallaNumero: number; paresFaltantes: number; stockActual: number }>;
+      pedidosMap: Map<string, { orderId: string; numero: number | string; pares: number }>;
+    }>();
+
+    for (const ped of pedidosPendientes) {
+      for (const line of ped.lines) {
+        const cantPendiente = line.cantidad - (line.cantidadEntregada || 0);
+        if (cantPendiente <= 0) continue;
+
+        // Consultar stock de la talla
+        const stockTalla = await this.prisma.stockByTalla.findUnique({
+          where: {
+            productId_tallaId: {
+              productId: line.productId,
+              tallaId: line.tallaId,
+            },
+          },
+          include: { talla: true },
+        });
+
+        const stockDisp = stockTalla ? Math.max(0, stockTalla.quantity - stockTalla.reservedQuantity) : 0;
+        const faltante = Math.max(0, cantPendiente - stockDisp);
+
+        // Si hay faltante o el pedido está formalmente en espera de stock
+        if (faltante > 0 || ped.estado === 'EN_ESPERA_STOCK') {
+          const paresRequeridos = faltante > 0 ? faltante : cantPendiente;
+
+          // Obtener información del producto
+          if (!demandaMap.has(line.productId)) {
+            const prod = await this.prisma.product.findUnique({
+              where: { id: line.productId },
+              include: {
+                model: { include: { supplier: true } },
+                supplier: true,
+                serie: true,
+              },
+            });
+
+            if (prod) {
+              const assignedSupplier = prod.supplier || prod.model?.supplier || null;
+              demandaMap.set(line.productId, {
+                productId: prod.id,
+                modelName: prod.model?.name || 'Modelo',
+                color: prod.color || '',
+                serieNombre: prod.serie?.nombre || 'ADULTO',
+                imageUrl: prod.imageUrl || null,
+                costPrice: Number(prod.costPrice || 0),
+                supplierId: assignedSupplier?.id || null,
+                supplierName: assignedSupplier ? (assignedSupplier.razonSocial || assignedSupplier.contacto || 'Proveedor Asignado') : 'Sin Proveedor Asignado',
+                tallasMap: new Map(),
+                pedidosMap: new Map(),
+              });
+            }
+          }
+
+          const entry = demandaMap.get(line.productId);
+          if (entry) {
+            const numTalla = stockTalla?.talla?.numero || 0;
+            const tEntry = entry.tallasMap.get(line.tallaId) || {
+              tallaId: line.tallaId,
+              tallaNumero: numTalla,
+              paresFaltantes: 0,
+              stockActual: stockDisp,
+            };
+            tEntry.paresFaltantes += paresRequeridos;
+            entry.tallasMap.set(line.tallaId, tEntry);
+
+            const numPedido = ped.id.slice(0, 8).toUpperCase();
+            const pEntry = entry.pedidosMap.get(ped.id) || {
+              orderId: ped.id,
+              numero: numPedido,
+              pares: 0,
+            };
+            pEntry.pares += paresRequeridos;
+            entry.pedidosMap.set(ped.id, pEntry);
+          }
+        }
+      }
+    }
+
+    // 3. Formatear la respuesta agrupada
+    let resultado = Array.from(demandaMap.values()).map((item) => {
+      const tallas = Array.from(item.tallasMap.values()).sort((a, b) => a.tallaNumero - b.tallaNumero);
+      const totalParesFaltantes = tallas.reduce((acc, t) => acc + t.paresFaltantes, 0);
+      const pedidosAfectados = Array.from(item.pedidosMap.values());
+
+      return {
+        productId: item.productId,
+        modelName: item.modelName,
+        color: item.color,
+        serieNombre: item.serieNombre,
+        imageUrl: item.imageUrl,
+        costPrice: item.costPrice,
+        supplierId: item.supplierId,
+        supplierName: item.supplierName,
+        totalParesFaltantes,
+        tallas,
+        pedidosAfectados,
+        subtotalEstimado: totalParesFaltantes * item.costPrice,
+      };
+    });
+
+    if (supplierId) {
+      resultado = resultado.filter((r) => r.supplierId === supplierId);
+    }
+
+    return {
+      totalModelos: resultado.length,
+      totalParesFaltantes: resultado.reduce((sum, r) => sum + r.totalParesFaltantes, 0),
+      items: resultado,
+    };
+  }
+
+  @Post('ordenes-compra/consolidar-demanda')
+  @Roles(Rol.ROL_ADMIN, Rol.ROL_VENDEDOR, Rol.ROL_BODEGUERO, Rol.ROL_SUPER_ADMIN)
+  async consolidarDemanda(@Body() dto: CrearSupplierOrderDto) {
+    if (!dto.supplierId) {
+      throw new BadRequestException('El proveedor es obligatorio para consolidar la orden.');
+    }
+    if (!dto.lines || dto.lines.length === 0) {
+      throw new BadRequestException('Debe incluir al menos un calzado para consolidar.');
+    }
+
+    const obsConsolidada = dto.observaciones
+      ? `[Consolidación de Demanda de Clientes]: ${dto.observaciones}`
+      : `[Consolidación de Demanda]: Orden generada automáticamente a partir de pedidos de clientes en espera de stock.`;
+
+    const id = await this.crearOrderHandler.execute(
+      new CrearSupplierOrderCommand(
+        dto.supplierId,
+        dto.lines,
+        obsConsolidada,
+        dto.estado || 'BORRADOR',
+      ),
+    );
+
+    return {
+      ok: true,
+      id,
+      message: 'Orden de compra consolidada generada con éxito.',
+    };
+  }
+
   @Post('ordenes-compra')
   @Roles(Rol.ROL_ADMIN, Rol.ROL_VENDEDOR, Rol.ROL_BODEGUERO, Rol.ROL_SUPER_ADMIN)
   async crearOrdenCompra(@Body() dto: CrearSupplierOrderDto) {

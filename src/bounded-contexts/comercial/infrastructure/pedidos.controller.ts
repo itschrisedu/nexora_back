@@ -262,6 +262,141 @@ export class PedidosController {
     };
   }
 
+  // ──────────────────────────────────────────
+  // FASE 5.1 — Alternancia Automática de Medias Docenas (Serie A / B)
+  // ──────────────────────────────────────────
+  @Get('curva-sugerida')
+  @Roles(Rol.ROL_ADMIN, Rol.ROL_VENDEDOR, Rol.ROL_BODEGUERO)
+  async obtenerCurvaSugerida(
+    @Query('productId') productId?: string,
+    @Query('modelId') modelId?: string,
+  ) {
+    if (!productId && !modelId) {
+      return {
+        curvaSugerida: 'MEDIA_A',
+        ultimaCurvaUsada: null,
+        razon: 'DEFAULT',
+        alternada: false,
+        stockMediasA: 0,
+        stockMediasB: 0,
+      };
+    }
+
+    // 1. Obtener los IDs de producto vinculados al modelo o producto
+    let targetProductIds: string[] = [];
+    if (productId) targetProductIds.push(productId);
+    if (modelId) {
+      const prods = await this.prisma.product.findMany({
+        where: { modelId },
+        select: { id: true },
+      });
+      targetProductIds = Array.from(new Set([...targetProductIds, ...prods.map((p) => p.id)]));
+    }
+
+    // 2. Buscar las órdenes anteriores no canceladas para detectar la última curva usada
+    const ultimasLineas = await this.prisma.orderLine.findMany({
+      where: {
+        productId: { in: targetProductIds },
+        order: { estado: { not: 'CANCELADO' } },
+      },
+      orderBy: { order: { createdAt: 'desc' } },
+      take: 20,
+      include: {
+        order: { select: { id: true, createdAt: true } },
+      },
+    });
+
+    let ultimaCurvaUsada: 'MEDIA_A' | 'MEDIA_B' | null = null;
+    if (ultimasLineas.length > 0) {
+      const ultimoOrderId = ultimasLineas[0].orderId;
+      const lineasUltimaOrden = ultimasLineas.filter((l) => l.orderId === ultimoOrderId);
+
+      const tallasIds = lineasUltimaOrden.map((l) => l.tallaId);
+      const tallasConfig = await this.prisma.tallaConfig.findMany({
+        where: { id: { in: tallasIds } },
+      });
+      const tallaMap = new Map(tallasConfig.map((t) => [t.id, t.numero]));
+
+      let cant39 = 0;
+      let cant40 = 0;
+      for (const l of lineasUltimaOrden) {
+        const num = tallaMap.get(l.tallaId);
+        if (num === 39 || num === 35) cant39 += l.cantidad;
+        if (num === 40 || num === 36) cant40 += l.cantidad;
+      }
+
+      if (cant39 > cant40) {
+        ultimaCurvaUsada = 'MEDIA_A';
+      } else if (cant40 > cant39) {
+        ultimaCurvaUsada = 'MEDIA_B';
+      }
+    }
+
+    // 3. Determinar la curva alterna
+    const curvaAlterna: 'MEDIA_A' | 'MEDIA_B' = ultimaCurvaUsada === 'MEDIA_A' ? 'MEDIA_B' : 'MEDIA_A';
+
+    // 4. Evaluar el stock disponible en bodega para ambas curvas
+    let stockA = 999;
+    let stockB = 999;
+    const targetProdId = productId || (targetProductIds.length > 0 ? targetProductIds[0] : null);
+
+    if (targetProdId) {
+      const prod = await this.prisma.product.findUnique({
+        where: { id: targetProdId },
+        include: {
+          stockByTalla: { include: { talla: true } },
+        },
+      });
+
+      if (prod && prod.stockByTalla && prod.stockByTalla.length > 0) {
+        for (const s of prod.stockByTalla) {
+          const num = s.talla?.numero;
+          const disp = Math.max(0, s.quantity - s.reservedQuantity);
+          if (num === 39) {
+            stockA = Math.min(stockA, Math.floor(disp / 2));
+            stockB = Math.min(stockB, disp);
+          } else if (num === 40) {
+            stockA = Math.min(stockA, disp);
+            stockB = Math.min(stockB, Math.floor(disp / 2));
+          } else if (num !== undefined) {
+            stockA = Math.min(stockA, disp);
+            stockB = Math.min(stockB, disp);
+          }
+        }
+      }
+    }
+
+    const tieneStockA = stockA > 0 && stockA !== 999;
+    const tieneStockB = stockB > 0 && stockB !== 999;
+
+    let curvaSugerida: 'MEDIA_A' | 'MEDIA_B' = curvaAlterna;
+    let razon = 'ALTERNANCIA';
+    let alternada = Boolean(ultimaCurvaUsada);
+
+    if (curvaAlterna === 'MEDIA_A' && !tieneStockA && tieneStockB) {
+      curvaSugerida = 'MEDIA_B';
+      razon = 'STOCK_DISPONIBLE';
+      alternada = false;
+    } else if (curvaAlterna === 'MEDIA_B' && !tieneStockB && tieneStockA) {
+      curvaSugerida = 'MEDIA_A';
+      razon = 'STOCK_DISPONIBLE';
+      alternada = false;
+    } else if (!tieneStockA && !tieneStockB) {
+      curvaSugerida = curvaAlterna;
+      razon = 'SIN_STOCK';
+      alternada = Boolean(ultimaCurvaUsada);
+    }
+
+    return {
+      curvaSugerida,
+      ultimaCurvaUsada,
+      razon,
+      alternada,
+      stockMediasA: stockA === 999 ? 0 : stockA,
+      stockMediasB: stockB === 999 ? 0 : stockB,
+    };
+  }
+
   // La ruta dinámica :id DEBE ir después de todas las rutas estáticas GET
   @Get(':id')
   @Roles(Rol.ROL_ADMIN, Rol.ROL_VENDEDOR, Rol.ROL_BODEGUERO)
