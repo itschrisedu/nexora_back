@@ -346,8 +346,17 @@ export class CrearPedidoHandler {
               .join(', ');
             const detallePedido = `Pedido #${refPedido} (${nombreCliente}) - Faltan: ${tallasStr} (${info.totalFaltante} pares) + 12 extra de stock`;
 
-            const obsLineaUsuario = command.lineas.find((l) => l.productId === prodId && l.observacion?.trim())?.observacion?.trim();
-            const obsFinalLinea = obsLineaUsuario ? `${detallePedido} | Nota: ${obsLineaUsuario}` : detallePedido;
+            const lineasConObs = command.lineas.filter((l) => l.productId === prodId && l.observacion?.trim());
+            const obsConTallas = lineasConObs
+              .map((l) => {
+                const prodTalla = lineasProducto.find((lp) => lp.productId === prodId && lp.tallaId === l.tallaId);
+                const tallaNum = prodTalla?.tallaNumero || (l as any).tallaNumero;
+                const tallaStr = tallaNum ? `[T${tallaNum}]: ` : '';
+                return `${tallaStr}${l.observacion?.trim()}`;
+              })
+              .join(' • ');
+
+            const obsFinalLinea = obsConTallas ? `${detallePedido} | Nota: ${obsConTallas}` : detallePedido;
 
             if (!supplierGroups.has(supplierId)) supplierGroups.set(supplierId, []);
             supplierGroups.get(supplierId)!.push({
