@@ -17,7 +17,7 @@ import {
 import { JwtAuthGuard } from '../../../auth/jwt-auth.guard';
 import { RolesGuard } from '../../../shared/guards/roles.guard';
 import { Roles } from '../../../shared/guards/roles.decorator';
-import { Rol, EstadoPedido, MovimientoTipo } from '@prisma/client';
+import { Rol, EstadoPedido, MovimientoTipo, CobroEstado } from '@prisma/client';
 import {
   CrearPedidoDto,
   CancelarPedidoDto,
@@ -319,18 +319,34 @@ export class PedidosController {
       throw new BadRequestException(`No se puede editar un pedido en estado "${pedidoExistente.estado}"`);
     }
 
-    // 1. Eliminar líneas anteriores
+    // 0. Liberar y cancelar reservas previas de inventario asociadas a este pedido
+    const reservasPrevias = await this.prisma.stockReservation.findMany({
+      where: { referenceId: id, canceled: false },
+    });
+    for (const res of reservasPrevias) {
+      await this.prisma.stockReservation.update({
+        where: { id: res.id },
+        data: { canceled: true },
+      });
+      await this.prisma.stockByTalla.updateMany({
+        where: { productId: res.productId, tallaId: res.tallaId },
+        data: { reservedQuantity: { decrement: res.quantity } },
+      });
+    }
+
+    // 1. Eliminar líneas anteriores de la base de datos
     await this.prisma.orderLine.deleteMany({
       where: { orderId: id },
     });
 
-    // 2. Recrear las líneas y calcular total acumulado
+    // 2. Recrear exclusivamente las líneas que realmente quedaron en el pedido
     let montoTotal = 0;
     const nuevasLineasData: any[] = [];
-
     let tieneStockParaTodo = true;
 
     for (const l of dto.lineas) {
+      if (Number(l.cantidad) <= 0) continue;
+
       const prod = await this.prisma.product.findUnique({
         where: { id: l.productId },
         include: { stockByTalla: true },
@@ -347,6 +363,13 @@ export class PedidosController {
         tieneStockParaTodo = false;
       }
 
+      // Preservar si esta línea ya tenía entregas previas en este pedido
+      const lineaPrevia = pedidoExistente.lines.find(
+        (pl) => pl.productId === l.productId && pl.tallaId === l.tallaId,
+      );
+      const cantEntregadaPrevia = lineaPrevia ? (lineaPrevia.cantidadEntregada || 0) : 0;
+      const cantEntregada = Math.min(cantEntregadaPrevia, l.cantidad);
+
       const precioUnitario = (l.precioUnitario !== undefined && l.precioUnitario !== null && Number(l.precioUnitario) > 0)
         ? Number(l.precioUnitario)
         : Number(prod.salePrice);
@@ -359,6 +382,7 @@ export class PedidosController {
         tallaId: l.tallaId,
         serieId: prod.serieId || 'DEFAULT_SERIE',
         cantidad: l.cantidad,
+        cantidadEntregada: cantEntregada,
         precioUnitario,
         tipoVenta: l.tipoVenta || 'SERIE_COMPLETA',
       });
@@ -370,17 +394,34 @@ export class PedidosController {
       });
     }
 
-    // Determinar nuevo estado según stock si el pedido aún no está en preparación
-    let nuevoEstado = pedidoExistente.estado;
-    if (pedidoExistente.estado === 'PENDIENTE' || pedidoExistente.estado === 'EN_ESPERA_STOCK') {
+    // 3. Determinar nuevo estado exacto según las entregas y stock disponible
+    const todoEntregado = nuevasLineasData.length > 0 && nuevasLineasData.every((l) => (l.cantidadEntregada || 0) >= l.cantidad);
+    const algunEntregado = nuevasLineasData.some((l) => (l.cantidadEntregada || 0) > 0);
+
+    let nuevoEstado: EstadoPedido;
+    if (todoEntregado) {
+      nuevoEstado = EstadoPedido.ENTREGADO;
+    } else if (algunEntregado) {
+      nuevoEstado = EstadoPedido.ENTREGADO_PARCIAL;
+    } else if (pedidoExistente.estado === EstadoPedido.EN_PREPARACION) {
+      nuevoEstado = EstadoPedido.EN_PREPARACION;
+    } else {
       nuevoEstado = tieneStockParaTodo ? EstadoPedido.PENDIENTE : EstadoPedido.EN_ESPERA_STOCK;
     }
 
-    // 3. Actualizar monto y datos del pedido
+    // Desactivar cola de espera si el pedido ahora tiene stock completo
+    if (tieneStockParaTodo) {
+      await this.prisma.orderQueue.updateMany({
+        where: { orderId: id, activa: true },
+        data: { activa: false, activadaAt: new Date() },
+      });
+    }
+
+    // 4. Actualizar monto y datos del pedido
     await this.prisma.order.update({
       where: { id },
       data: {
-        montoTotal,
+        montoTotal: Math.round(montoTotal * 100) / 100,
         estado: nuevoEstado,
         tipoPago: dto.tipoPago || pedidoExistente.tipoPago,
         notas: dto.notas !== undefined ? dto.notas : pedidoExistente.notas,
@@ -397,7 +438,12 @@ export class PedidosController {
       },
     });
 
-    return { id, message: 'Pedido actualizado exitosamente', montoTotal, estado: nuevoEstado };
+    return {
+      id,
+      message: 'Pedido actualizado exitosamente con las líneas definitivas',
+      montoTotal: Math.round(montoTotal * 100) / 100,
+      estado: nuevoEstado,
+    };
   }
 
   @Put(':id/adelanto')
@@ -937,10 +983,13 @@ export class PedidosController {
         throw new NotFoundException(`La línea "${item.lineId}" no pertenece a este pedido`);
       }
 
-      const yaEntregado = line.cantidadEntregada || 0;
+      const yaEntregado = (line.cantidadEntregada !== null && line.cantidadEntregada !== undefined && line.cantidadEntregada > 0)
+        ? line.cantidadEntregada
+        : (pedido.estado === EstadoPedido.ENTREGADO ? line.cantidad : 0);
+
       if (item.cantidadARevertir > yaEntregado) {
         throw new BadRequestException(
-          `No se pueden revertir ${item.cantidadARevertir} pares de la línea ${item.lineId}: solo hay ${yaEntregado} pares entregados.`,
+          `No se pueden revertir ${item.cantidadARevertir} pares de la línea seleccionada: solo hay ${yaEntregado} pares entregados registrados.`,
         );
       }
 
@@ -956,12 +1005,16 @@ export class PedidosController {
     for (const item of dto.items) {
       if (item.cantidadARevertir <= 0) continue;
       const line = pedido.lines.find((l) => l.id === item.lineId)!;
+      const yaEntregado = (line.cantidadEntregada !== null && line.cantidadEntregada !== undefined && line.cantidadEntregada > 0)
+        ? line.cantidadEntregada
+        : (pedido.estado === EstadoPedido.ENTREGADO ? line.cantidad : 0);
+      const nuevaCantEntregada = Math.max(0, yaEntregado - item.cantidadARevertir);
 
       // Decrementar cantidad entregada en la línea
       await this.prisma.orderLine.update({
         where: { id: line.id },
         data: {
-          cantidadEntregada: { decrement: item.cantidadARevertir },
+          cantidadEntregada: nuevaCantEntregada,
         },
       });
 
@@ -1004,13 +1057,13 @@ export class PedidosController {
       if (saldoPend > 0) {
         const reduccion = Math.min(remanenteAReducir, saldoPend);
         const nuevoSaldo = Math.round((saldoPend - reduccion) * 100) / 100;
-        const nuevoEstadoCobro = nuevoSaldo === 0 ? 'PAGADO' : 'PARCIALMENTE_PAGADO';
+        const nuevoEstadoCobro = nuevoSaldo === 0 ? CobroEstado.SALDADO : CobroEstado.PARCIALMENTE_PAGADO;
 
         await this.prisma.cobro.update({
           where: { id: cobro.id },
           data: {
             saldoPendiente: nuevoSaldo,
-            estado: nuevoEstadoCobro as any,
+            estado: nuevoEstadoCobro,
           },
         });
 
@@ -1020,7 +1073,7 @@ export class PedidosController {
             cobroId: cobro.id,
             monto: reduccion,
             metodo: 'AJUSTE',
-            notas: `Reversión de entrega errónea (-${reduccion.toFixed(2)}): ${dto.motivo || 'Restitución de pares entregados por error'}`,
+            notas: `Reversión de entrega errónea (-$${reduccion.toFixed(2)}): ${dto.motivo || 'Restitución de pares entregados por error'}`,
             userId,
           },
         });
@@ -1029,15 +1082,56 @@ export class PedidosController {
       }
     }
 
+    // Si aún queda remanente a descontar (ej. cobro generado sin saleNote directo), descontar en otros cobros pendientes del cliente
+    if (remanenteAReducir > 0) {
+      const otrosCobrosPendientes = await this.prisma.cobro.findMany({
+        where: {
+          clientId: pedido.clientId,
+          saldoPendiente: { gt: 0 },
+        },
+        orderBy: { createdAt: 'desc' },
+      });
+
+      for (const cobro of otrosCobrosPendientes) {
+        if (remanenteAReducir <= 0) break;
+        const saldoPend = Number(cobro.saldoPendiente || 0);
+        if (saldoPend > 0) {
+          const reduccion = Math.min(remanenteAReducir, saldoPend);
+          const nuevoSaldo = Math.round((saldoPend - reduccion) * 100) / 100;
+          const nuevoEstadoCobro = nuevoSaldo === 0 ? CobroEstado.SALDADO : CobroEstado.PARCIALMENTE_PAGADO;
+
+          await this.prisma.cobro.update({
+            where: { id: cobro.id },
+            data: {
+              saldoPendiente: nuevoSaldo,
+              estado: nuevoEstadoCobro,
+            },
+          });
+
+          await this.prisma.cobroAbono.create({
+            data: {
+              cobroId: cobro.id,
+              monto: reduccion,
+              metodo: 'AJUSTE',
+              notas: `Reversión de entrega errónea Pedido #${pedido.id.slice(0, 8)} (-$${reduccion.toFixed(2)})`,
+              userId,
+            },
+          });
+
+          remanenteAReducir = Math.round((remanenteAReducir - reduccion) * 100) / 100;
+        }
+      }
+    }
+
     // Recalcular crédito utilizado del cliente
     const todosCobrosPendientes = await this.prisma.cobro.findMany({
-      where: { clientId: pedido.clientId, estado: { in: ['PENDIENTE', 'PARCIALMENTE_PAGADO'] } },
+      where: { clientId: pedido.clientId, estado: { in: [CobroEstado.PENDIENTE, CobroEstado.PARCIALMENTE_PAGADO] } },
       select: { saldoPendiente: true },
     });
     const sumaDeuda = todosCobrosPendientes.reduce((acc, c) => acc + Number(c.saldoPendiente), 0);
     await this.prisma.client.update({
       where: { id: pedido.clientId },
-      data: { creditoUtilizado: sumaDeuda },
+      data: { creditoUtilizado: Math.max(0, Math.round(sumaDeuda * 100) / 100) },
     });
 
     // 4. Reevaluar estado global del pedido
@@ -1066,7 +1160,7 @@ export class PedidosController {
     return {
       success: true,
       estado: nuevoEstado,
-      message: `Se revirtieron ${totalParesARevertir} pares correctamente. El stock físico ha sido restituido y el saldo financiero ajustado.`,
+      message: `Se revirtieron ${totalParesARevertir} pares correctamente. El calzado ha regresado a bodega y la deuda del cliente fue reducida en $${montoTotalRevertido.toFixed(2)}.`,
       pedido: pedidoActualizado,
     };
   }
