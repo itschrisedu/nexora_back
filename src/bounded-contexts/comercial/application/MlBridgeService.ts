@@ -25,6 +25,18 @@ export class MlBridgeService {
     return !c.includes(' con ') && !c.includes(' y ') && !c.includes('/') && !c.includes('+') && !c.includes('-');
   }
 
+  public esTodoNegro(color?: string | null): boolean {
+    if (!color) return false;
+    const c = color.trim().toLowerCase();
+    return c.includes('negro') && !c.includes('/') && !c.includes(' con ') && !c.includes(' y ') && !c.includes('+') && !c.includes('rojo') && !c.includes('azul');
+  }
+
+  public esTodoBlanco(color?: string | null): boolean {
+    if (!color) return false;
+    const c = color.trim().toLowerCase();
+    return c.includes('blanco') && !c.includes('/') && !c.includes(' con ') && !c.includes(' y ') && !c.includes('+') && !c.includes('azul') && !c.includes('rojo');
+  }
+
   /**
    * Obtener predicción de demanda para un tenant.
    * Extrae las ventas históricas y las envía al microservicio Python, enriqueciendo con stock actual.
@@ -117,18 +129,46 @@ export class MlBridgeService {
           };
         });
 
-        // Filtrado por color exacto vs compuesto si se solicita
+        // Filtrado por color exacto vs compuesto o filtro escolar
         if (colorFiltro && colorFiltro.trim()) {
-          const cTarget = colorFiltro.trim().toLowerCase();
-          prediccion.predicciones = prediccion.predicciones.filter((p: any) => {
-            const pColor = (p.color || '').trim().toLowerCase();
-            if (colorExacto) {
-              return pColor === cTarget;
-            } else {
-              return pColor.includes(cTarget);
-            }
-          });
+          if (colorFiltro === 'ESCOLAR_NEGRO_BLANCO') {
+            prediccion.predicciones = prediccion.predicciones.filter(
+              (p: any) => this.esTodoNegro(p.color) || this.esTodoBlanco(p.color),
+            );
+          } else {
+            const cTarget = colorFiltro.trim().toLowerCase();
+            prediccion.predicciones = prediccion.predicciones.filter((p: any) => {
+              const pColor = (p.color || '').trim().toLowerCase();
+              if (colorExacto) {
+                return pColor === cTarget;
+              } else {
+                return pColor.includes(cTarget);
+              }
+            });
+          }
           prediccion.total_productos_analizados = prediccion.predicciones.length;
+        }
+
+        // Ordenamiento con prioridad escolar para inicio a clases
+        const esClasesML = temporada === 'CLASES_SIERRA' || temporada === 'CLASES_COSTA';
+        if (esClasesML) {
+          prediccion.predicciones.sort((a: any, b: any) => {
+            // 1. Anticipación de compra: calzados con déficit primero
+            const defA = (a.deficit_stock || 0) > 0 ? 1 : 0;
+            const defB = (b.deficit_stock || 0) > 0 ? 1 : 0;
+            if (defA !== defB) return defB - defA;
+
+            // 2. Por defecto calzado escolar: Todo Negro (1), Todo Blanco (2), otros (3)
+            const prioA = this.esTodoNegro(a.color) ? 1 : this.esTodoBlanco(a.color) ? 2 : 3;
+            const prioB = this.esTodoNegro(b.color) ? 1 : this.esTodoBlanco(b.color) ? 2 : 3;
+            if (prioA !== prioB) return prioA - prioB;
+
+            // 3. Mayor déficit
+            if ((b.deficit_stock || 0) !== (a.deficit_stock || 0)) {
+              return (b.deficit_stock || 0) - (a.deficit_stock || 0);
+            }
+            return (b.demanda_estimada || 0) - (a.demanda_estimada || 0);
+          });
         }
       }
 
@@ -412,21 +452,49 @@ export class MlBridgeService {
       }
     }
 
-    // Filtrar por color exacto vs compuesto si se solicitó
+    // Filtrar por color exacto vs compuesto o filtro escolar
     if (colorFiltro && colorFiltro.trim()) {
-      const cTarget = colorFiltro.trim().toLowerCase();
-      predicciones = predicciones.filter((p: any) => {
-        const pColor = (p.color || '').trim().toLowerCase();
-        if (colorExacto) {
-          return pColor === cTarget;
-        } else {
-          return pColor.includes(cTarget);
-        }
-      });
+      if (colorFiltro === 'ESCOLAR_NEGRO_BLANCO') {
+        predicciones = predicciones.filter(
+          (p: any) => this.esTodoNegro(p.color) || this.esTodoBlanco(p.color),
+        );
+      } else {
+        const cTarget = colorFiltro.trim().toLowerCase();
+        predicciones = predicciones.filter((p: any) => {
+          const pColor = (p.color || '').trim().toLowerCase();
+          if (colorExacto) {
+            return pColor === cTarget;
+          } else {
+            return pColor.includes(cTarget);
+          }
+        });
+      }
     }
 
-    // Ordenar por mayor demanda estimada
-    predicciones.sort((a, b) => b.demanda_estimada - a.demanda_estimada);
+    // Ordenar con prioridad: en inicio a clases (Sierra o Costa) primero los que tienen déficit, luego Todo Negro (1) y Todo Blanco (2)
+    const esClasesHeuristica = temporada === 'CLASES_SIERRA' || temporada === 'CLASES_COSTA';
+    if (esClasesHeuristica) {
+      predicciones.sort((a, b) => {
+        // 1. Anticipación de compra: calzados con déficit primero
+        const defA = (a.deficit_stock || 0) > 0 ? 1 : 0;
+        const defB = (b.deficit_stock || 0) > 0 ? 1 : 0;
+        if (defA !== defB) return defB - defA;
+
+        // 2. Por defecto calzado escolar: Todo Negro (1), Todo Blanco (2), otros (3)
+        const prioA = this.esTodoNegro(a.color) ? 1 : this.esTodoBlanco(a.color) ? 2 : 3;
+        const prioB = this.esTodoNegro(b.color) ? 1 : this.esTodoBlanco(b.color) ? 2 : 3;
+        if (prioA !== prioB) return prioA - prioB;
+
+        // 3. Mayor déficit de stock
+        if ((b.deficit_stock || 0) !== (a.deficit_stock || 0)) {
+          return (b.deficit_stock || 0) - (a.deficit_stock || 0);
+        }
+        return b.demanda_estimada - a.demanda_estimada;
+      });
+    } else {
+      // Orden estándar por mayor demanda estimada
+      predicciones.sort((a, b) => b.demanda_estimada - a.demanda_estimada);
+    }
 
     for (const p of predicciones.slice(0, 5)) {
       alertas.push(
