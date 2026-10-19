@@ -136,6 +136,8 @@ export class DevolucionesController {
       entradaId?: string;
       supplierId: string;
       motivo: string;
+      entregadoPor?: string;
+      recibidoPor?: string;
       clienteDevolucionId?: string;
       lines: {
         productId: string;

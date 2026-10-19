@@ -538,6 +538,8 @@ export class DevolucionesService {
       entradaId?: string;
       supplierId: string;
       motivo: string;
+      entregadoPor?: string;
+      recibidoPor?: string;
       clienteDevolucionId?: string;
       lines: LineaDevolucionProveedorInput[];
     },
@@ -670,6 +672,13 @@ export class DevolucionesService {
       });
       const nextNumero = (lastDev?.numero ?? 0) + 1;
 
+      let motivoFinal = dto.motivo;
+      if (dto.entregadoPor || dto.recibidoPor) {
+        const entregadoTag = dto.entregadoPor ? `[ENTREGADO POR: ${dto.entregadoPor.trim()}] ` : '';
+        const recibidoTag = dto.recibidoPor ? `[RECIBIDO POR: ${dto.recibidoPor.trim()}] ` : '';
+        motivoFinal = `${entregadoTag}${recibidoTag}${dto.motivo}`.trim();
+      }
+
       // 6. Crear registro de devolucion a proveedor
       const devolucion = await tx.proveedorDevolucion.create({
         data: {
@@ -677,7 +686,7 @@ export class DevolucionesService {
           numero: nextNumero,
           entradaId: dto.entradaId,
           supplierId: dto.supplierId,
-          motivo: dto.motivo,
+          motivo: motivoFinal,
           totalDevuelto,
           clienteDevolucionId: dto.clienteDevolucionId || null,
           deudaDescontada: deudaDescontadaTotal,

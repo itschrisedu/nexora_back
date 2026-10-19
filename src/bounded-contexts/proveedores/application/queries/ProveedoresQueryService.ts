@@ -265,22 +265,86 @@ export class ProveedoresQueryService {
     const saldoAFavor = Math.max(0, totalPagado + totalDevoluciones - totalFacturado);
     const cruzadoConMercaderia = Math.min(totalFacturado, totalPagado + totalDevoluciones);
 
+    // Obtener IDs de productos y tallas para enriquecimiento visual profesional
+    const allProductIds = Array.from(
+      new Set([
+        ...supplier.entries.flatMap((e) => e.lines.map((l) => l.productId)),
+        ...supplier.devoluciones.flatMap((d) => d.lines.map((l) => l.productId)),
+      ].filter(Boolean)),
+    );
+    const allTallaIds = Array.from(
+      new Set([
+        ...supplier.entries.flatMap((e) => e.lines.map((l) => l.tallaId)),
+        ...supplier.devoluciones.flatMap((d) => d.lines.map((l) => l.tallaId)),
+      ].filter(Boolean)),
+    );
+
+    const [products, tallas] = await Promise.all([
+      allProductIds.length > 0
+        ? this.prisma.product.findMany({
+            where: { id: { in: allProductIds } },
+            include: { model: true, serie: true },
+          })
+        : [],
+      allTallaIds.length > 0
+        ? this.prisma.tallaConfig.findMany({
+            where: { id: { in: allTallaIds } },
+          })
+        : [],
+    ]);
+
+    const productMap = new Map(products.map((p) => [p.id, p]));
+    const tallaMap = new Map(tallas.map((t) => [t.id, t.numero]));
+
     // Build timeline movements
     const movimientos: any[] = [];
 
     supplier.entries.forEach((e) => {
+      const formattedLines = e.lines.map((l) => {
+        const prod = productMap.get(l.productId);
+        const numTalla = tallaMap.get(l.tallaId);
+        return {
+          id: l.id,
+          productId: l.productId,
+          tallaId: l.tallaId,
+          numeroTalla: numTalla ?? (Number(l.tallaId) || 0),
+          cantidad: l.cantidadIngresada,
+          cantidadIngresada: l.cantidadIngresada,
+          cantidadEsperada: l.cantidadEsperada,
+          diferencia: l.diferencia,
+          precioCosto: Number(l.precioCosto),
+          subtotal: Number(l.subtotal),
+          modelName: prod?.model?.name || 'Calzado',
+          color: prod?.color || '',
+          imageUrl: prod?.imageUrl || null,
+          serieNombre: prod?.serie?.nombre || 'ADULTO',
+          observacionLinea: l.observacionLinea,
+        };
+      });
+
+      const totalPares = e.lines.reduce((sum, l) => sum + l.cantidadIngresada, 0);
+
+      const obs = e.observaciones || '';
+      const entregadoMatch = obs.match(/\[ENTREGADO POR:\s*([^\]]+)\]/i);
+      const recibidoMatch = obs.match(/\[RECIBIDO POR:\s*([^\]]+)\]/i);
+      const obsLimpia = obs.replace(/\[(ENTREGADO|RECIBIDO) POR:[^\]]+\]/gi, '').trim();
+
       movimientos.push({
         id: e.id,
         tipo: 'ENTREGA_MERCANCIA',
-        titulo: `Recepción Mercancía #ENT-${String(e.numero).padStart(4, '0')}`,
+        titulo: `#ENT-${String(e.numero).padStart(4, '0')}`,
+        subtitulo: `Recepción de mercadería (${totalPares} ${totalPares === 1 ? 'par' : 'pares'})`,
         numeroCodigo: `ENT-${String(e.numero).padStart(4, '0')}`,
-        descripcion: e.observaciones || `Ingreso de ${e.lines.length} ítem(s) a bodega`,
+        descripcion: obsLimpia || `Ingreso de ${e.lines.length} ítem(s) a bodega`,
         monto: Number(e.total),
         estado: e.estado,
         fecha: e.fechaIngreso.toISOString(),
+        entregadoPor: entregadoMatch ? entregadoMatch[1].trim() : (supplier.contacto || supplier.razonSocial),
+        recibidoPor: recibidoMatch ? recibidoMatch[1].trim() : 'Bodega / Recepción',
         detalles: {
-          lineas: e.lines.length,
           supplierOrderId: e.supplierOrderId,
+          totalPares,
+          lineas: formattedLines,
         },
       });
     });
@@ -297,29 +361,71 @@ export class ProveedoresQueryService {
         banco: p.banco,
         comprobante: p.comprobante,
         fecha: p.createdAt.toISOString(),
+        pagadoPor: 'Administración / Tesorería',
       });
     });
 
     supplier.devoluciones.forEach((d) => {
+      const formattedLines = d.lines.map((l) => {
+        const prod = productMap.get(l.productId);
+        const numTalla = tallaMap.get(l.tallaId);
+        return {
+          id: l.id,
+          productId: l.productId,
+          tallaId: l.tallaId,
+          numeroTalla: numTalla ?? (Number(l.tallaId) || 0),
+          cantidad: l.cantidad,
+          precioCosto: Number(l.precioCosto),
+          subtotal: Number(l.subtotal),
+          modelName: prod?.model?.name || 'Calzado',
+          color: prod?.color || '',
+          imageUrl: prod?.imageUrl || null,
+          serieNombre: prod?.serie?.nombre || 'ADULTO',
+        };
+      });
+
+      const totalPares = d.lines.reduce((sum, l) => sum + l.cantidad, 0);
+      const motivo = d.motivo || '';
+      const entregadoMatch = motivo.match(/\[ENTREGADO POR:\s*([^\]]+)\]/i);
+      const recibidoMatch = motivo.match(/\[RECIBIDO POR:\s*([^\]]+)\]/i);
+      const motivoLimpio = motivo.replace(/\[(ENTREGADO|RECIBIDO) POR:[^\]]+\]/gi, '').trim();
+
       movimientos.push({
         id: d.id,
         tipo: 'DEVOLUCION_PROVEEDOR',
-        titulo: `Devolución de Mercadería #${d.numero ? `DEV-${String(d.numero).padStart(4, '0')}` : d.id.slice(0, 4).toUpperCase()}`,
+        titulo: `Devolución de Calzado (${totalPares} ${totalPares === 1 ? 'par' : 'pares'})`,
+        subtitulo: `Devolución a fabricante / garantía`,
         numeroCodigo: d.numero ? `DEV-${String(d.numero).padStart(4, '0')}` : `DEV-${d.id.slice(0, 4).toUpperCase()}`,
-        descripcion: d.motivo || `Devolución de ${d.lines.length} ítem(s) por falla / garantía`,
+        descripcion: motivoLimpio || `Devolución de ${totalPares} pares por falla / garantía`,
         monto: Number(d.totalDevuelto),
         estado: d.estado,
         fecha: d.createdAt.toISOString(),
+        entregadoPor: entregadoMatch ? entregadoMatch[1].trim() : 'Bodega / Despacho',
+        recibidoPor: recibidoMatch ? recibidoMatch[1].trim() : (supplier.contacto || supplier.razonSocial),
         detalles: {
           deudaDescontada: Number(d.deudaDescontada),
           saldoAFavor: Number(d.saldoAFavor),
-          lineasCount: d.lines.length,
-          lines: d.lines,
+          totalPares,
+          lineas: formattedLines,
         },
       });
     });
 
-    // Ordenar cronológicamente descendente
+    // Corrida contable estricta: Ordenar cronológicamente (más antiguo primero) para calcular Saldo Anterior y Nuevo Saldo
+    const movsAsc = [...movimientos].sort((a, b) => new Date(a.fecha).getTime() - new Date(b.fecha).getTime());
+    let balanceCorriente = 0;
+    for (const mov of movsAsc) {
+      mov.saldoAnterior = Math.round(balanceCorriente * 100) / 100;
+      const mnt = Number(mov.monto || 0);
+      if (mov.tipo === 'ENTREGA_MERCANCIA') {
+        balanceCorriente += mnt;
+      } else if (mov.tipo === 'PAGO_PROVEEDOR' || mov.tipo === 'DEVOLUCION_PROVEEDOR') {
+        balanceCorriente = Math.max(0, balanceCorriente - mnt);
+      }
+      mov.nuevoSaldo = Math.round(balanceCorriente * 100) / 100;
+    }
+
+    // Ordenar cronológicamente descendente para mostrar el más reciente arriba
     movimientos.sort((a, b) => new Date(b.fecha).getTime() - new Date(a.fecha).getTime());
 
     return {
