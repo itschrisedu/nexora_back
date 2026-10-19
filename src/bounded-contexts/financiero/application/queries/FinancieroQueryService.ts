@@ -453,7 +453,10 @@ export class FinancieroQueryService {
           estado: { in: ['ENTREGADO', 'ENTREGADO_PARCIAL'] },
           ...whereTenant,
         },
-        include: { lines: true },
+        include: {
+          lines: true,
+          dispatchOrder: { select: { id: true, confirmadoPorId: true, confirmadoAt: true, estado: true } },
+        },
         orderBy: { createdAt: 'desc' },
       }),
       this.prisma.saleNote.findMany({
@@ -499,12 +502,15 @@ export class FinancieroQueryService {
       tallas.forEach((t) => tallaMap.set(t.id, t.numero));
     }
 
-    // Resolver usuarios (vendedores de pedidos + cajeros de abonos)
+    // Resolver usuarios (vendedores de pedidos + cajeros de abonos + confirmadores de entrega)
     const pedidoUserIds = pedidos.map((p) => p.userId).filter(Boolean);
     const abonoUserIds = cobros.flatMap((c) =>
       c.abonos.map((a) => a.userId).filter(Boolean),
     );
-    const histUserIds = [...new Set([...pedidoUserIds, ...abonoUserIds])];
+    const dispatchUserIds = pedidos
+      .map((p: any) => p.dispatchOrder?.confirmadoPorId)
+      .filter(Boolean);
+    const histUserIds = [...new Set([...pedidoUserIds, ...abonoUserIds, ...dispatchUserIds])];
     const histUsers = histUserIds.length > 0
       ? await this.prisma.user.findMany({
           where: { id: { in: histUserIds } },
@@ -556,6 +562,12 @@ export class FinancieroQueryService {
       const numCod = orderNumberMap.get(p.id) || `PED-${p.id.slice(0, 4).toUpperCase()}`;
       const vendedorPedido = histUserMap.get(p.userId);
 
+      // Resolver quién confirmó la entrega (despacho)
+      const dispatch = (p as any).dispatchOrder;
+      const entregadorUser = dispatch?.confirmadoPorId
+        ? histUserMap.get(dispatch.confirmadoPorId)
+        : null;
+
       movimientos.push({
         id: `pedido-${p.id}`,
         pedidoId: p.id,
@@ -568,6 +580,11 @@ export class FinancieroQueryService {
         fecha: p.createdAt,
         vendedorNombre: vendedorPedido?.nombre || '',
         vendedorEmail: vendedorPedido?.email || '',
+        vendedorRol: vendedorPedido?.rol || '',
+        entregadoPor: entregadorUser?.nombre || vendedorPedido?.nombre || '',
+        entregadoPorEmail: entregadorUser?.email || '',
+        entregadoPorRol: entregadorUser?.rol || '',
+        fechaEntrega: dispatch?.confirmadoAt || null,
         detalles: {
           lineasCount: p.lines.length,
           lineas: formattedLines,
@@ -673,6 +690,8 @@ export class FinancieroQueryService {
         deudaDescontada: Number(d.deudaDescontada || 0),
         saldoAFavor: Number(d.saldoAFavor || 0),
         fecha: d.createdAt,
+        procesadoPor: '',
+        procesadoPorRol: '',
         detalles: {
           devolucionId: d.id,
           orderId: d.orderId,
