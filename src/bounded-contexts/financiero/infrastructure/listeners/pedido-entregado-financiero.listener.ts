@@ -171,6 +171,21 @@ export class PedidoEntregadoFinancieroListener {
       let cobro: Cobro;
       const montoAdelanto = Number(order.adelanto || 0);
 
+      // Calcular cuánto adelanto previo ya fue consumido por entregas parciales anteriores
+      const prevCobros = await this.prisma.cobro.findMany({
+        where: { saleNote: { orderId: payload.pedidoId } },
+        include: { abonos: true },
+      });
+      let adelantoYaConsumido = 0;
+      for (const pc of prevCobros) {
+        for (const ab of pc.abonos) {
+          if (ab.notas && ab.notas.includes('Anticipo recibido')) {
+            adelantoYaConsumido += Number(ab.monto);
+          }
+        }
+      }
+      const adelantoDisponible = Math.max(0, montoAdelanto - adelantoYaConsumido);
+
       let metodoPago = 'EFECTIVO';
       let notasPago = 'Pago de contado al entregar';
       if (order.notas) {
@@ -187,8 +202,8 @@ export class PedidoEntregadoFinancieroListener {
       cobro = Cobro.crearCredito(cobroId, saleNoteId, payload.clientId, Money.create(total), vencimiento);
 
       if (payload.tipoPago === 'CONTADO') {
-        if (montoAdelanto > 0) {
-          const adelantoReal = Math.min(montoAdelanto, total);
+        if (adelantoDisponible > 0) {
+          const adelantoReal = Math.min(adelantoDisponible, total);
           cobro.registrarAbono(
             crypto.randomUUID(),
             Money.create(adelantoReal),
@@ -218,8 +233,8 @@ export class PedidoEntregadoFinancieroListener {
         }
       } else {
         // CREDITO: Registrar anticipo si hubo uno previo
-        if (montoAdelanto > 0) {
-          const adelantoReal = Math.min(montoAdelanto, total);
+        if (adelantoDisponible > 0) {
+          const adelantoReal = Math.min(adelantoDisponible, total);
           cobro.registrarAbono(
             crypto.randomUUID(),
             Money.create(adelantoReal),

@@ -242,5 +242,23 @@ export class ActualizarAdelantoPedidoDto {
   referenciaAdelanto?: string;
 }
 
+export class ItemARevertirDto {
+  @IsString()
+  @IsNotEmpty()
+  lineId!: string;
 
+  @IsInt()
+  @Min(1)
+  cantidadARevertir!: number;
+}
 
+export class RevertirEntregaDto {
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => ItemARevertirDto)
+  items!: ItemARevertirDto[];
+
+  @IsOptional()
+  @IsString()
+  motivo?: string;
+}

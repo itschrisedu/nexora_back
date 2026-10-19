@@ -25,6 +25,7 @@ import {
   ActualizarEstadoPedidoDto,
   ActualizarEnvioPedidoDto,
   EntregarItemsPedidoDto,
+  RevertirEntregaDto,
   ActualizarAdelantoPedidoDto,
   CorregirPrecioLineaDto,
 } from './dto/pedidos.dto';
@@ -886,6 +887,186 @@ export class PedidosController {
       message: todoCompletado
         ? 'Pedido completado y entregado al 100% con éxito.'
         : `Entrega parcial registrada (${totalEntregadoEnEstaTransaccion} pares entregados). El pedido queda con saldo pendiente.`,
+      pedido: pedidoActualizado,
+    };
+  }
+
+  /**
+   * Endpoint para corregir o revertir una entrega errónea de ítems de un pedido.
+   * Restituye el inventario físico (StockByTalla y StockMovement), reduce cantidadEntregada,
+   * reevalúa el estado del pedido (PENDIENTE, ENTREGADO_PARCIAL, ENTREGADO),
+   * descuenta el saldo pendiente en Cobro y recalcula el crédito utilizado del cliente.
+   */
+  @Put(':id/revertir-entrega')
+  @Post(':id/revertir-entrega')
+  @Roles(Rol.ROL_ADMIN, Rol.ROL_VENDEDOR)
+  async revertirEntrega(
+    @Param('id') id: string,
+    @Body() dto: RevertirEntregaDto,
+    @Req() req: any,
+  ) {
+    const pedido = await this.prisma.order.findUnique({
+      where: { id },
+      include: { lines: true },
+    });
+
+    if (!pedido) {
+      throw new NotFoundException(`El pedido con ID "${id}" no existe`);
+    }
+
+    const userRole = req.user?.rol || req.user?.role;
+    const userTenant = req.user?.tenantId;
+    if (userRole !== Rol.ROL_SUPER_ADMIN && userTenant && pedido.tenantId && pedido.tenantId !== userTenant) {
+      throw new ForbiddenException('Solo la sucursal propietaria del pedido puede revertir o corregir entregas');
+    }
+
+    if (!dto.items || dto.items.length === 0) {
+      throw new BadRequestException('Debe especificar al menos un ítem para revertir');
+    }
+
+    const userId = req.user?.sub || req.user?.id || pedido.userId || 'system';
+
+    // 1. Validaciones previas de cantidades
+    let totalParesARevertir = 0;
+    let montoTotalRevertido = 0;
+
+    for (const item of dto.items) {
+      if (item.cantidadARevertir <= 0) continue;
+      const line = pedido.lines.find((l) => l.id === item.lineId);
+      if (!line) {
+        throw new NotFoundException(`La línea "${item.lineId}" no pertenece a este pedido`);
+      }
+
+      const yaEntregado = line.cantidadEntregada || 0;
+      if (item.cantidadARevertir > yaEntregado) {
+        throw new BadRequestException(
+          `No se pueden revertir ${item.cantidadARevertir} pares de la línea ${item.lineId}: solo hay ${yaEntregado} pares entregados.`,
+        );
+      }
+
+      totalParesARevertir += item.cantidadARevertir;
+      montoTotalRevertido += item.cantidadARevertir * Number(line.precioUnitario);
+    }
+
+    if (totalParesARevertir === 0) {
+      throw new BadRequestException('No se especificaron cantidades válidas mayores a 0 para revertir');
+    }
+
+    // 2. Ejecutar reversión física en inventario y en las líneas del pedido
+    for (const item of dto.items) {
+      if (item.cantidadARevertir <= 0) continue;
+      const line = pedido.lines.find((l) => l.id === item.lineId)!;
+
+      // Decrementar cantidad entregada en la línea
+      await this.prisma.orderLine.update({
+        where: { id: line.id },
+        data: {
+          cantidadEntregada: { decrement: item.cantidadARevertir },
+        },
+      });
+
+      // Incrementar stock físico en bodega
+      await this.prisma.stockByTalla.updateMany({
+        where: {
+          productId: line.productId,
+          tallaId: line.tallaId,
+        },
+        data: {
+          quantity: { increment: item.cantidadARevertir },
+        },
+      });
+
+      // Registrar movimiento de auditoría en inventario
+      await this.prisma.stockMovement.create({
+        data: {
+          productId: line.productId,
+          tallaId: line.tallaId,
+          type: MovimientoTipo.AJUSTE,
+          quantity: item.cantidadARevertir,
+          reason: `Reversión/Corrección de entrega Pedido #${pedido.id.slice(0, 8)}: ${dto.motivo || 'Error de despacho o restitución de mercadería'}`,
+          referenceId: pedido.id,
+          userId,
+        },
+      });
+    }
+
+    // 3. Ajuste financiero (Cobros y Cuenta Corriente del Cliente)
+    const cobrosDelPedido = await this.prisma.cobro.findMany({
+      where: { saleNote: { orderId: pedido.id } },
+      orderBy: { createdAt: 'desc' },
+      include: { abonos: true, saleNote: true },
+    });
+
+    let remanenteAReducir = Math.round(montoTotalRevertido * 100) / 100;
+    for (const cobro of cobrosDelPedido) {
+      if (remanenteAReducir <= 0) break;
+      const saldoPend = Number(cobro.saldoPendiente || 0);
+      if (saldoPend > 0) {
+        const reduccion = Math.min(remanenteAReducir, saldoPend);
+        const nuevoSaldo = Math.round((saldoPend - reduccion) * 100) / 100;
+        const nuevoEstadoCobro = nuevoSaldo === 0 ? 'PAGADO' : 'PARCIALMENTE_PAGADO';
+
+        await this.prisma.cobro.update({
+          where: { id: cobro.id },
+          data: {
+            saldoPendiente: nuevoSaldo,
+            estado: nuevoEstadoCobro as any,
+          },
+        });
+
+        // Registrar abono de ajuste para trazabilidad exacta en el historial financiero
+        await this.prisma.cobroAbono.create({
+          data: {
+            cobroId: cobro.id,
+            monto: reduccion,
+            metodo: 'AJUSTE',
+            notas: `Reversión de entrega errónea (-${reduccion.toFixed(2)}): ${dto.motivo || 'Restitución de pares entregados por error'}`,
+            userId,
+          },
+        });
+
+        remanenteAReducir = Math.round((remanenteAReducir - reduccion) * 100) / 100;
+      }
+    }
+
+    // Recalcular crédito utilizado del cliente
+    const todosCobrosPendientes = await this.prisma.cobro.findMany({
+      where: { clientId: pedido.clientId, estado: { in: ['PENDIENTE', 'PARCIALMENTE_PAGADO'] } },
+      select: { saldoPendiente: true },
+    });
+    const sumaDeuda = todosCobrosPendientes.reduce((acc, c) => acc + Number(c.saldoPendiente), 0);
+    await this.prisma.client.update({
+      where: { id: pedido.clientId },
+      data: { creditoUtilizado: sumaDeuda },
+    });
+
+    // 4. Reevaluar estado global del pedido
+    const lineasActualizadas = await this.prisma.orderLine.findMany({
+      where: { orderId: pedido.id },
+    });
+    const todoEntregado = lineasActualizadas.every((l) => (l.cantidadEntregada || 0) >= l.cantidad);
+    const algunEntregado = lineasActualizadas.some((l) => (l.cantidadEntregada || 0) > 0);
+
+    let nuevoEstado: EstadoPedido;
+    if (todoEntregado) {
+      nuevoEstado = EstadoPedido.ENTREGADO;
+    } else if (algunEntregado) {
+      nuevoEstado = EstadoPedido.ENTREGADO_PARCIAL;
+    } else {
+      nuevoEstado = EstadoPedido.PENDIENTE;
+    }
+
+    await this.prisma.order.update({
+      where: { id: pedido.id },
+      data: { estado: nuevoEstado },
+    });
+
+    const pedidoActualizado = await this.queryService.obtenerPedido(pedido.id);
+
+    return {
+      success: true,
+      estado: nuevoEstado,
+      message: `Se revirtieron ${totalParesARevertir} pares correctamente. El stock físico ha sido restituido y el saldo financiero ajustado.`,
       pedido: pedidoActualizado,
     };
   }
