@@ -144,8 +144,27 @@ export class ClientesQueryService {
       throw new NotFoundException(`Cliente con ID "${clienteId}" no encontrado`);
     }
 
+    // 1. Calcular deuda real a partir de cobros pendientes (fuente única de verdad)
+    const cobrosPendientes = await this.prisma.cobro.findMany({
+      where: {
+        clientId: clienteId,
+        estado: { in: ['PENDIENTE', 'PARCIALMENTE_PAGADO'] },
+      },
+      select: { saldoPendiente: true },
+    });
+    const deudaFacturada = cobrosPendientes.reduce((sum, c) => sum + Number(c.saldoPendiente), 0);
+    const saldoAFavor = Number(client.saldoAFavor || 0);
+    const creditoUtilizado = Math.max(0, deudaFacturada - saldoAFavor);
+
+    // Auto-sincronizar creditoUtilizado en la base de datos si existía desbalance previo
+    if (Math.abs(creditoUtilizado - Number(client.creditoUtilizado)) > 0.01) {
+      await this.prisma.client.update({
+        where: { id: clienteId },
+        data: { creditoUtilizado },
+      });
+    }
+
     const limiteTotal = Number(client.limiteCredito);
-    const creditoUtilizado = Number(client.creditoUtilizado);
     const limiteDisponible = Math.max(0, limiteTotal - creditoUtilizado);
 
     // Obtener configuración del nivel del cliente
@@ -162,13 +181,14 @@ export class ClientesQueryService {
         nivelActual: client.nivelCredito,
         limiteTotal,
         creditoUtilizado,
-        limiteDisponible,
+        limiteDisponible: 0,
         plazoDias,
-        razon: 'El cliente está en Nivel 1 (Sin Crédito). Requiere compras de contado o asignación de nivel por el Administrador.',
+        razon: 'El cliente no tiene cupo de crédito asignado (Cupo actual: $0.00). Requiere compras de contado o asignación de límite de crédito por el Administrador.',
       };
     }
 
-    if (montoSolicitado > limiteDisponible) {
+    if (creditoUtilizado + montoSolicitado > limiteTotal) {
+      const exceso = (creditoUtilizado + montoSolicitado) - limiteTotal;
       return {
         aprobado: false,
         nivelActual: client.nivelCredito,
@@ -176,7 +196,7 @@ export class ClientesQueryService {
         creditoUtilizado,
         limiteDisponible,
         plazoDias,
-        razon: `Monto supera límite disponible ($${limiteDisponible.toFixed(2)})`,
+        razon: `El cliente supera su cupo de crédito máximo ($${creditoUtilizado.toFixed(2)} de saldo actual + $${montoSolicitado.toFixed(2)} de este pedido supera el límite de $${limiteTotal.toFixed(2)} por $${exceso.toFixed(2)}). Cupo disponible restante: $${limiteDisponible.toFixed(2)}.`,
       };
     }
 

@@ -120,33 +120,51 @@ export class PedidoEntregadoFinancieroListener {
       };
 
       const pdfPath = await this.pdfService.generarNotaVenta(pdfData);
-      const pdfUrl = `/storage/notas-venta/nota-venta-${String(numero).padStart(6, '0')}.pdf`;
+      let pdfUrl = `/storage/notas-venta/nota-venta-${String(numero).padStart(6, '0')}.pdf`;
 
-      // 5. Persistir SaleNote con líneas
-      await this.prisma.saleNote.create({
-        data: {
-          id: saleNoteId,
-          tenantId,
-          numero,
-          orderId: payload.pedidoId,
-          clientId: payload.clientId,
-          subtotal,
-          descuento,
-          total,
-          pdfUrl,
-          lines: {
-            create: lines.map((l) => ({
-              productId: l.productId,
-              nombre: l.nombre,
-              serie: l.serie,
-              talla: l.talla,
-              cantidad: l.cantidad,
-              precioUnitario: l.precioUnitario,
-              subtotal: l.subtotal,
-            })),
-          },
-        },
-      });
+      let noteCreated = false;
+      let intentos = 0;
+      while (!noteCreated && intentos < 10) {
+        intentos++;
+        try {
+          await this.prisma.saleNote.create({
+            data: {
+              id: saleNoteId,
+              tenantId,
+              numero,
+              orderId: payload.pedidoId,
+              clientId: payload.clientId,
+              subtotal,
+              descuento,
+              total,
+              pdfUrl,
+              lines: {
+                create: lines.map((l) => ({
+                  productId: l.productId,
+                  nombre: l.nombre,
+                  serie: l.serie,
+                  talla: l.talla,
+                  cantidad: l.cantidad,
+                  precioUnitario: l.precioUnitario,
+                  subtotal: l.subtotal,
+                })),
+              },
+            },
+          });
+          noteCreated = true;
+        } catch (createErr: any) {
+          if (createErr.code === 'P2002' || String(createErr.message).includes('numero')) {
+            const maxNote = await this.prisma.saleNote.findFirst({
+              orderBy: { numero: 'desc' },
+              select: { numero: true },
+            });
+            numero = (maxNote?.numero || numero) + 1;
+            pdfUrl = `/storage/notas-venta/nota-venta-${String(numero).padStart(6, '0')}.pdf`;
+          } else {
+            throw createErr;
+          }
+        }
+      }
 
       // 6. Crear Cobro según tipo de pago sincronizando adelanto de dinero
       const cobroId = crypto.randomUUID();
@@ -219,6 +237,17 @@ export class PedidoEntregadoFinancieroListener {
         await this.prisma.cobro.update({
           where: { id: cobroId },
           data: { tipo: 'CONTADO' },
+        });
+      } else {
+        // Recalcular crédito utilizado del cliente
+        const todosCobrosPendientes = await this.prisma.cobro.findMany({
+          where: { clientId: payload.clientId, estado: { in: ['PENDIENTE', 'PARCIALMENTE_PAGADO'] } },
+          select: { saldoPendiente: true },
+        });
+        const sumaDeuda = todosCobrosPendientes.reduce((acc, c) => acc + Number(c.saldoPendiente), 0);
+        await this.prisma.client.update({
+          where: { id: payload.clientId },
+          data: { creditoUtilizado: sumaDeuda },
         });
       }
 

@@ -671,7 +671,50 @@ export class PedidosController {
       }
     }
 
-    // 2. Ejecutar descuento físico y actualización por ítem
+    // 2. Validar límite de crédito del cliente si la entrega es a CRÉDITO
+    if (pedido.tipoPago === 'CREDITO') {
+      const client = await this.prisma.client.findUnique({
+        where: { id: pedido.clientId },
+      });
+      if (client) {
+        const limiteTotal = Number(client.limiteCredito);
+        const cobrosPendientes = await this.prisma.cobro.findMany({
+          where: {
+            clientId: pedido.clientId,
+            estado: { in: ['PENDIENTE', 'PARCIALMENTE_PAGADO'] },
+          },
+          select: { saldoPendiente: true },
+        });
+        const saldoActual = Math.max(0, cobrosPendientes.reduce((sum, c) => sum + Number(c.saldoPendiente), 0) - Number(client.saldoAFavor || 0));
+
+        let montoDespacho = 0;
+        for (const item of dto.items) {
+          if (item.cantidadAEntregar <= 0) continue;
+          const line = pedido.lines.find((l) => l.id === item.lineId);
+          if (line) {
+            const precioUnit = (item.precioUnitario !== undefined && item.precioUnitario !== null && Number(item.precioUnitario) > 0)
+              ? Number(item.precioUnitario)
+              : Number(line.precioUnitario);
+            montoDespacho += item.cantidadAEntregar * precioUnit;
+          }
+        }
+
+        if (limiteTotal <= 0) {
+          throw new BadRequestException(
+            'No se puede despachar a crédito: el cliente no posee cupo de crédito aprobado (Límite: $0.00). Debe cobrar de contado o asignar cupo.',
+          );
+        }
+
+        if (saldoActual + montoDespacho > limiteTotal) {
+          const saldoProyectado = saldoActual + montoDespacho;
+          throw new BadRequestException(
+            `No se puede despachar: este cliente tiene un cupo máximo de $${limiteTotal.toFixed(2)} y su saldo alcanzaría $${saldoProyectado.toFixed(2)} tras esta entrega ($${saldoActual.toFixed(2)} actual + $${montoDespacho.toFixed(2)} despacho). Registre un abono previo para proceder.`,
+          );
+        }
+      }
+    }
+
+    // 3. Ejecutar descuento físico y actualización por ítem
     let totalEntregadoEnEstaTransaccion = 0;
     const lineasEntregadasEnEstaTransaccion: Array<{
       productId: string;

@@ -32,15 +32,15 @@ export class DeudaSaldadaClientesListener {
     saldoPendiente: number;
     metodo: string;
   }) {
-    if (payload.saldoPendiente > 0 && payload.monto > 0) {
-      this.logger.log(`💳 Reaccionando a AbonoRegistrado para liberar crédito parcial ($${payload.monto}) del cliente: ${payload.clientId}`);
+    if (payload.monto > 0) {
+      this.logger.log(`💳 Reaccionando a AbonoRegistrado para liberar crédito ($${payload.monto}) del cliente: ${payload.clientId}`);
       try {
         await this.liberarCreditoHandler.execute(
           new LiberarCreditoCommand(payload.clientId, payload.monto),
         );
-        this.logger.log(`✅ Crédito parcial de $${payload.monto} liberado para cliente ${payload.clientId}`);
+        this.logger.log(`✅ Crédito de $${payload.monto} liberado para cliente ${payload.clientId}`);
       } catch (error: any) {
-        this.logger.error(`❌ Error liberando crédito parcial por abono para cliente ${payload.clientId}: ${error.message}`);
+        this.logger.error(`❌ Error liberando crédito por abono para cliente ${payload.clientId}: ${error.message}`);
       }
     }
   }

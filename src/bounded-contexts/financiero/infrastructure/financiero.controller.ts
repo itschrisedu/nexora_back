@@ -94,6 +94,21 @@ export class FinancieroController {
     return { ok: true, message: 'Abono registrado correctamente' };
   }
 
+  @Post('cliente/:clientId/abono')
+  @Roles(Rol.ROL_ADMIN, Rol.ROL_VENDEDOR)
+  async registrarAbonoCliente(
+    @Param('clientId') clientId: string,
+    @Body() body: { monto: number; metodo: string; notas?: string; sucursalId?: string },
+    @Req() req: any,
+  ) {
+    return this.queryService.registrarAbonoCliente(
+      clientId,
+      body,
+      req.user.sub || req.user.id,
+      req.user.tenantId,
+    );
+  }
+
   @Post('cobros/deuda-manual')
   @Roles(Rol.ROL_ADMIN, Rol.ROL_VENDEDOR)
   async registrarDeudaManual(

@@ -1,13 +1,15 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, Optional } from '@nestjs/common';
 import { PrismaService } from '../../../../shared/infrastructure/prisma/prisma.service';
 import { EncryptionService } from '../../../../shared/infrastructure/encryption/encryption.service';
 import { CobroEstado, DeudaEstado } from '@prisma/client';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 
 @Injectable()
 export class FinancieroQueryService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly encryptionService: EncryptionService,
+    @Optional() private readonly eventEmitter?: EventEmitter2,
   ) {}
 
   // ── Cobros ─────────────────────────────────
@@ -568,31 +570,92 @@ export class FinancieroQueryService {
       });
     });
 
-    // 2. Abonos realizados
+    // 2. Abonos realizados — Consolidar en pagos únicos si pertenecen al mismo recibo o transacción
+    const abonosAgrupadosMap = new Map<string, any>();
+
     cobros.forEach((c) => {
       c.abonos.forEach((a) => {
         const cajero = histUserMap.get(a.userId);
         const sucursalCajero = (cajero as any)?.tenant?.name || 'Administración Central';
         const esOtraSucursal = Boolean(cajero?.tenantId && c.tenantId && cajero.tenantId !== c.tenantId);
-        movimientos.push({
-          id: `abono-${a.id}`,
-          tipo: 'ABONO',
-          titulo: `Abono a Cobro #${c.saleNote?.numero || c.id.slice(0, 8).toUpperCase()}`,
-          descripcion: `Método: ${a.metodo}${a.notas ? ` - ${a.notas}` : ''}`,
-          monto: Number(a.monto),
-          metodo: a.metodo,
-          notas: a.notas,
-          fecha: a.createdAt,
-          cobradoPor: cajero?.nombre || 'Usuario del sistema',
-          cobradoPorEmail: cajero?.email || '',
-          cobradoPorRol: cajero?.rol || '',
-          cobradoPorSucursal: sucursalCajero,
-          esCobroOtraSucursal: esOtraSucursal,
-        });
+
+        // Detectar si el abono tiene tag de recibo [REC-XXXXXX]
+        const matchRecibo = a.notas?.match(/\[(REC-[A-Z0-9]+)\]/i);
+        const reciboTag = matchRecibo ? matchRecibo[1] : null;
+
+        // Si tiene reciboTag se agrupa por ese identificador único. Si no, por fecha (mismo minuto) + usuario + método
+        const keyGroup = reciboTag
+          ? `recibo_${reciboTag}`
+          : `abono_${a.userId}_${a.metodo}_${new Date(a.createdAt).toISOString().slice(0, 16)}`;
+
+        if (abonosAgrupadosMap.has(keyGroup)) {
+          const existing = abonosAgrupadosMap.get(keyGroup);
+          existing.monto = Math.round((existing.monto + Number(a.monto)) * 100) / 100;
+          if (c.saleNote?.numero) {
+            existing.notasAfectadas.add(`#${String(c.saleNote.numero).padStart(4, '0')}`);
+          }
+        } else {
+          const notasAfectadas = new Set<string>();
+          if (c.saleNote?.numero) {
+            notasAfectadas.add(`#${String(c.saleNote.numero).padStart(4, '0')}`);
+          }
+          abonosAgrupadosMap.set(keyGroup, {
+            id: `abono-grp-${a.id}`,
+            tipo: 'ABONO',
+            reciboRef: reciboTag,
+            titulo: reciboTag ? `Abono a Cuenta (#${reciboTag})` : `Abono a Cobro #${c.saleNote?.numero || c.id.slice(0, 8).toUpperCase()}`,
+            monto: Number(a.monto),
+            metodo: a.metodo,
+            notas: a.notas,
+            fecha: a.createdAt,
+            cobradoPor: cajero?.nombre || 'Usuario del sistema',
+            cobradoPorEmail: cajero?.email || '',
+            cobradoPorRol: cajero?.rol || '',
+            cobradoPorSucursal: sucursalCajero,
+            esCobroOtraSucursal: esOtraSucursal,
+            notasAfectadas,
+          });
+        }
       });
     });
 
-    // Ordenar de más reciente a más antiguo
+    abonosAgrupadosMap.forEach((abonoGrp) => {
+      let desc = `Método: ${abonoGrp.metodo}`;
+      if (abonoGrp.notas) {
+        const limpiaNota = abonoGrp.notas.replace(/\[REC-[A-Z0-9]+\]/i, '').trim();
+        if (limpiaNota) desc += ` - ${limpiaNota}`;
+      }
+      if (abonoGrp.notasAfectadas.size > 0) {
+        desc += ` (Aplicado a ${Array.from(abonoGrp.notasAfectadas).join(', ')})`;
+      }
+      movimientos.push({
+        ...abonoGrp,
+        descripcion: desc,
+      });
+    });
+
+    // 3. Corrida contable estricta: Ordenar cronológicamente (más antiguo primero) para calcular Saldo Anterior y Nuevo Saldo
+    const movsCronologicos = [...movimientos].sort(
+      (a, b) => new Date(a.fecha).getTime() - new Date(b.fecha).getTime(),
+    );
+
+    let saldoCorriente = 0;
+    for (const m of movsCronologicos) {
+      m.saldoAnterior = Math.round(saldoCorriente * 100) / 100;
+      const monto = Number(m.monto || 0);
+      if (m.tipo === 'COMPRA_PEDIDO' || m.tipo === 'DEUDA_INICIAL') {
+        if (m.detalles?.tipoPago === 'CREDITO' || m.tipo === 'DEUDA_INICIAL') {
+          saldoCorriente += monto;
+        }
+      } else if (m.tipo === 'ABONO') {
+        saldoCorriente = Math.max(0, saldoCorriente - monto);
+      } else if (m.tipo === 'DEVOLUCION') {
+        saldoCorriente = Math.max(0, saldoCorriente - monto);
+      }
+      m.nuevoSaldo = Math.round(saldoCorriente * 100) / 100;
+    }
+
+    // Invertir para mostrar el más reciente arriba en la vista del usuario
     movimientos.sort((a, b) => new Date(b.fecha).getTime() - new Date(a.fecha).getTime());
 
     const totalAbonado = cobros.reduce(
@@ -600,7 +663,10 @@ export class FinancieroQueryService {
       0,
     );
 
-    const saldoPendienteTotal = cobros.reduce((sum, c) => sum + Number(c.saldoPendiente), 0);
+    const saldoPendienteTotal = Math.max(
+      0,
+      cobros.reduce((sum, c) => sum + Number(c.saldoPendiente), 0) - Number(client.saldoAFavor || 0),
+    );
 
     return {
       cliente: {
@@ -898,6 +964,148 @@ export class FinancieroQueryService {
       saleNoteId,
       numeroNota: numero,
       monto: montoNum,
+    };
+  }
+
+  // ── Registrar Abono Unificado por Cliente ─────────────────────────
+  async registrarAbonoCliente(
+    clientId: string,
+    data: {
+      monto: number;
+      metodo: string;
+      notas?: string;
+      sucursalId?: string;
+    },
+    userId: string,
+    tenantId?: string | null,
+  ) {
+    if (!clientId) throw new BadRequestException('Se requiere especificar el cliente para registrar el abono.');
+    const montoTotal = Number(Number(data.monto || 0).toFixed(2));
+    if (isNaN(montoTotal) || montoTotal <= 0) {
+      throw new BadRequestException('El monto del abono debe ser un valor positivo mayor a 0.');
+    }
+
+    const client = await this.prisma.client.findUnique({
+      where: { id: clientId },
+    });
+    if (!client) throw new NotFoundException(`Cliente con ID "${clientId}" no encontrado.`);
+
+    // 1. Obtener cobros pendientes ordenados por antigüedad (FIFO estricto)
+    const cobrosPendientes = await this.prisma.cobro.findMany({
+      where: {
+        clientId,
+        estado: { in: ['PENDIENTE', 'PARCIALMENTE_PAGADO'] },
+        saldoPendiente: { gt: 0 },
+      },
+      include: { saleNote: true },
+      orderBy: { createdAt: 'asc' },
+    });
+
+    const saldoAnterior = Math.max(
+      0,
+      cobrosPendientes.reduce((sum, c) => sum + Number(c.saldoPendiente), 0) - Number(client.saldoAFavor || 0),
+    );
+
+    const reciboRef = `REC-${Date.now().toString().slice(-6)}`;
+    let restante = montoTotal;
+    const cobrosAfectados: Array<{
+      cobroId: string;
+      numeroNota: number | string;
+      montoAplicado: number;
+      saldoAnteriorNota: number;
+      nuevoSaldoNota: number;
+    }> = [];
+
+    // 2. Distribuir el abono en cascada FIFO
+    for (const cobro of cobrosPendientes) {
+      if (restante <= 0) break;
+      const saldoNota = Number(cobro.saldoPendiente);
+      const montoAplicar = Math.min(saldoNota, restante);
+      const nuevoSaldoNota = Math.round((saldoNota - montoAplicar) * 100) / 100;
+      const nuevoEstado = nuevoSaldoNota === 0 ? CobroEstado.SALDADO : CobroEstado.PARCIALMENTE_PAGADO;
+
+      const abonoId = crypto.randomUUID();
+      await this.prisma.cobroAbono.create({
+        data: {
+          id: abonoId,
+          cobroId: cobro.id,
+          monto: montoAplicar,
+          metodo: data.metodo || 'EFECTIVO',
+          notas: `[${reciboRef}] ${data.notas ? data.notas.trim() : 'Abono unificado a cuenta'}`,
+          userId,
+        },
+      });
+
+      await this.prisma.cobro.update({
+        where: { id: cobro.id },
+        data: {
+          saldoPendiente: nuevoSaldoNota,
+          estado: nuevoEstado,
+        },
+      });
+
+      cobrosAfectados.push({
+        cobroId: cobro.id,
+        numeroNota: cobro.saleNote?.numero || cobro.id.slice(0, 8),
+        montoAplicado: montoAplicar,
+        saldoAnteriorNota: saldoNota,
+        nuevoSaldoNota,
+      });
+
+      restante = Math.round((restante - montoAplicar) * 100) / 100;
+    }
+
+    // 3. Si sobró dinero (el cliente pagó más de lo adeudado), acreditar a saldoAFavor
+    let nuevoSaldoAFavor = Number(client.saldoAFavor || 0);
+    if (restante > 0) {
+      nuevoSaldoAFavor = Math.round((nuevoSaldoAFavor + restante) * 100) / 100;
+    }
+
+    // 4. Recalcular deuda final y crédito utilizado de forma estricta
+    const cobrosRestantes = await this.prisma.cobro.findMany({
+      where: {
+        clientId,
+        estado: { in: ['PENDIENTE', 'PARCIALMENTE_PAGADO'] },
+        saldoPendiente: { gt: 0 },
+      },
+      select: { saldoPendiente: true },
+    });
+    const deudaFacturadaRestante = cobrosRestantes.reduce((sum, c) => sum + Number(c.saldoPendiente), 0);
+    const nuevoCreditoUtilizado = Math.max(0, deudaFacturadaRestante - nuevoSaldoAFavor);
+
+    await this.prisma.client.update({
+      where: { id: clientId },
+      data: {
+        creditoUtilizado: nuevoCreditoUtilizado,
+        saldoAFavor: nuevoSaldoAFavor,
+      },
+    });
+
+    // 5. Emitir evento de abono registrado para notificaciones y trazabilidad
+    try {
+      if (this.eventEmitter) {
+        this.eventEmitter.emit('AbonoRegistrado', {
+          clientId,
+          monto: montoTotal,
+          saldoPendiente: nuevoCreditoUtilizado,
+          metodo: data.metodo || 'EFECTIVO',
+          reciboRef,
+        });
+      }
+    } catch (e) {
+      // Ignorar errores no críticos de eventos
+    }
+
+    return {
+      ok: true,
+      message: `Abono unificado de $${montoTotal.toFixed(2)} registrado exitosamente.`,
+      reciboRef,
+      montoTotal,
+      saldoAnterior,
+      nuevoSaldo: nuevoCreditoUtilizado,
+      saldoAFavor: nuevoSaldoAFavor,
+      cobrosAfectados,
+      fecha: new Date(),
     };
   }
 
