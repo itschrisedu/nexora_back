@@ -1,3 +1,4 @@
+import { randomUUID } from 'crypto';
 import {
   Body,
   Controller,
@@ -346,6 +347,188 @@ export class ProveedoresController {
       ok: true,
       id,
       message: 'Orden de compra consolidada generada con éxito.',
+    };
+  }
+
+  @Post('ordenes-compra/solicitar-modelo')
+  @Roles(Rol.ROL_ADMIN, Rol.ROL_VENDEDOR, Rol.ROL_BODEGUERO, Rol.ROL_SUPER_ADMIN)
+  async solicitarModeloDesdePrediccion(
+    @Body()
+    body: {
+      modelo: string;
+      productId?: string;
+      serie?: string;
+      talla?: string | number;
+      cantidad: number;
+      motivo?: string;
+    },
+    @Req() req: any,
+  ) {
+    const { modelo, productId, serie, talla, cantidad, motivo } = body;
+    if (!cantidad || cantidad <= 0) {
+      throw new BadRequestException('La cantidad de pares debe ser mayor a 0.');
+    }
+
+    const tenantId = req.user?.tenantId;
+
+    // 1. Localizar producto
+    let prod: any = null;
+    if (productId) {
+      prod = await this.prisma.product.findUnique({
+        where: { id: productId },
+        include: { model: true, serie: true },
+      });
+    }
+
+    if (!prod && modelo) {
+      prod = await this.prisma.product.findFirst({
+        where: {
+          model: {
+            OR: [
+              { name: { contains: modelo, mode: 'insensitive' } },
+              { baseCode: { contains: modelo, mode: 'insensitive' } },
+            ],
+            ...(tenantId ? { tenantId } : {}),
+          },
+        },
+        include: { model: true, serie: true },
+        orderBy: { createdAt: 'desc' },
+      });
+    }
+
+    // 2. Determinar proveedor
+    let supplierId = prod?.supplierId || prod?.model?.supplierId;
+    if (!supplierId) {
+      let defaultSup = await this.prisma.supplier.findFirst({
+        where: { activo: true, ...(tenantId ? { tenantId } : {}) },
+        orderBy: { createdAt: 'asc' },
+      });
+      if (!defaultSup) {
+        defaultSup = await this.prisma.supplier.findFirst({
+          where: { activo: true },
+          orderBy: { createdAt: 'asc' },
+        });
+      }
+      supplierId = defaultSup?.id;
+    }
+
+    if (!supplierId) {
+      throw new BadRequestException('No se encontró un proveedor registrado para solicitar este modelo.');
+    }
+
+    // 3. Fallback de producto si no se encontró
+    let finalProductId = prod?.id;
+    let precioCosto = Number(prod?.costPrice || 15);
+    if (!finalProductId) {
+      const prodFallback = await this.prisma.product.findFirst({
+        where: {
+          OR: [{ supplierId }, { model: { supplierId } }],
+        },
+      });
+      if (prodFallback) {
+        finalProductId = prodFallback.id;
+        precioCosto = Number(prodFallback.costPrice || 15);
+      }
+    }
+
+    if (!finalProductId) {
+      throw new BadRequestException('No se encontró una referencia de producto válida para registrar en la orden de compra.');
+    }
+
+    // 4. Buscar orden BORRADOR existente para este proveedor
+    let ordenCompra = await this.prisma.supplierOrder.findFirst({
+      where: {
+        supplierId,
+        estado: 'BORRADOR',
+      },
+      include: { lines: true },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    const obsLinea = motivo || `Abastecimiento sugerido por Predicción IA (${modelo || prod?.model?.name || 'Calzado'}${talla ? ` T${talla}` : ''})`;
+
+    if (!ordenCompra) {
+      const orderId = randomUUID();
+      let numero = 1;
+      try {
+        const seqResult = await this.prisma.$queryRaw<[{ nextval: bigint }]>`
+          SELECT nextval('supplier_order_seq')
+        `;
+        numero = Number(seqResult[0].nextval);
+      } catch {
+        const lastOrder = await this.prisma.supplierOrder.findFirst({
+          orderBy: { numero: 'desc' },
+        });
+        numero = (lastOrder?.numero ?? 0) + 1;
+      }
+
+      ordenCompra = await this.prisma.supplierOrder.create({
+        data: {
+          id: orderId,
+          numero,
+          supplierId,
+          total: cantidad * precioCosto,
+          estado: 'BORRADOR',
+          observaciones: `Orden de reabastecimiento iniciada desde módulo de Predicción de Demanda`,
+          lines: {
+            create: [
+              {
+                id: randomUUID(),
+                productId: finalProductId,
+                cantidadPedida: cantidad,
+                precioCosto,
+                subtotal: cantidad * precioCosto,
+                observacionLinea: obsLinea,
+              },
+            ],
+          },
+        },
+        include: { lines: true },
+      });
+    } else {
+      const existingLine = ordenCompra.lines.find((l) => l.productId === finalProductId);
+      if (existingLine) {
+        const nuevaCantidad = existingLine.cantidadPedida + cantidad;
+        const nuevoSubtotal = nuevaCantidad * Number(existingLine.precioCosto);
+        await this.prisma.supplierOrderLine.update({
+          where: { id: existingLine.id },
+          data: {
+            cantidadPedida: nuevaCantidad,
+            subtotal: nuevoSubtotal,
+            observacionLinea: `${existingLine.observacionLinea || ''} + ${obsLinea}`.trim(),
+          },
+        });
+      } else {
+        await this.prisma.supplierOrderLine.create({
+          data: {
+            id: randomUUID(),
+            supplierOrderId: ordenCompra.id,
+            productId: finalProductId,
+            cantidadPedida: cantidad,
+            precioCosto,
+            subtotal: cantidad * precioCosto,
+            observacionLinea: obsLinea,
+          },
+        });
+      }
+
+      const todasLineas = await this.prisma.supplierOrderLine.findMany({
+        where: { supplierOrderId: ordenCompra.id },
+      });
+      const nuevoTotal = todasLineas.reduce((acc, l) => acc + Number(l.subtotal), 0);
+      await this.prisma.supplierOrder.update({
+        where: { id: ordenCompra.id },
+        data: { total: nuevoTotal },
+      });
+    }
+
+    return {
+      ok: true,
+      orderId: ordenCompra.id,
+      numero: ordenCompra.numero,
+      cantidad,
+      modelo: modelo || prod?.model?.name,
+      message: `Solicitud de ${cantidad} pares para ${modelo || 'el modelo'} agregada a la Orden de Compra OC-${String(ordenCompra.numero).padStart(4, '0')} (Borrador).`,
     };
   }
 
