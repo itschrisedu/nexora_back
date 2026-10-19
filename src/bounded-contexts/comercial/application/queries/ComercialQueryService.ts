@@ -233,9 +233,14 @@ export class ComercialQueryService {
       });
     }
 
-    if (tallaIds.length > 0) {
+    const allTallaIds = Array.from(new Set([
+      ...tallaIds,
+      ...Array.from(productMap.values()).flatMap((p: any) => (p.stockByTalla || []).map((s: any) => s.tallaId)),
+    ].filter(Boolean)));
+
+    if (allTallaIds.length > 0) {
       const tallas = await this.prisma.tallaConfig.findMany({
-        where: { id: { in: tallaIds as string[] } },
+        where: { id: { in: allTallaIds as string[] } },
       });
       tallas.forEach((t) => tallaMap.set(t.id, t.numero));
     }
@@ -413,6 +418,14 @@ export class ComercialQueryService {
           imageUrl: prod?.imageUrl || l.imageUrl || null,
           serieNombre: serieResuelta,
           numeroTalla: numeroTalla ?? 0,
+          tallasAlternativas: (prod?.stockByTalla || [])
+            .filter((st: any) => st.tallaId !== l.tallaId && st.quantity > 0)
+            .map((st: any) => ({
+              tallaId: st.tallaId,
+              numero: tallaMap?.get(st.tallaId) ?? 0,
+              stock: st.quantity,
+            }))
+            .sort((a: any, b: any) => a.numero - b.numero),
         };
       }),
       cola: record.queueEntry

@@ -703,18 +703,24 @@ export class PedidosController {
         );
       }
 
+      const effectiveTallaId = (item.tallaIdSustituta && item.tallaIdSustituta.trim() !== '' && item.tallaIdSustituta !== line.tallaId)
+        ? item.tallaIdSustituta
+        : line.tallaId;
+
       const stock = await this.prisma.stockByTalla.findUnique({
         where: {
           productId_tallaId: {
             productId: line.productId,
-            tallaId: line.tallaId,
+            tallaId: effectiveTallaId,
           },
         },
       });
 
       if (!stock || stock.quantity < item.cantidadAEntregar) {
+        const tallaObj = await this.prisma.tallaConfig.findUnique({ where: { id: effectiveTallaId } });
+        const tallaStr = tallaObj ? `Talla ${tallaObj.numero}` : 'la talla seleccionada';
         throw new BadRequestException(
-          `Stock físico insuficiente en bodega. Hay ${stock ? stock.quantity : 0} pares disponibles y se intentan entregar ${item.cantidadAEntregar}`,
+          `Stock físico insuficiente en bodega para ${tallaStr}. Hay ${stock ? stock.quantity : 0} pares disponibles y se intentan entregar ${item.cantidadAEntregar}`,
         );
       }
     }
@@ -825,13 +831,37 @@ export class PedidosController {
         porLiberar -= cantALiberar;
       }
 
-      // 2. Descontar del inventario físico real
+      // 2. Descontar del inventario físico real (talla física entregada)
+      const effectiveTallaId = (item.tallaIdSustituta && item.tallaIdSustituta.trim() !== '' && item.tallaIdSustituta !== line.tallaId)
+        ? item.tallaIdSustituta
+        : line.tallaId;
+
+      const isSustituta = effectiveTallaId !== line.tallaId;
+      let sustitucionNota = '';
+      if (isSustituta) {
+        const [tOrig, tSust] = await Promise.all([
+          this.prisma.tallaConfig.findUnique({ where: { id: line.tallaId } }),
+          this.prisma.tallaConfig.findUnique({ where: { id: effectiveTallaId } }),
+        ]);
+        const numOrig = tOrig ? `T${tOrig.numero}` : line.tallaId;
+        const numSust = tSust ? `T${tSust.numero}` : effectiveTallaId;
+        sustitucionNota = `[Despacho compensatorio: ${item.cantidadAEntregar} par(es) ${numSust} entregados en sustitución de ${numOrig}]`;
+        
+        // Registrar en notas del pedido para trazabilidad permanente
+        const pedidoActual = await this.prisma.order.findUnique({ where: { id: pedido.id }, select: { notas: true } });
+        const notasActualizadas = pedidoActual?.notas ? `${pedidoActual.notas} | ${sustitucionNota}` : sustitucionNota;
+        await this.prisma.order.update({
+          where: { id: pedido.id },
+          data: { notas: notasActualizadas },
+        });
+      }
+
       await this.descontarStockHandler.execute(
         new DescontarStockCommand(
           line.productId,
-          line.tallaId,
+          effectiveTallaId,
           item.cantidadAEntregar,
-          'ENTREGA_PEDIDO_PARCIAL_O_TOTAL',
+          isSustituta ? `ENTREGA_PEDIDO_SUSTITUCION (${sustitucionNota})` : 'ENTREGA_PEDIDO_PARCIAL_O_TOTAL',
           pedido.id,
           userId,
         ),
@@ -860,7 +890,7 @@ export class PedidosController {
       lineasEntregadasEnEstaTransaccion.push({
         productId: line.productId,
         serieId: line.serieId,
-        tallaId: line.tallaId,
+        tallaId: effectiveTallaId,
         cantidad: item.cantidadAEntregar,
         precioUnitario: precioEfectivo,
       });

@@ -180,6 +180,10 @@ export class ItemAEntregarDto {
 
   @IsOptional()
   precioUnitario?: number;
+
+  @IsString()
+  @IsOptional()
+  tallaIdSustituta?: string;
 }
 
 export class ItemCorregirPrecioDto {
