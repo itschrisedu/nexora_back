@@ -141,6 +141,7 @@ export class NotificacionesQueryService {
         ...(tenantId ? { model: { tenantId } } : {}),
       },
       include: {
+        serie: true,
         model: {
           select: {
             name: true,
@@ -189,6 +190,10 @@ export class NotificacionesQueryService {
           marca: p.model?.brand || 'NEXORA',
           modelo: p.code,
           sku: p.code,
+          color: p.color,
+          imageUrl: p.imageUrl || null,
+          fotoUrl: p.imageUrl || null,
+          serieNombre: p.serie?.nombre || null,
           stockTotal: totalPares,
           stockMinimo: minRequerido,
           estadoStock,
