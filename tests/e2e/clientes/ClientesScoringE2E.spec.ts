@@ -46,6 +46,17 @@ describe('E2E / Sistema — Flujo de Gestión de Clientes, Cifrado de Identidad 
           return Promise.resolve(null);
         }),
         findMany: jest.fn().mockResolvedValue([]),
+        update: jest.fn().mockResolvedValue({}),
+      },
+      cobro: {
+        findMany: jest.fn().mockImplementation(({ where }) => {
+          if (where.clientId === 'cli-test-01') {
+            return Promise.resolve([
+              { saldoPendiente: 150 },
+            ]);
+          }
+          return Promise.resolve([]);
+        }),
       },
       tenant: {
         findUnique: jest.fn().mockResolvedValue({ id: tenantId, businessConfig: { ruc: 'enc-1803730276001' } }),
@@ -116,6 +127,6 @@ describe('E2E / Sistema — Flujo de Gestión de Clientes, Cifrado de Identidad 
     // Si solicita más del cupo disponible ($350), debe ser rechazado
     const validacionExcedida = await queryService.validarCapacidadCrediticia('cli-test-01', 400);
     expect(validacionExcedida.aprobado).toBe(false);
-    expect(validacionExcedida.razon).toContain('supera límite disponible');
+    expect(validacionExcedida.razon).toContain('supera su cupo de crédito máximo');
   });
 });
