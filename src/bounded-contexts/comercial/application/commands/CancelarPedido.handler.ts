@@ -141,6 +141,11 @@ export class CancelarPedidoHandler {
     setRefsCancelados.add(refPedidoLower);
 
     for (const oc of ordenesCompraBorrador) {
+      // Si la orden fue ajustada manualmente a medida por el comerciante, no alterar sus cantidades
+      if (oc.observaciones && oc.observaciones.includes('[AJUSTE_MANUAL]')) {
+        continue;
+      }
+
       let huboModificacionEnOrden = false;
 
       for (const line of oc.lines) {

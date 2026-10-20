@@ -384,6 +384,11 @@ export class CrearPedidoHandler {
             include: { lines: true },
           });
 
+          // Si la orden borrador fue fijada o ajustada manualmente por el comerciante, NO alterarla ni inyectarle más pares
+          if (ordenCompra && ordenCompra.observaciones && ordenCompra.observaciones.includes('[AJUSTE_MANUAL]')) {
+            ordenCompra = null;
+          }
+
           const detallePedidosItems = items.map((i) => i.detallePedido).join('; ');
 
           if (!ordenCompra) {

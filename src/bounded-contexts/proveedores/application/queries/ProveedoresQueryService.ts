@@ -976,6 +976,11 @@ export class ProveedoresQueryService {
     const setRefsCancelados = new Set(pedidosCancelados.map((p) => p.id.substring(0, 8).toLowerCase()));
 
     for (const oc of ordenesBorrador) {
+      // No tocar órdenes que el comerciante ya ajustó manualmente según su presupuesto
+      if (oc.observaciones && oc.observaciones.includes('[AJUSTE_MANUAL]')) {
+        continue;
+      }
+
       let huboCambio = false;
 
       for (const line of oc.lines) {
