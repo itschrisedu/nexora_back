@@ -572,6 +572,8 @@ export class FinancieroQueryService {
           color: prod?.color || '',
           imageUrl: prod?.imageUrl || null,
           serieNombre: prod?.serie?.nombre || 'Estándar',
+          code: prod?.code || '',
+          baseCode: prod?.model?.baseCode || '',
           numeroTalla: numeroTalla ?? 0,
         };
       });
