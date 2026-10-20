@@ -104,24 +104,31 @@ export class ClientesQueryService {
       return formatted;
     }
 
-    const termLower = searchTerm.toLowerCase();
+    const normalizeStr = (str?: string | null) =>
+      (str || '')
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toLowerCase()
+        .trim();
+
+    const termNorm = normalizeStr(searchTerm);
     const termCleanDigits = searchTerm.replace(/\D/g, '');
 
     return formatted.filter((c) => {
-      const nombreCompleto = `${c.nombre || ''} ${c.apellido || ''}`.toLowerCase();
+      const nombreCompleto = normalizeStr(`${c.nombre || ''} ${c.apellido || ''}`);
       const cedula = (c.cedula || '').toLowerCase();
       const ruc = (c.ruc || '').toLowerCase();
       const telefono = (c.telefono || '').toLowerCase();
-      const email = (c.email || '').toLowerCase();
-      const direccion = (c.direccion || '').toLowerCase();
+      const email = normalizeStr(c.email);
+      const direccion = normalizeStr(c.direccion);
 
       return (
-        nombreCompleto.includes(termLower) ||
-        (cedula && (cedula.includes(termLower) || (termCleanDigits.length >= 3 && cedula.includes(termCleanDigits)))) ||
-        (ruc && (ruc.includes(termLower) || (termCleanDigits.length >= 3 && ruc.includes(termCleanDigits)))) ||
-        (telefono && (telefono.includes(termLower) || (termCleanDigits.length >= 3 && telefono.includes(termCleanDigits)))) ||
-        email.includes(termLower) ||
-        direccion.includes(termLower)
+        nombreCompleto.includes(termNorm) ||
+        (cedula && (cedula.includes(termNorm) || (termCleanDigits.length >= 3 && cedula.includes(termCleanDigits)))) ||
+        (ruc && (ruc.includes(termNorm) || (termCleanDigits.length >= 3 && ruc.includes(termCleanDigits)))) ||
+        (telefono && (telefono.includes(termNorm) || (termCleanDigits.length >= 3 && telefono.includes(termCleanDigits)))) ||
+        email.includes(termNorm) ||
+        direccion.includes(termNorm)
       );
     });
   }
