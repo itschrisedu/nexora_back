@@ -23,6 +23,7 @@ export class DevolucionesController {
       orderId?: string;
       clientId: string;
       motivo: string;
+      recibidoPor?: string;
       tipoDevolucion?: 'SERIE_COMPLETA' | 'TALLA_ESPECIFICA';
       destinoStock?: 'REINGRESO_INVENTARIO' | 'BAJA_POR_FALLA';
       lines: {

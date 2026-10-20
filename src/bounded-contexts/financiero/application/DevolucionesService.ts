@@ -33,6 +33,7 @@ export class DevolucionesService {
       orderId?: string;
       clientId: string;
       motivo: string;
+      recibidoPor?: string;
       tipoDevolucion?: 'SERIE_COMPLETA' | 'TALLA_ESPECIFICA';
       destinoStock?: 'REINGRESO_INVENTARIO' | 'BAJA_POR_FALLA';
       lines: LineaDevolucionClienteInput[];
@@ -167,7 +168,22 @@ export class DevolucionesService {
         : 'COMPLETADO';
 
       // 5. Crear registro de devolucion con datos financieros
-      const motivoCompleto = `[${destinoStock === 'BAJA_POR_FALLA' ? 'MERMA/BAJA POR FALLA' : 'REINGRESO A BODEGA'}] [${tipoDevolucion === 'SERIE_COMPLETA' ? 'SERIE COMPLETA' : 'TALLA ESPECIFICA'}] ${dto.motivo || 'Devolucion de cliente'}`;
+      let nombreRecibidor = dto.recibidoPor?.trim();
+      if (!nombreRecibidor && userId) {
+        const u = await tx.user.findUnique({
+          where: { id: userId },
+          select: { nombre: true, email: true },
+        });
+        if (u) {
+          nombreRecibidor = u.nombre || u.email;
+        }
+      }
+      if (!nombreRecibidor) {
+        nombreRecibidor = 'Personal de Tienda / Ventas';
+      }
+
+      const recibidoTag = `[RECIBIDO POR: ${nombreRecibidor}]`;
+      const motivoCompleto = `[${destinoStock === 'BAJA_POR_FALLA' ? 'MERMA/BAJA POR FALLA' : 'REINGRESO A BODEGA'}] [${tipoDevolucion === 'SERIE_COMPLETA' ? 'SERIE COMPLETA' : 'TALLA ESPECIFICA'}] ${recibidoTag} ${dto.motivo || 'Devolucion de cliente'}`;
 
       const devolucion = await tx.clienteDevolucion.create({
         data: {
@@ -672,12 +688,27 @@ export class DevolucionesService {
       });
       const nextNumero = (lastDev?.numero ?? 0) + 1;
 
-      let motivoFinal = dto.motivo;
-      if (dto.entregadoPor || dto.recibidoPor) {
-        const entregadoTag = dto.entregadoPor ? `[ENTREGADO POR: ${dto.entregadoPor.trim()}] ` : '';
-        const recibidoTag = dto.recibidoPor ? `[RECIBIDO POR: ${dto.recibidoPor.trim()}] ` : '';
-        motivoFinal = `${entregadoTag}${recibidoTag}${dto.motivo}`.trim();
+      let motivoFinal = dto.motivo || '';
+      let entregadoPor = dto.entregadoPor?.trim();
+      if (!entregadoPor || entregadoPor === 'Bodega / Despacho') {
+        if (userId) {
+          const u = await tx.user.findUnique({
+            where: { id: userId },
+            select: { nombre: true, email: true },
+          });
+          if (u) {
+            entregadoPor = u.nombre || u.email;
+          }
+        }
       }
+      if (!entregadoPor) {
+        entregadoPor = 'Bodega / Despacho';
+      }
+
+      const entregadoTag = `[ENTREGADO POR: ${entregadoPor}] `;
+      const recibidoTag = dto.recibidoPor ? `[RECIBIDO POR: ${dto.recibidoPor.trim()}] ` : '';
+      const limpioMotivo = motivoFinal.replace(/\[(ENTREGADO|RECIBIDO) POR:[^\]]+\]/gi, '').trim();
+      motivoFinal = `${entregadoTag}${recibidoTag}${limpioMotivo}`.trim();
 
       // 6. Crear registro de devolucion a proveedor
       const devolucion = await tx.proveedorDevolucion.create({

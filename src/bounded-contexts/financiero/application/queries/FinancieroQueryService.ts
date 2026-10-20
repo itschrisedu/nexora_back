@@ -446,7 +446,7 @@ export class FinancieroQueryService {
 
     const whereTenant = tenantId ? { tenantId } : {};
 
-    const [pedidos, notasVenta, cobros, devolucionesCliente] = await Promise.all([
+    const [pedidos, notasVenta, cobros, devolucionesCliente, movsDevolucion] = await Promise.all([
       this.prisma.order.findMany({
         where: {
           clientId,
@@ -472,6 +472,14 @@ export class FinancieroQueryService {
       this.prisma.clienteDevolucion.findMany({
         where: { clientId, ...whereTenant },
         include: { lines: true },
+        orderBy: { createdAt: 'desc' },
+      }),
+      this.prisma.movimientoFinanciero.findMany({
+        where: {
+          clientId,
+          tipo: { in: ['DESCUENTO_DEVOLUCION_CLIENTE', 'SALDO_FAVOR_CLIENTE'] },
+          ...whereTenant,
+        },
         orderBy: { createdAt: 'desc' },
       }),
     ]);
@@ -502,7 +510,7 @@ export class FinancieroQueryService {
       tallas.forEach((t) => tallaMap.set(t.id, t.numero));
     }
 
-    // Resolver usuarios (vendedores de pedidos + cajeros de abonos + confirmadores de entrega)
+    // Resolver usuarios (vendedores de pedidos + cajeros de abonos + confirmadores de entrega + registradores de devoluciones)
     const pedidoUserIds = pedidos.map((p) => p.userId).filter(Boolean);
     const abonoUserIds = cobros.flatMap((c) =>
       c.abonos.map((a) => a.userId).filter(Boolean),
@@ -510,7 +518,8 @@ export class FinancieroQueryService {
     const dispatchUserIds = pedidos
       .map((p: any) => p.dispatchOrder?.confirmadoPorId)
       .filter(Boolean);
-    const histUserIds = [...new Set([...pedidoUserIds, ...abonoUserIds, ...dispatchUserIds])];
+    const devUserIds = movsDevolucion.map((m: any) => m.userId).filter(Boolean);
+    const histUserIds = [...new Set([...pedidoUserIds, ...abonoUserIds, ...dispatchUserIds, ...devUserIds])];
     const histUsers = histUserIds.length > 0
       ? await this.prisma.user.findMany({
           where: { id: { in: histUserIds } },
@@ -525,6 +534,14 @@ export class FinancieroQueryService {
         })
       : [];
     const histUserMap = new Map(histUsers.map((u) => [u.id, u]));
+
+    let defaultTenantUser: any = null;
+    if (client.tenantId) {
+      defaultTenantUser = await this.prisma.user.findFirst({
+        where: { tenantId: client.tenantId },
+        select: { id: true, nombre: true, email: true, rol: true },
+      });
+    }
 
     // Numeración correlativa cronológica
     const sortedPedidosCron = [...pedidos].sort(
@@ -680,18 +697,54 @@ export class FinancieroQueryService {
 
       const totalPares = (d.lines || []).reduce((acc: number, l: any) => acc + l.cantidad, 0);
 
+      // 1. Extraer tag [RECIBIDO POR: Nombre] si existe en d.motivo
+      const matchRecibido = d.motivo?.match(/\[RECIBIDO POR:\s*([^\]]+)\]/i);
+      let quienRecibio = matchRecibido ? matchRecibido[1].trim() : '';
+      let quienRecibioRol = '';
+
+      // 2. Si no tiene tag en motivo, correlacionar con MovimientoFinanciero por tiempo (registros históricos)
+      if (!quienRecibio) {
+        const dTime = new Date(d.createdAt).getTime();
+        const movMatch = movsDevolucion.find((mf: any) => {
+          const mfTime = new Date(mf.createdAt).getTime();
+          return Math.abs(mfTime - dTime) <= 180000 && mf.userId;
+        });
+        if (movMatch && movMatch.userId) {
+          const u = histUserMap.get(movMatch.userId);
+          if (u) {
+            quienRecibio = u.nombre || u.email;
+            quienRecibioRol = u.rol || '';
+          }
+        }
+      }
+
+      // 3. Fallback a primer usuario activo o administrador de la sucursal
+      if (!quienRecibio) {
+        const fallbackUser = histUsers[0] || defaultTenantUser;
+        if (fallbackUser) {
+          quienRecibio = fallbackUser.nombre || fallbackUser.email;
+          quienRecibioRol = fallbackUser.rol || '';
+        }
+      }
+
+      // 4. Limpiar el motivo de tags para no ensuciar la descripción secundaria
+      const motivoLimpio = (d.motivo || 'Devolución de mercadería')
+        .replace(/\[RECIBIDO POR:\s*[^\]]+\]/gi, '')
+        .replace(/\s{2,}/g, ' ')
+        .trim();
+
       movimientos.push({
         id: `devolucion-${d.id}`,
         tipo: 'DEVOLUCION',
         titulo: `Devolución de Calzado (${totalPares} pares)`,
-        descripcion: d.motivo || 'Devolución de mercadería',
+        descripcion: motivoLimpio || 'Devolución de mercadería',
         monto: Number(d.deudaDescontada || d.totalDevuelto),
         totalDevuelto: Number(d.totalDevuelto),
         deudaDescontada: Number(d.deudaDescontada || 0),
         saldoAFavor: Number(d.saldoAFavor || 0),
         fecha: d.createdAt,
-        procesadoPor: '',
-        procesadoPorRol: '',
+        procesadoPor: quienRecibio,
+        procesadoPorRol: quienRecibioRol,
         detalles: {
           devolucionId: d.id,
           orderId: d.orderId,

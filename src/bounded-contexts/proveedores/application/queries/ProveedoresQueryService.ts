@@ -296,6 +296,14 @@ export class ProveedoresQueryService {
     const productMap = new Map(products.map((p) => [p.id, p]));
     const tallaMap = new Map(tallas.map((t) => [t.id, t.numero]));
 
+    const defaultUser = supplier.tenantId
+      ? await this.prisma.user.findFirst({
+          where: { tenantId: supplier.tenantId },
+          select: { nombre: true, email: true },
+        })
+      : null;
+    const defaultResponsable = defaultUser?.nombre || defaultUser?.email || 'Bodega / Recepción';
+
     // Build timeline movements
     const movimientos: any[] = [];
 
@@ -340,7 +348,9 @@ export class ProveedoresQueryService {
         estado: e.estado,
         fecha: e.fechaIngreso.toISOString(),
         entregadoPor: entregadoMatch ? entregadoMatch[1].trim() : (supplier.contacto || supplier.razonSocial),
-        recibidoPor: recibidoMatch ? recibidoMatch[1].trim() : 'Bodega / Recepción',
+        recibidoPor: (recibidoMatch && recibidoMatch[1].trim() && recibidoMatch[1].trim() !== 'Bodega / Recepción')
+          ? recibidoMatch[1].trim()
+          : defaultResponsable,
         detalles: {
           supplierOrderId: e.supplierOrderId,
           totalPares,
@@ -400,7 +410,9 @@ export class ProveedoresQueryService {
         monto: Number(d.totalDevuelto),
         estado: d.estado,
         fecha: d.createdAt.toISOString(),
-        entregadoPor: entregadoMatch ? entregadoMatch[1].trim() : 'Bodega / Despacho',
+        entregadoPor: (entregadoMatch && entregadoMatch[1].trim() && entregadoMatch[1].trim() !== 'Bodega / Despacho')
+          ? entregadoMatch[1].trim()
+          : defaultResponsable,
         recibidoPor: recibidoMatch ? recibidoMatch[1].trim() : (supplier.contacto || supplier.razonSocial),
         detalles: {
           deudaDescontada: Number(d.deudaDescontada),

@@ -691,13 +691,32 @@ export class ProveedoresController {
 
   @Post('entradas')
   @Roles(Rol.ROL_ADMIN, Rol.ROL_BODEGUERO, Rol.ROL_SUPER_ADMIN)
-  async registrarEntradaMercancia(@Body() dto: RegistrarMerchandiseEntryDto) {
+  async registrarEntradaMercancia(
+    @Body() dto: RegistrarMerchandiseEntryDto,
+    @Req() req: any,
+  ) {
+    let obs = dto.observaciones || '';
+    const userId = req.user?.sub || req.user?.id;
+    if (userId) {
+      const usuario = await this.prisma.user.findUnique({
+        where: { id: userId },
+        select: { nombre: true, email: true },
+      });
+      const nombreUsuario = usuario?.nombre || usuario?.email;
+      if (nombreUsuario) {
+        if (!obs.includes('[RECIBIDO POR:') || obs.includes('[RECIBIDO POR: Bodega / Recepción]')) {
+          obs = obs.replace(/\[RECIBIDO POR:\s*Bodega \/ Recepción\]/gi, '').trim();
+          obs = `[RECIBIDO POR: ${nombreUsuario}] ${obs}`.trim();
+        }
+      }
+    }
+
     const id = await this.registrarEntryHandler.execute(
       new RegistrarMerchandiseEntryCommand(
         dto.supplierId,
         dto.lines,
         dto.supplierOrderId,
-        dto.observaciones,
+        obs || undefined,
         dto.estado,
       ),
     );
