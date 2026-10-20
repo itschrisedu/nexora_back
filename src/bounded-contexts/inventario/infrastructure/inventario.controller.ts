@@ -894,6 +894,29 @@ export class InventarioController {
     const model = await this.prisma.productModel.findUnique({ where: { id } });
     if (!model) throw new NotFoundException(`Modelo con ID ${id} no encontrado`);
 
+    let finalSupplierId = dto.supplierId !== undefined ? dto.supplierId : model.supplierId;
+    let finalAlternates: string[] | undefined = undefined;
+
+    if (dto.alternateSupplierIds !== undefined || (dto.supplierId !== undefined && dto.supplierId !== model.supplierId)) {
+      const baseAlternates = dto.alternateSupplierIds !== undefined ? dto.alternateSupplierIds : (model.alternateSupplierIds || []);
+      let cleanAlternates = [...baseAlternates];
+
+      // Si el proveedor principal cambió y había uno anterior válido que no es el nuevo,
+      // el principal anterior pasa automáticamente a ser secundario (alterno) para no perderlo
+      if (dto.supplierId !== undefined && dto.supplierId !== model.supplierId) {
+        if (model.supplierId && model.supplierId !== dto.supplierId && !cleanAlternates.includes(model.supplierId)) {
+          cleanAlternates.push(model.supplierId);
+        }
+      }
+
+      // El nuevo principal NUNCA debe estar duplicado en la lista de secundarios
+      if (finalSupplierId) {
+        cleanAlternates = cleanAlternates.filter(supId => supId !== finalSupplierId);
+      }
+
+      finalAlternates = Array.from(new Set(cleanAlternates.filter(Boolean)));
+    }
+
     const updated = await this.prisma.productModel.update({
       where: { id },
       data: {
@@ -902,7 +925,11 @@ export class InventarioController {
         ...(dto.material !== undefined && { material: dto.material }),
         ...(dto.baseCode && { baseCode: dto.baseCode }),
         ...(dto.supplierId !== undefined && { supplierId: dto.supplierId }),
-        ...(dto.alternateSupplierIds !== undefined && { alternateSupplierIds: dto.alternateSupplierIds }),
+        ...(finalAlternates !== undefined
+          ? { alternateSupplierIds: finalAlternates }
+          : dto.alternateSupplierIds !== undefined
+          ? { alternateSupplierIds: dto.alternateSupplierIds }
+          : {}),
       },
     });
 
@@ -925,6 +952,8 @@ export class InventarioController {
     const isImageUpdating = dto.imageUrl !== undefined;
     const oldImageUrl = product.imageUrl;
     const newImageUrl = dto.imageUrl;
+    const newColorName = dto.color ? dto.color.trim() : undefined;
+    const isColorUpdating = Boolean(newColorName && newColorName.toLowerCase() !== product.color.trim().toLowerCase());
 
     // Si cambió de imagen y la anterior era de Cloudinary, verificar si algún OTRO producto fuera de este modelo y color la está usando antes de borrar
     if (isImageUpdating && oldImageUrl && oldImageUrl !== newImageUrl && oldImageUrl.includes('cloudinary.com')) {
@@ -983,7 +1012,7 @@ export class InventarioController {
       await tx.product.update({
         where: { id },
         data: {
-          ...(dto.color && { color: dto.color }),
+          ...(newColorName && { color: newColorName }),
           ...(dto.imageUrl !== undefined && { imageUrl: dto.imageUrl }),
           ...(dto.serieId && { serieId: dto.serieId }),
           ...(dto.costPrice !== undefined && { costPrice: dto.costPrice }),
@@ -991,6 +1020,20 @@ export class InventarioController {
           ...(dto.supplierId !== undefined && { supplierId: dto.supplierId }),
         },
       });
+
+      // Si se actualizó el nombre del color, sincronizarlo en TODAS las demás series del mismo modelo
+      if (isColorUpdating && newColorName) {
+        await tx.product.updateMany({
+          where: {
+            modelId: product.modelId,
+            color: { equals: product.color, mode: 'insensitive' },
+            id: { not: id },
+          },
+          data: {
+            color: newColorName,
+          },
+        });
+      }
 
       // Si se asignó un taller o proveedor específico a la variante, agregarlo a los alternos del modelo si no está
       if (dto.supplierId && product.modelId) {
@@ -1008,10 +1051,11 @@ export class InventarioController {
 
       // Si se actualizó la imagen, sincronizarla en TODAS las series del mismo modelo y color
       if (isImageUpdating) {
+        const effectiveColor = newColorName || product.color;
         await tx.product.updateMany({
           where: {
             modelId: product.modelId,
-            color: { equals: product.color, mode: 'insensitive' },
+            color: { equals: effectiveColor, mode: 'insensitive' },
           },
           data: {
             imageUrl: newImageUrl ?? null,
