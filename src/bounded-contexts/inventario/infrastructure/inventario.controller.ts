@@ -124,8 +124,10 @@ export class InventarioController {
 
   @Get('modelos')
   @Roles(Rol.ROL_ADMIN, Rol.ROL_SUPER_ADMIN, Rol.ROL_VENDEDOR, Rol.ROL_BODEGUERO)
-  async listarModelos(@Req() req: any) {
-    return this.queryService.listarModelos(req.user.tenantId);
+  async listarModelos(@Req() req: any, @Query('sucursalId') sucursalId?: string) {
+    const isSuperAdmin = req.user.rol === Rol.ROL_SUPER_ADMIN;
+    const targetTenantId = (isSuperAdmin && sucursalId) ? sucursalId : req.user.tenantId;
+    return this.queryService.listarModelos(targetTenantId, isSuperAdmin);
   }
 
   // ══════════════════════════════

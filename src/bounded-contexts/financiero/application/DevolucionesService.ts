@@ -790,14 +790,27 @@ export class DevolucionesService {
     const productMap = new Map(products.map((p) => [p.id, p]));
     const tallaMap = new Map(tallas.map((t) => [t.id, t.numero]));
 
-    return devoluciones.map((d) => ({
-      ...d,
-      numeroCodigo: d.numero ? `DEV-${String(d.numero).padStart(4, '0')}` : `DEV-${d.id.slice(0, 4).toUpperCase()}`,
-      totalDevuelto: Number(d.totalDevuelto),
-      deudaDescontada: Number(d.deudaDescontada),
-      saldoAFavor: Number(d.saldoAFavor),
-      totalPares: d.lines.reduce((sum, l) => sum + l.cantidad, 0),
-      lines: d.lines.map((l) => {
+    return devoluciones.map((d) => {
+      const matchEntregado = d.motivo?.match(/\[ENTREGADO POR:\s*([^\]]+)\]/i);
+      const matchRecibido = d.motivo?.match(/\[RECIBIDO POR:\s*([^\]]+)\]/i);
+      const entregadoPor = matchEntregado ? matchEntregado[1].trim() : '';
+      const recibidoPor = matchRecibido ? matchRecibido[1].trim() : '';
+      const motivoLimpio = (d.motivo || '')
+        .replace(/\[(ENTREGADO|RECIBIDO) POR:[^\]]+\]/gi, '')
+        .replace(/\s{2,}/g, ' ')
+        .trim();
+
+      return {
+        ...d,
+        numeroCodigo: d.numero ? `DEV-${String(d.numero).padStart(4, '0')}` : `DEV-${d.id.slice(0, 4).toUpperCase()}`,
+        totalDevuelto: Number(d.totalDevuelto),
+        deudaDescontada: Number(d.deudaDescontada),
+        saldoAFavor: Number(d.saldoAFavor),
+        totalPares: d.lines.reduce((sum, l) => sum + l.cantidad, 0),
+        entregadoPor: entregadoPor || 'Bodega / Despacho',
+        recibidoPor: recibidoPor || undefined,
+        motivoLimpio: motivoLimpio || 'Devolución de mercadería por garantía',
+        lines: d.lines.map((l) => {
         const prod = productMap.get(l.productId);
         const numTalla = tallaMap.get(l.tallaId);
         return {
@@ -812,8 +825,9 @@ export class DevolucionesService {
           imageUrl: prod?.imageUrl || null,
         };
       }),
-    }));
-  }
+    };
+  });
+}
 
   /**
    * Recibir pago de excedente del proveedor (en efectivo).

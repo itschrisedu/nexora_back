@@ -723,7 +723,10 @@ export class FinancieroQueryService {
         const fallbackUser = histUsers[0] || defaultTenantUser;
         if (fallbackUser) {
           quienRecibio = fallbackUser.nombre || fallbackUser.email;
-          quienRecibioRol = fallbackUser.rol || '';
+          quienRecibioRol = fallbackUser.rol || 'Personal de Tienda';
+        } else {
+          quienRecibio = 'Administración / Recepción';
+          quienRecibioRol = 'Personal de Tienda';
         }
       }
 

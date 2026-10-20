@@ -275,12 +275,19 @@ export class ReportesService {
       timelineMap.get(dateKey)!.recaudacionCobros += montoAbono;
     });
 
-    // Saldo Total de Cartera Pendiente en la empresa
+    // Saldo Total de Cartera Pendiente en la empresa y cantidad de clientes con deuda
     const saldoCarteraRes = await this.prisma.cobro.aggregate({
-      where: { tenantId: tenantFilter, estado: { not: 'SALDADO' } },
+      where: { tenantId: tenantFilter, estado: { not: 'SALDADO' }, saldoPendiente: { gt: 0 } },
       _sum: { saldoPendiente: true },
     });
     const saldoCarteraTotal = Number(saldoCarteraRes._sum.saldoPendiente || 0);
+
+    const cobrosPendientes = await this.prisma.cobro.findMany({
+      where: { tenantId: tenantFilter, estado: { not: 'SALDADO' }, saldoPendiente: { gt: 0 } },
+      select: { clientId: true },
+      distinct: ['clientId'],
+    });
+    const clientesConDeudaCount = cobrosPendientes.length;
 
     // Top 10 Modelos Más Vendidos
     const topModelos = Array.from(productoVentasMap.values())
@@ -381,6 +388,28 @@ export class ReportesService {
       }
     });
 
+    let totalParesEnStock = 0;
+    let capitalInvertidoStock = 0;
+    let valorComercialStock = 0;
+
+    products.forEach((p) => {
+      const costoUnit = Number(p.costPrice || 0);
+      const ventaUnit = Number(p.salePrice || 0);
+      p.stockByTalla.forEach((s: any) => {
+        const qty = s.stock || s.quantity || 0;
+        if (qty > 0) {
+          totalParesEnStock += qty;
+          capitalInvertidoStock += qty * costoUnit;
+          valorComercialStock += qty * ventaUnit;
+        }
+      });
+    });
+
+    const gananciaBrutaStock = Math.max(0, valorComercialStock - capitalInvertidoStock);
+    const margenStockPct = valorComercialStock > 0
+      ? Math.round((gananciaBrutaStock / valorComercialStock) * 100)
+      : 0;
+
     const totalModelos = products.length;
     const saludInventarioPct = totalModelos > 0
       ? Math.max(0, Math.round(((totalModelos - stockBajoCount) / totalModelos) * 100))
@@ -404,6 +433,12 @@ export class ReportesService {
         margenPorcentaje,
         totalRecaudadoCobros,
         saldoCarteraTotal,
+        clientesConDeudaCount,
+        totalParesEnStock,
+        capitalInvertidoStock: Math.round(capitalInvertidoStock * 100) / 100,
+        valorComercialStock: Math.round(valorComercialStock * 100) / 100,
+        gananciaBrutaStock: Math.round(gananciaBrutaStock * 100) / 100,
+        margenStockPct,
         stockBajoCount,
         tallasAgotadasCount,
         totalModelos,

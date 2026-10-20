@@ -191,11 +191,16 @@ export class InventarioQueryService {
     return movimientos;
   }
 
-  async listarModelos(tenantId?: string | null) {
-    if (!tenantId) {
+  async listarModelos(tenantId?: string | null, isSuperAdmin = false) {
+    if (!tenantId && !isSuperAdmin) {
       return [];
     }
-    const where: any = { tenantId };
+    const where: any = {};
+    const whereSuppliers: any = {};
+    if (tenantId && tenantId !== 'TODAS') {
+      where.tenantId = tenantId;
+      whereSuppliers.tenantId = tenantId;
+    }
 
     const [modelos, allSuppliers] = await Promise.all([
       this.prisma.productModel.findMany({
@@ -222,7 +227,7 @@ export class InventarioQueryService {
         orderBy: { name: 'asc' },
       }),
       this.prisma.supplier.findMany({
-        where: { tenantId },
+        where: whereSuppliers,
         include: {
           _count: { select: { orders: true } },
         },
