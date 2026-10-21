@@ -1274,4 +1274,159 @@ export class ReportesService {
       proyecciones,
     };
   }
+
+  // ══════════════════════════════════════════════════════════════
+  // 7. REPORTE ANALÍTICO DE ABASTECIMIENTO & TALLERES PROVEEDORES
+  // ══════════════════════════════════════════════════════════════
+  async obtenerReporteAbastecimientoProveedores(tenantIds: string[], filtros: any) {
+    const { inicio, fin } = this.calcularRangoFechas(filtros);
+    const tenantFilter = tenantIds.length === 1 ? tenantIds[0] : { in: tenantIds };
+
+    const whereSupplier: any = { tenantId: tenantFilter };
+    if (filtros.proveedorId && filtros.proveedorId !== 'TODOS') {
+      whereSupplier.id = filtros.proveedorId;
+    }
+
+    const suppliers = await this.prisma.supplier.findMany({
+      where: whereSupplier,
+      include: {
+        tenant: { select: { id: true, name: true } },
+        orders: { select: { id: true, estado: true, total: true, createdAt: true } },
+        entries: {
+          where: { fechaIngreso: { gte: inicio, lte: fin } },
+          include: { lines: true },
+          orderBy: { fechaIngreso: 'desc' },
+        },
+        payments: {
+          where: { fechaPago: { gte: inicio, lte: fin } },
+          orderBy: { fechaPago: 'desc' },
+        },
+        devoluciones: {
+          where: { createdAt: { gte: inicio, lte: fin } },
+          orderBy: { createdAt: 'desc' },
+        },
+      },
+      orderBy: { razonSocial: 'asc' },
+    });
+
+    const allSuppliersData = await this.prisma.supplier.findMany({
+      where: whereSupplier,
+      include: {
+        entries: { select: { total: true } },
+        payments: { select: { monto: true } },
+        devoluciones: { select: { totalDevuelto: true } },
+      },
+    });
+
+    const saldoMap = new Map<string, { saldoPendiente: number; saldoAFavor: number }>();
+    allSuppliersData.forEach((s) => {
+      const histCompras = s.entries.reduce((acc, e) => acc + Number(e.total), 0);
+      const histPagos = s.payments.reduce((acc, p) => acc + Number(p.monto), 0);
+      const histDevs = s.devoluciones.reduce((acc, d) => acc + Number(d.totalDevuelto), 0);
+      const sPend = Math.max(0, histCompras - histPagos - histDevs);
+      const sFav = Math.max(0, histPagos + histDevs - histCompras);
+      saldoMap.set(s.id, { saldoPendiente: sPend, saldoAFavor: sFav });
+    });
+
+    let totalCompradoPeriodo = 0;
+    let totalParesRecibidos = 0;
+    let totalPagadoPeriodo = 0;
+    let deudaTotalTalleres = 0;
+    let anticiposAFavorTotal = 0;
+    let totalDevolucionesMonto = 0;
+    let totalDevolucionesCount = 0;
+
+    const desgloseProveedores = suppliers.map((s) => {
+      let rucDesencriptado = s.ruc;
+      try {
+        if (s.ruc) rucDesencriptado = this.encryptionService.decrypt(s.ruc);
+      } catch {}
+
+      const comprasPeriodo = s.entries.reduce((acc, e) => acc + Number(e.total), 0);
+      const paresPeriodo = s.entries.reduce(
+        (acc, e) => acc + e.lines.reduce((lAcc, l) => lAcc + (l.cantidadRecibida || 0), 0),
+        0,
+      );
+      const pagadoPeriodo = s.payments.reduce((acc, p) => acc + Number(p.monto), 0);
+      const devueltoPeriodo = s.devoluciones.reduce((acc, d) => acc + Number(d.totalDevuelto), 0);
+
+      const saldos = saldoMap.get(s.id) || { saldoPendiente: 0, saldoAFavor: 0 };
+      totalCompradoPeriodo += comprasPeriodo;
+      totalParesRecibidos += paresPeriodo;
+      totalPagadoPeriodo += pagadoPeriodo;
+      deudaTotalTalleres += saldos.saldoPendiente;
+      anticiposAFavorTotal += saldos.saldoAFavor;
+      totalDevolucionesMonto += devueltoPeriodo;
+      totalDevolucionesCount += s.devoluciones.length;
+
+      return {
+        id: s.id,
+        razonSocial: s.razonSocial,
+        ruc: rucDesencriptado,
+        contacto: s.contacto || 'Sin contacto',
+        direccion: s.direccion || 'Cevallos',
+        email: s.email || '',
+        sucursalNombre: s.tenant?.name || 'Matriz',
+        comprasPeriodo: Number(comprasPeriodo.toFixed(2)),
+        paresPeriodo,
+        pagadoPeriodo: Number(pagadoPeriodo.toFixed(2)),
+        devueltoPeriodo: Number(devueltoPeriodo.toFixed(2)),
+        saldoPendiente: Number(saldos.saldoPendiente.toFixed(2)),
+        saldoAFavor: Number(saldos.saldoAFavor.toFixed(2)),
+        totalLotesEntregados: s.entries.length,
+        totalDevoluciones: s.devoluciones.length,
+      };
+    }).sort((a, b) => b.comprasPeriodo - a.comprasPeriodo);
+
+    const ultimasEntradas: any[] = [];
+    suppliers.forEach((s) => {
+      s.entries.forEach((e) => {
+        const paresLote = e.lines.reduce((acc, l) => acc + (l.cantidadRecibida || 0), 0);
+        ultimasEntradas.push({
+          id: e.id,
+          numero: e.numero,
+          proveedorId: s.id,
+          proveedorNombre: s.razonSocial,
+          total: Number(e.total),
+          pares: paresLote,
+          fechaIngreso: e.fechaIngreso,
+          estado: e.estado,
+          observaciones: e.observaciones,
+        });
+      });
+    });
+    ultimasEntradas.sort((a, b) => new Date(b.fechaIngreso).getTime() - new Date(a.fechaIngreso).getTime());
+
+    const ultimasDevoluciones: any[] = [];
+    suppliers.forEach((s) => {
+      s.devoluciones.forEach((d) => {
+        ultimasDevoluciones.push({
+          id: d.id,
+          numero: d.numero,
+          proveedorId: s.id,
+          proveedorNombre: s.razonSocial,
+          totalDevuelto: Number(d.totalDevuelto),
+          motivo: (d as any).motivo || 'Garantía por defecto de confección',
+          fecha: d.createdAt,
+        });
+      });
+    });
+    ultimasDevoluciones.sort((a, b) => new Date(b.fecha).getTime() - new Date(a.fecha).getTime());
+
+    return {
+      kpis: {
+        totalCompradoPeriodo: Number(totalCompradoPeriodo.toFixed(2)),
+        totalParesRecibidos,
+        totalPagadoPeriodo: Number(totalPagadoPeriodo.toFixed(2)),
+        deudaTotalTalleres: Number(deudaTotalTalleres.toFixed(2)),
+        anticiposAFavorTotal: Number(anticiposAFavorTotal.toFixed(2)),
+        totalDevolucionesMonto: Number(totalDevolucionesMonto.toFixed(2)),
+        totalDevolucionesCount,
+        talleresActivosCount: suppliers.length,
+      },
+      desgloseProveedores,
+      ultimasEntradas: ultimasEntradas.slice(0, 30),
+      ultimasDevoluciones: ultimasDevoluciones.slice(0, 30),
+    };
+  }
 }

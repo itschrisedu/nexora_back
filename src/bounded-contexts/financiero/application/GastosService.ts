@@ -10,7 +10,11 @@ export class GastosService {
   constructor(private readonly prisma: PrismaService) {}
 
   async crearGasto(tenantId: string, userId: string, dto: CreateGastoDto) {
-    const targetTenantId = dto.sucursalId || tenantId;
+    let targetTenantId = dto.sucursalId || tenantId;
+    if (!targetTenantId) {
+      const u = await this.prisma.user.findUnique({ where: { id: userId }, select: { tenantId: true } });
+      targetTenantId = u?.tenantId || (await this.prisma.tenant.findFirst({ where: { active: true } }))?.id || '';
+    }
 
     const gasto = await this.prisma.gasto.create({
       data: {
@@ -47,9 +51,9 @@ export class GastosService {
   async listarGastos(tenantId: string, filtros?: GastoFiltrosDto) {
     const where: any = {};
 
-    if (filtros?.sucursalId) {
+    if (filtros?.sucursalId && filtros.sucursalId !== 'TODAS') {
       where.tenantId = filtros.sucursalId;
-    } else if (tenantId) {
+    } else if (tenantId && (!filtros?.sucursalId || filtros.sucursalId !== 'TODAS')) {
       where.tenantId = tenantId;
     }
 
@@ -115,10 +119,10 @@ export class GastosService {
       fecha: { gte: inicioMesAnterior, lte: finMesAnterior },
     };
 
-    if (sucursalId) {
+    if (sucursalId && sucursalId !== 'TODAS') {
       whereMes.tenantId = sucursalId;
       whereMesAnterior.tenantId = sucursalId;
-    } else if (tenantId) {
+    } else if (tenantId && (!sucursalId || sucursalId !== 'TODAS')) {
       whereMes.tenantId = tenantId;
       whereMesAnterior.tenantId = tenantId;
     }
@@ -146,7 +150,14 @@ export class GastosService {
 
     const porCategoria = Array.from(porCategoriaMap.values())
       .filter((c) => c.total > 0)
-      .sort((a, b) => b.total - a.total);
+      .map((c) => ({
+        categoria: c.categoria,
+        total: Number(c.total.toFixed(2)),
+        totalMonto: Number(c.total.toFixed(2)),
+        cantidad: c.cantidad,
+        porcentaje: totalMes > 0 ? Math.round((c.total / totalMes) * 100) : 0,
+      }))
+      .sort((a, b) => b.totalMonto - a.totalMonto);
 
     // Desglose por método de pago
     const porMetodoMap = new Map<string, number>();
@@ -157,7 +168,7 @@ export class GastosService {
 
     const porMetodo = Array.from(porMetodoMap.entries()).map(([metodo, total]) => ({
       metodo,
-      total,
+      total: Number(total.toFixed(2)),
     }));
 
     // Variación %
@@ -170,9 +181,11 @@ export class GastosService {
       mes: currentMonth,
       anio: currentYear,
       totalMes: Number(totalMes.toFixed(2)),
+      totalMonto: Number(totalMes.toFixed(2)),
       totalMesAnterior: Number(totalMesAnterior.toFixed(2)),
       variacionPorcentual: Number(variacionPorcentual.toFixed(1)),
       cantidadGastos: gastosMes.length,
+      totalCantidad: gastosMes.length,
       porCategoria,
       porMetodo,
     };

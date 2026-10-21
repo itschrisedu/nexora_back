@@ -188,6 +188,29 @@ export class ReportesController {
   }
 
   /**
+   * GET /reportes/abastecimiento-proveedores
+   * Reporte integral de compras, lotes de calzado recibidos, deuda y garantías a talleres proveedores
+   */
+  @Get('abastecimiento-proveedores')
+  @Roles(Rol.ROL_ADMIN, Rol.ROL_SUPER_ADMIN, Rol.ROL_BODEGUERO)
+  async obtenerReporteAbastecimiento(
+    @Req() req: any,
+    @Query('periodo') periodo?: 'HOY' | 'SEMANAL' | 'MENSUAL' | 'TRIMESTRAL' | 'SEMESTRAL' | 'ANUAL' | 'PERSONALIZADO',
+    @Query('fechaDesde') fechaDesde?: string,
+    @Query('fechaHasta') fechaHasta?: string,
+    @Query('sucursalId') sucursalId?: string,
+    @Query('proveedorId') proveedorId?: string,
+  ) {
+    const tenantIds = await this.determinarTenantIds(req, sucursalId);
+    return this.reportesService.obtenerReporteAbastecimientoProveedores(tenantIds, {
+      periodo,
+      fechaDesde,
+      fechaHasta,
+      proveedorId,
+    });
+  }
+
+  /**
    * Determina los tenantIds permitidos según el rol del usuario autenticado:
    * - Super Administrador: intacto (mantiene su lógica original).
    * - Vendedor o Admin de Sucursal: forzado a su propio local (tenantId).
