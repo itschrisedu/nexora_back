@@ -6,7 +6,7 @@ import { ConfigService } from '@nestjs/config';
 import { firstValueFrom } from 'rxjs';
 
 export interface FiltrosReporteDto {
-  periodo?: 'HOY' | 'SEMANAL' | 'MENSUAL' | 'TRIMESTRAL' | 'ANUAL' | 'PERSONALIZADO';
+  periodo?: 'HOY' | 'SEMANAL' | 'MENSUAL' | 'TRIMESTRAL' | 'SEMESTRAL' | 'ANUAL' | 'PERSONALIZADO';
   fechaDesde?: string;
   fechaHasta?: string;
   vendedorId?: string;
@@ -1208,6 +1208,16 @@ export class ReportesService {
         const tMes = hace90.getMonth();
         const tDia = hace90.getDate();
         const inicioStr = `${tAnio}-${String(tMes + 1).padStart(2, '0')}-${String(tDia).padStart(2, '0')}T00:00:00.000`;
+        inicio = new Date(inicioStr + '-05:00');
+        break;
+      }
+      case 'SEMESTRAL': {
+        // Últimos 180 días (6 meses)
+        const hace180 = new Date(ahoraEcuador.getTime() - 180 * 24 * 60 * 60 * 1000);
+        const semAnio = hace180.getFullYear();
+        const semMes = hace180.getMonth();
+        const semDia = hace180.getDate();
+        const inicioStr = `${semAnio}-${String(semMes + 1).padStart(2, '0')}-${String(semDia).padStart(2, '0')}T00:00:00.000`;
         inicio = new Date(inicioStr + '-05:00');
         break;
       }
