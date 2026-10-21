@@ -221,12 +221,13 @@ export class ReportesService {
         const costoLinea = cant * costoUnit;
         costoEstimadoTotal += costoLinea;
 
-        // Top productos
-        const prodId = l.productId;
-        if (!productoVentasMap.has(prodId)) {
-          productoVentasMap.set(prodId, {
-            productId: prodId,
-            modelName: prod?.model?.name || 'Calzado de Cuero',
+        // Top modelos (agrupados por modelo para evitar duplicar nombres)
+        const modelName = prod?.model?.name || 'Calzado de Cuero';
+        const modelKey = (prod?.modelId || modelName).toString().trim().toLowerCase();
+        if (!productoVentasMap.has(modelKey)) {
+          productoVentasMap.set(modelKey, {
+            productId: l.productId,
+            modelName: modelName,
             color: prod?.color || 'Estándar',
             serieNombre: prod?.serie?.nombre || 'Serie Estándar',
             imageUrl: prod?.imageUrl || null,
@@ -235,7 +236,7 @@ export class ReportesService {
             costo: 0,
           });
         }
-        const pStat = productoVentasMap.get(prodId)!;
+        const pStat = productoVentasMap.get(modelKey)!;
         pStat.pares += cant;
         pStat.ingresos += cant * Number(l.precioUnitario || 0);
         pStat.costo += costoLinea;
@@ -1276,7 +1277,8 @@ export class ReportesService {
   }
 
   // ══════════════════════════════════════════════════════════════
-  // 7. REPORTE ANALÍTICO DE ABASTECIMIENTO & TALLERES PROVEEDORES
+  // ══════════════════════════════════════════════════════════════
+  // 7. REPORTE ANALÍTICO DE ABASTECIMIENTO & PROVEEDORES
   // ══════════════════════════════════════════════════════════════
   async obtenerReporteAbastecimientoProveedores(tenantIds: string[], filtros: any) {
     const { inicio, fin } = this.calcularRangoFechas(filtros);
@@ -1298,8 +1300,8 @@ export class ReportesService {
           orderBy: { fechaIngreso: 'desc' },
         },
         payments: {
-          where: { fechaPago: { gte: inicio, lte: fin } },
-          orderBy: { fechaPago: 'desc' },
+          where: { createdAt: { gte: inicio, lte: fin } },
+          orderBy: { createdAt: 'desc' },
         },
         devoluciones: {
           where: { createdAt: { gte: inicio, lte: fin } },
@@ -1319,10 +1321,10 @@ export class ReportesService {
     });
 
     const saldoMap = new Map<string, { saldoPendiente: number; saldoAFavor: number }>();
-    allSuppliersData.forEach((s) => {
-      const histCompras = s.entries.reduce((acc, e) => acc + Number(e.total), 0);
-      const histPagos = s.payments.reduce((acc, p) => acc + Number(p.monto), 0);
-      const histDevs = s.devoluciones.reduce((acc, d) => acc + Number(d.totalDevuelto), 0);
+    allSuppliersData.forEach((s: any) => {
+      const histCompras = (s.entries || []).reduce((acc: number, e: any) => acc + Number(e.total || 0), 0);
+      const histPagos = (s.payments || []).reduce((acc: number, p: any) => acc + Number(p.monto || 0), 0);
+      const histDevs = (s.devoluciones || []).reduce((acc: number, d: any) => acc + Number(d.totalDevuelto || 0), 0);
       const sPend = Math.max(0, histCompras - histPagos - histDevs);
       const sFav = Math.max(0, histPagos + histDevs - histCompras);
       saldoMap.set(s.id, { saldoPendiente: sPend, saldoAFavor: sFav });
@@ -1331,33 +1333,37 @@ export class ReportesService {
     let totalCompradoPeriodo = 0;
     let totalParesRecibidos = 0;
     let totalPagadoPeriodo = 0;
-    let deudaTotalTalleres = 0;
+    let deudaTotalProveedores = 0;
     let anticiposAFavorTotal = 0;
     let totalDevolucionesMonto = 0;
     let totalDevolucionesCount = 0;
 
-    const desgloseProveedores = suppliers.map((s) => {
+    const desgloseProveedores = suppliers.map((s: any) => {
       let rucDesencriptado = s.ruc;
       try {
         if (s.ruc) rucDesencriptado = this.encryptionService.decrypt(s.ruc);
       } catch {}
 
-      const comprasPeriodo = s.entries.reduce((acc, e) => acc + Number(e.total), 0);
-      const paresPeriodo = s.entries.reduce(
-        (acc, e) => acc + e.lines.reduce((lAcc, l) => lAcc + (l.cantidadRecibida || 0), 0),
+      const sEntries = s.entries || [];
+      const sPayments = s.payments || [];
+      const sDevoluciones = s.devoluciones || [];
+
+      const comprasPeriodo = sEntries.reduce((acc: number, e: any) => acc + Number(e.total || 0), 0);
+      const paresPeriodo = sEntries.reduce(
+        (acc: number, e: any) => acc + (e.lines || []).reduce((lAcc: number, l: any) => lAcc + (l.cantidadRecibida || 0), 0),
         0,
       );
-      const pagadoPeriodo = s.payments.reduce((acc, p) => acc + Number(p.monto), 0);
-      const devueltoPeriodo = s.devoluciones.reduce((acc, d) => acc + Number(d.totalDevuelto), 0);
+      const pagadoPeriodo = sPayments.reduce((acc: number, p: any) => acc + Number(p.monto || 0), 0);
+      const devueltoPeriodo = sDevoluciones.reduce((acc: number, d: any) => acc + Number(d.totalDevuelto || 0), 0);
 
       const saldos = saldoMap.get(s.id) || { saldoPendiente: 0, saldoAFavor: 0 };
       totalCompradoPeriodo += comprasPeriodo;
       totalParesRecibidos += paresPeriodo;
       totalPagadoPeriodo += pagadoPeriodo;
-      deudaTotalTalleres += saldos.saldoPendiente;
+      deudaTotalProveedores += saldos.saldoPendiente;
       anticiposAFavorTotal += saldos.saldoAFavor;
       totalDevolucionesMonto += devueltoPeriodo;
-      totalDevolucionesCount += s.devoluciones.length;
+      totalDevolucionesCount += sDevoluciones.length;
 
       return {
         id: s.id,
@@ -1373,21 +1379,21 @@ export class ReportesService {
         devueltoPeriodo: Number(devueltoPeriodo.toFixed(2)),
         saldoPendiente: Number(saldos.saldoPendiente.toFixed(2)),
         saldoAFavor: Number(saldos.saldoAFavor.toFixed(2)),
-        totalLotesEntregados: s.entries.length,
-        totalDevoluciones: s.devoluciones.length,
+        totalLotesEntregados: sEntries.length,
+        totalDevoluciones: sDevoluciones.length,
       };
     }).sort((a, b) => b.comprasPeriodo - a.comprasPeriodo);
 
     const ultimasEntradas: any[] = [];
-    suppliers.forEach((s) => {
-      s.entries.forEach((e) => {
-        const paresLote = e.lines.reduce((acc, l) => acc + (l.cantidadRecibida || 0), 0);
+    suppliers.forEach((s: any) => {
+      (s.entries || []).forEach((e: any) => {
+        const paresLote = (e.lines || []).reduce((acc: number, l: any) => acc + (l.cantidadRecibida || 0), 0);
         ultimasEntradas.push({
           id: e.id,
           numero: e.numero,
           proveedorId: s.id,
           proveedorNombre: s.razonSocial,
-          total: Number(e.total),
+          total: Number(e.total || 0),
           pares: paresLote,
           fechaIngreso: e.fechaIngreso,
           estado: e.estado,
@@ -1398,15 +1404,15 @@ export class ReportesService {
     ultimasEntradas.sort((a, b) => new Date(b.fechaIngreso).getTime() - new Date(a.fechaIngreso).getTime());
 
     const ultimasDevoluciones: any[] = [];
-    suppliers.forEach((s) => {
-      s.devoluciones.forEach((d) => {
+    suppliers.forEach((s: any) => {
+      (s.devoluciones || []).forEach((d: any) => {
         ultimasDevoluciones.push({
           id: d.id,
           numero: d.numero,
           proveedorId: s.id,
           proveedorNombre: s.razonSocial,
-          totalDevuelto: Number(d.totalDevuelto),
-          motivo: (d as any).motivo || 'Garantía por defecto de confección',
+          totalDevuelto: Number(d.totalDevuelto || 0),
+          motivo: d.motivo || 'Garantía por defecto de confección',
           fecha: d.createdAt,
         });
       });
@@ -1418,11 +1424,13 @@ export class ReportesService {
         totalCompradoPeriodo: Number(totalCompradoPeriodo.toFixed(2)),
         totalParesRecibidos,
         totalPagadoPeriodo: Number(totalPagadoPeriodo.toFixed(2)),
-        deudaTotalTalleres: Number(deudaTotalTalleres.toFixed(2)),
+        deudaTotalProveedores: Number(deudaTotalProveedores.toFixed(2)),
+        deudaTotalTalleres: Number(deudaTotalProveedores.toFixed(2)), // compatibilidad
         anticiposAFavorTotal: Number(anticiposAFavorTotal.toFixed(2)),
         totalDevolucionesMonto: Number(totalDevolucionesMonto.toFixed(2)),
         totalDevolucionesCount,
-        talleresActivosCount: suppliers.length,
+        proveedoresActivosCount: suppliers.length,
+        talleresActivosCount: suppliers.length, // compatibilidad
       },
       desgloseProveedores,
       ultimasEntradas: ultimasEntradas.slice(0, 30),

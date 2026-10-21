@@ -126,7 +126,7 @@ export class AuditInterceptor implements NestInterceptor {
 
     // 4. Despachos
     if (entidad === 'DESPACHO' || ruta.includes('/despacho') || ruta.includes('/dispatch')) {
-      return `Despacho de pedido de calzado a proveedor / taller`;
+      return `Despacho de pedido de calzado a proveedor`;
     }
 
     // 5. Clientes
@@ -146,7 +146,7 @@ export class AuditInterceptor implements NestInterceptor {
     // 7. Proveedores
     if (entidad === 'PROVEEDOR' || ruta.includes('/proveedor') || ruta.includes('/supplier')) {
       const nombre = body?.nombre || body?.name || '';
-      return `${method === 'POST' ? 'Nuevo taller/proveedor registrado' : 'Proveedor actualizado'}: ${nombre || 'Proveedor'}`;
+      return `${method === 'POST' ? 'Nuevo proveedor registrado' : 'Proveedor actualizado'}: ${nombre || 'Proveedor'}`;
     }
 
     // 8. Cierre de Caja
