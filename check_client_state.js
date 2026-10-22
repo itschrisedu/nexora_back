@@ -11,6 +11,7 @@ async function run() {
   });
   console.log('CLIENT:', client?.id, client?.nombre, client?.apellido, 'totalCompras:', client?.totalCompras, 'creditoUtilizado:', client?.creditoUtilizado);
 
+  
   const saleNotes = await prisma.saleNote.findMany({
     where: { clientId: client?.id },
     include: { lines: true, cobro: true },
