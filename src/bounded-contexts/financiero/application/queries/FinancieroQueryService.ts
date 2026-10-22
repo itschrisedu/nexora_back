@@ -162,6 +162,25 @@ export class FinancieroQueryService {
       // Continuar normalmente
     }
 
+    // Auto-sanitización de coherencia: cobros saldados, cancelados o de contado nunca deben retener saldo pendiente
+    try {
+      await this.prisma.cobro.updateMany({
+        where: {
+          OR: [
+            { estado: CobroEstado.SALDADO },
+            { estado: 'CANCELADO' as any },
+            { tipo: 'CONTADO' },
+          ],
+          saldoPendiente: { gt: 0 },
+        },
+        data: {
+          saldoPendiente: 0,
+        },
+      });
+    } catch (cleanErr) {
+      // Continuar si la BD no permite update masivo
+    }
+
     // 2. Obtener todos los cobros con sus notas de venta y abonos
     const cobros = await this.prisma.cobro.findMany({
       where,
@@ -389,8 +408,13 @@ export class FinancieroQueryService {
         ? orderCodigoMap.get(orderId) || `PED-${orderId.slice(0, 4).toUpperCase()}`
         : null;
 
+      const saldoLimpio = (cobro.estado === CobroEstado.SALDADO || (cobro.estado as any) === 'CANCELADO' || cobro.tipo === 'CONTADO')
+        ? 0
+        : Math.max(0, Number(cobro.saldoPendiente || 0));
+
       return {
         ...cobro,
+        saldoPendiente: saldoLimpio,
         orderId,
         orderCodigo,
         orderNumero: orderCodigo,
@@ -790,14 +814,41 @@ export class FinancieroQueryService {
       }
     });
 
+    // Auto-sanitización de coherencia: cobros saldados, cancelados o de contado de este cliente nunca deben retener saldo pendiente
+    try {
+      await this.prisma.cobro.updateMany({
+        where: {
+          clientId,
+          OR: [
+            { estado: CobroEstado.SALDADO },
+            { estado: 'CANCELADO' as any },
+            { tipo: 'CONTADO' },
+          ],
+          saldoPendiente: { gt: 0 },
+        },
+        data: {
+          saldoPendiente: 0,
+        },
+      });
+    } catch (cleanClientCobrosErr) {
+      // Continuar normalmente
+    }
+
     const totalAbonado = cobros.reduce(
       (sum, c) => sum + c.abonos.reduce((s, a) => s + Number(a.monto), 0),
       0,
     );
 
+    // Fuente única de verdad: Sólo los cobros con deuda pendiente real (no saldados ni de contado) constituyen saldo deudor
+    const cobrosPendientesReales = cobros.filter((c) => {
+      const esEstadoPendiente = c.estado === CobroEstado.PENDIENTE || c.estado === CobroEstado.PARCIALMENTE_PAGADO;
+      const esCredito = (c.tipo as string) !== 'CONTADO';
+      return esEstadoPendiente && esCredito && Number(c.saldoPendiente) > 0;
+    });
+
     const saldoPendienteTotal = Math.max(
       0,
-      cobros.reduce((sum, c) => sum + Number(c.saldoPendiente), 0) - Number(client.saldoAFavor || 0),
+      cobrosPendientesReales.reduce((sum, c) => sum + Number(c.saldoPendiente), 0) - Number(client.saldoAFavor || 0),
     );
 
     // Auto-reconciliación estricta de creditoUtilizado en la base de datos
@@ -1175,11 +1226,32 @@ export class FinancieroQueryService {
     });
     if (!client) throw new NotFoundException(`Cliente con ID "${clientId}" no encontrado.`);
 
-    // 1. Obtener cobros pendientes ordenados por antigüedad (FIFO estricto)
+    // Auto-sanitización de coherencia previa al cálculo de abono
+    try {
+      await this.prisma.cobro.updateMany({
+        where: {
+          clientId,
+          OR: [
+            { estado: CobroEstado.SALDADO },
+            { estado: 'CANCELADO' as any },
+            { tipo: 'CONTADO' },
+          ],
+          saldoPendiente: { gt: 0 },
+        },
+        data: {
+          saldoPendiente: 0,
+        },
+      });
+    } catch (e) {
+      // Continuar si la BD no permite update masivo
+    }
+
+    // 1. Obtener cobros pendientes a crédito ordenados por antigüedad (FIFO estricto)
     const cobrosPendientes = await this.prisma.cobro.findMany({
       where: {
         clientId,
-        estado: { in: ['PENDIENTE', 'PARCIALMENTE_PAGADO'] },
+        tipo: 'CREDITO',
+        estado: { in: [CobroEstado.PENDIENTE, CobroEstado.PARCIALMENTE_PAGADO] },
         saldoPendiente: { gt: 0 },
       },
       include: { saleNote: true },
@@ -1246,11 +1318,12 @@ export class FinancieroQueryService {
       nuevoSaldoAFavor = Math.round((nuevoSaldoAFavor + restante) * 100) / 100;
     }
 
-    // 4. Recalcular deuda final y crédito utilizado de forma estricta
+    // 4. Recalcular deuda final y crédito utilizado de forma estricta (solo ventas a crédito pendientes)
     const cobrosRestantes = await this.prisma.cobro.findMany({
       where: {
         clientId,
-        estado: { in: ['PENDIENTE', 'PARCIALMENTE_PAGADO'] },
+        tipo: 'CREDITO',
+        estado: { in: [CobroEstado.PENDIENTE, CobroEstado.PARCIALMENTE_PAGADO] },
         saldoPendiente: { gt: 0 },
       },
       select: { saldoPendiente: true },
