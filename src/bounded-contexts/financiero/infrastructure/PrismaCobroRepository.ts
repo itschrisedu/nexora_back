@@ -73,6 +73,20 @@ export class PrismaCobroRepository implements ICobroRepository {
         estado: cobro.estado,
       },
     });
+
+    // Persistir abonos iniciales (ej: anticipos al registrar pedidos)
+    for (const abono of cobro.abonos) {
+      await this.prisma.cobroAbono.create({
+        data: {
+          id: abono.id,
+          cobroId: abono.cobroId,
+          monto: abono.monto.amount,
+          metodo: abono.metodo,
+          notas: abono.notas,
+          userId: abono.userId,
+        },
+      });
+    }
   }
 
   async update(cobro: Cobro): Promise<void> {

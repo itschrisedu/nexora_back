@@ -198,4 +198,31 @@ export class FinancieroController {
     });
     return { ok: true, message: 'Pago a proveedor registrado correctamente' };
   }
+
+  // ══════════════════════════════════════════
+  // SALDO PERSISTENTE EN CAJA / BANCOS
+  // ══════════════════════════════════════════
+
+  @Get('saldo-caja')
+  @Roles(Rol.ROL_ADMIN, Rol.ROL_SUPER_ADMIN, Rol.ROL_VENDEDOR)
+  obtenerSaldoCaja(
+    @Query('sucursalId') sucursalId: string,
+    @Req() req: any,
+  ) {
+    return this.queryService.obtenerSaldoCaja(sucursalId, req.user?.tenantId);
+  }
+
+  @Post('saldo-caja')
+  @Roles(Rol.ROL_ADMIN, Rol.ROL_SUPER_ADMIN)
+  guardarSaldoCaja(
+    @Body() body: { monto: number | null; sucursalId?: string },
+    @Req() req: any,
+  ) {
+    return this.queryService.guardarSaldoCaja(
+      body,
+      req.user?.tenantId,
+      req.user?.sub || req.user?.id,
+    );
+  }
 }
+

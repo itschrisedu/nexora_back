@@ -416,6 +416,20 @@ export class ReportesService {
       ? Math.max(0, Math.round(((totalModelos - stockBajoCount) / totalModelos) * 100))
       : 100;
 
+    // Consultar saldo real de caja guardado en base de datos para la sucursal o consolidado
+    const tenantKey = tenantIds.length === 1 ? tenantIds[0] : 'global';
+    let saldoCajaManual: number | null = null;
+    try {
+      const regSaldo = await this.prisma.comprobantePublico.findUnique({
+        where: { token: `saldo_caja_${tenantKey}` },
+      });
+      if (regSaldo?.payload && typeof regSaldo.payload === 'object' && 'monto' in regSaldo.payload) {
+        saldoCajaManual = (regSaldo.payload as any).monto !== null ? Number((regSaldo.payload as any).monto) : null;
+      }
+    } catch (e) {
+      // Ignorar si no existe
+    }
+
     return {
       filtrosAplicados: {
         periodo: filtros.periodo || 'MENSUAL',
@@ -435,6 +449,7 @@ export class ReportesService {
         totalRecaudadoCobros,
         saldoCarteraTotal,
         clientesConDeudaCount,
+        saldoCajaManual,
         totalParesEnStock,
         capitalInvertidoStock: Math.round(capitalInvertidoStock * 100) / 100,
         valorComercialStock: Math.round(valorComercialStock * 100) / 100,

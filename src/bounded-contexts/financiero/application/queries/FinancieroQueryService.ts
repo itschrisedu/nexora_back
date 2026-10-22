@@ -762,12 +762,74 @@ export class FinancieroQueryService {
       });
     });
 
+    // 3.5. Incorporar deudas manuales o cobros directos no vinculados a pedidos
+    const pedidoIdsSet = new Set(pedidos.map((p) => p.id));
+    cobros.forEach((c) => {
+      const vieneDePedido = c.saleNote?.orderId && pedidoIdsSet.has(c.saleNote.orderId);
+      if (!vieneDePedido) {
+        const esManual = c.saleNote?.orderId?.startsWith('MANUAL') || c.tipo === 'CREDITO';
+        const numNota = c.saleNote?.numero
+          ? `Nota #${String(c.saleNote.numero).padStart(4, '0')}`
+          : `#${c.id.slice(0, 8).toUpperCase()}`;
+        movimientos.push({
+          id: `cobro-directo-${c.id}`,
+          tipo: 'DEUDA_INICIAL',
+          titulo: `Deuda / Saldo a Crédito (${numNota})`,
+          numeroCodigo: numNota,
+          descripcion: c.saleNote?.orderId?.startsWith('MANUAL')
+            ? 'Registro de deuda anterior / Saldo migrado a cuenta corriente'
+            : 'Venta a crédito directa en mostrador',
+          monto: Number(c.montoTotal),
+          estado: c.estado,
+          fecha: c.createdAt,
+          detalles: {
+            tipoPago: 'CREDITO',
+            notas: c.saleNote?.orderId,
+          },
+        });
+      }
+    });
+
+    const totalAbonado = cobros.reduce(
+      (sum, c) => sum + c.abonos.reduce((s, a) => s + Number(a.monto), 0),
+      0,
+    );
+
+    const saldoPendienteTotal = Math.max(
+      0,
+      cobros.reduce((sum, c) => sum + Number(c.saldoPendiente), 0) - Number(client.saldoAFavor || 0),
+    );
+
+    // Auto-reconciliación estricta de creditoUtilizado en la base de datos
+    if (Math.abs(Number(client.creditoUtilizado || 0) - saldoPendienteTotal) > 0.01) {
+      await this.prisma.client.update({
+        where: { id: clientId },
+        data: { creditoUtilizado: saldoPendienteTotal },
+      });
+      client.creditoUtilizado = saldoPendienteTotal as any;
+    }
+
     // 4. Corrida contable estricta: Ordenar cronológicamente (más antiguo primero) para calcular Saldo Anterior y Nuevo Saldo
     const movsCronologicos = [...movimientos].sort(
       (a, b) => new Date(a.fecha).getTime() - new Date(b.fecha).getTime(),
     );
 
-    let saldoCorriente = 0;
+    // Calcular delta acumulado de los movimientos conocidos
+    let deltaNeto = 0;
+    movsCronologicos.forEach((m) => {
+      const monto = Number(m.monto || 0);
+      if (m.tipo === 'COMPRA_PEDIDO' || m.tipo === 'DEUDA_INICIAL') {
+        if (m.detalles?.tipoPago === 'CREDITO' || m.tipo === 'DEUDA_INICIAL') {
+          deltaNeto += monto;
+        }
+      } else if (m.tipo === 'ABONO' || m.tipo === 'DEVOLUCION') {
+        deltaNeto -= monto;
+      }
+    });
+
+    // Calibración inicial para que la corrida contable coincida exactamente con el saldo deudor real
+    let saldoCorriente = Math.max(0, Math.round((saldoPendienteTotal - deltaNeto) * 100) / 100);
+
     for (const m of movsCronologicos) {
       m.saldoAnterior = Math.round(saldoCorriente * 100) / 100;
       const monto = Number(m.monto || 0);
@@ -783,18 +845,13 @@ export class FinancieroQueryService {
       m.nuevoSaldo = Math.round(saldoCorriente * 100) / 100;
     }
 
+    // Asegurar que el saldo del movimiento más reciente sea idéntico al saldo deudor pendiente
+    if (movsCronologicos.length > 0) {
+      movsCronologicos[movsCronologicos.length - 1].nuevoSaldo = saldoPendienteTotal;
+    }
+
     // Invertir para mostrar el más reciente arriba en la vista del usuario
     movimientos.sort((a, b) => new Date(b.fecha).getTime() - new Date(a.fecha).getTime());
-
-    const totalAbonado = cobros.reduce(
-      (sum, c) => sum + c.abonos.reduce((s, a) => s + Number(a.monto), 0),
-      0,
-    );
-
-    const saldoPendienteTotal = Math.max(
-      0,
-      cobros.reduce((sum, c) => sum + Number(c.saldoPendiente), 0) - Number(client.saldoAFavor || 0),
-    );
 
     return {
       cliente: {
@@ -1374,4 +1431,86 @@ export class FinancieroQueryService {
       };
     }
   }
+
+  // ══════════════════════════════════════════════════════════════
+  // GESTIÓN PERSISTENTE DE SALDO REAL EN CAJA / BANCOS (DB RAILWAY)
+  // ══════════════════════════════════════════════════════════════
+
+  async obtenerSaldoCaja(sucursalId?: string, tenantId?: string | null) {
+    const targetKey = sucursalId && sucursalId !== 'TODAS' ? sucursalId : (tenantId || 'global');
+    const token = `saldo_caja_${targetKey}`;
+    const registro = await this.prisma.comprobantePublico.findUnique({
+      where: { token },
+    });
+
+    let monto: number | null = null;
+    let fechaActualizacion: string | null = null;
+    if (registro?.payload && typeof registro.payload === 'object' && 'monto' in registro.payload) {
+      monto = (registro.payload as any).monto !== null ? Number((registro.payload as any).monto) : null;
+      fechaActualizacion = (registro.payload as any).updatedAt || registro.createdAt?.toISOString();
+    }
+
+    return {
+      ok: true,
+      sucursalId: targetKey,
+      saldoPersonalizado: monto,
+      updatedAt: fechaActualizacion,
+    };
+  }
+
+  async guardarSaldoCaja(
+    data: { monto: number | null; sucursalId?: string },
+    tenantId?: string | null,
+    userId?: string,
+  ) {
+    const targetKey = data.sucursalId && data.sucursalId !== 'TODAS' ? data.sucursalId : (tenantId || 'global');
+    const token = `saldo_caja_${targetKey}`;
+
+    if (data.monto === null || data.monto === undefined || data.monto === ('' as any)) {
+      try {
+        await this.prisma.comprobantePublico.delete({ where: { token } });
+      } catch (e) {
+        // Silencioso si no existía
+      }
+      return {
+        ok: true,
+        message: 'Saldo personalizado restablecido al cálculo automático en base de datos.',
+        saldoPersonalizado: null,
+      };
+    }
+
+    const valorNum = Math.round(Number(data.monto) * 100) / 100;
+    if (isNaN(valorNum) || valorNum < 0) {
+      throw new BadRequestException('El monto debe ser un valor numérico válido mayor o igual a 0.');
+    }
+
+    await this.prisma.comprobantePublico.upsert({
+      where: { token },
+      create: {
+        token,
+        tipo: 'CONFIG_SALDO_CAJA',
+        payload: {
+          monto: valorNum,
+          sucursalId: targetKey,
+          updatedAt: new Date().toISOString(),
+          updatedBy: userId || 'admin',
+        },
+      },
+      update: {
+        payload: {
+          monto: valorNum,
+          sucursalId: targetKey,
+          updatedAt: new Date().toISOString(),
+          updatedBy: userId || 'admin',
+        },
+      },
+    });
+
+    return {
+      ok: true,
+      message: `Saldo real de $${valorNum.toFixed(2)} guardado exitosamente en base de datos.`,
+      saldoPersonalizado: valorNum,
+    };
+  }
 }
+
