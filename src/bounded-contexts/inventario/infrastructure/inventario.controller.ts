@@ -973,8 +973,16 @@ export class InventarioController {
         for (const serieConfig of seriesConfigs) {
           const serieVO = Serie.create(serieConfig.nombre);
           const seriePrices = dto.seriesPrices?.[serieConfig.id];
-          const costVal = seriePrices?.costPrice ?? 10;
-          const saleVal = seriePrices?.salePrice ?? 13;
+          const varianteConPrecio = existingProducts.find(
+            (p) => p.serieId === serieConfig.id && Number(p.costPrice) > 0,
+          );
+          const fallbackCost = varianteConPrecio ? Number(varianteConPrecio.costPrice) : 10;
+          const fallbackSale = varianteConPrecio ? Number(varianteConPrecio.salePrice) : 13;
+
+          const rawCost = seriePrices?.costPrice ?? fallbackCost;
+          const rawSale = seriePrices?.salePrice ?? fallbackSale;
+          const costVal = rawCost > 0 ? rawCost : fallbackCost > 0 ? fallbackCost : 10;
+          const saleVal = rawSale > 0 ? rawSale : fallbackSale > 0 ? fallbackSale : 13;
 
           // Buscar si este color ya tiene variante con esta serie
           const prodExistente = existingProducts.find(
@@ -1062,12 +1070,145 @@ export class InventarioController {
             );
 
             await this.productoRepository.save(nuevoProducto);
+            existingProducts.push({
+              id: nuevoProductoId,
+              color: colorClean,
+              serieId: serieConfig.id,
+              supplierId: finalSupplierId || null,
+              imageUrl: colorData.imageUrl ?? null,
+              costPrice: costVal as any,
+              salePrice: saleVal as any,
+              active: true,
+              stockByTalla: [],
+            } as any);
           }
         }
       }
     }
 
     return { message: 'Modelo y series sincronizados exitosamente en todos los colores', model: updated };
+  }
+
+  @Post('modelos/:id/sincronizar-series')
+  @Roles(Rol.ROL_ADMIN)
+  async sincronizarSeriesModelo(@Param('id') id: string) {
+    const model = await this.prisma.productModel.findUnique({
+      where: { id },
+      include: {
+        products: {
+          include: { stockByTalla: true },
+        },
+      },
+    });
+    if (!model) throw new NotFoundException(`Modelo con ID ${id} no encontrado`);
+
+    // Obtener todas las series distintas registradas en cualquiera de los productos del modelo
+    const allSerieIds = Array.from(
+      new Set(model.products.map((p) => p.serieId).filter(Boolean)),
+    );
+
+    if (allSerieIds.length === 0) {
+      return { message: 'El modelo no tiene series registradas para sincronizar.', creados: 0 };
+    }
+
+    const seriesConfigs = await this.prisma.seriesConfig.findMany({
+      where: { id: { in: allSerieIds } },
+      include: { tallas: { orderBy: { numero: 'asc' } } },
+    });
+
+    // Extraer todos los colores únicos
+    const colorMap = new Map<string, { imageUrl: string | null }>();
+    for (const p of model.products) {
+      const cClean = p.color.trim();
+      if (!colorMap.has(cClean)) {
+        colorMap.set(cClean, { imageUrl: p.imageUrl });
+      }
+    }
+
+    let supplierSigla = '';
+    if (model.supplierId) {
+      const sup = await this.prisma.supplier.findUnique({
+        where: { id: model.supplierId },
+        select: { razonSocial: true },
+      });
+      if (sup) {
+        supplierSigla = generarSiglaProveedor(sup.razonSocial);
+      }
+    }
+
+    let nuevosCreados = 0;
+
+    for (const [colorName, colorData] of colorMap.entries()) {
+      for (const serieConfig of seriesConfigs) {
+        const prodExistente = model.products.find(
+          (p) =>
+            p.color.trim().toLowerCase() === colorName.toLowerCase() &&
+            p.serieId === serieConfig.id,
+        );
+
+        if (!prodExistente) {
+          const serieVO = Serie.create(serieConfig.nombre);
+          const varianteConPrecio = model.products.find(
+            (p) => p.serieId === serieConfig.id && Number(p.costPrice) > 0,
+          );
+          const costVal = varianteConPrecio ? Number(varianteConPrecio.costPrice) : 10;
+          const saleVal = varianteConPrecio ? Number(varianteConPrecio.salePrice) : 13;
+
+          const colorClean = colorName.trim();
+          const colorSuffix = colorClean.substring(0, 3).toUpperCase();
+          const serieSuffix = serieConfig.nombre.substring(0, 3).toUpperCase();
+          const siglaSuffix = supplierSigla ? `-${supplierSigla}` : '';
+          let code = `${model.baseCode}-${colorSuffix}-${serieSuffix}${siglaSuffix}`;
+
+          const existeCodigo = await this.productoRepository.findByCodigo(code);
+          if (existeCodigo) {
+            let counter = 2;
+            let candidateCode = `${code}-${String(counter).padStart(3, '0')}`;
+            while (await this.productoRepository.findByCodigo(candidateCode)) {
+              counter++;
+              candidateCode = `${code}-${String(counter).padStart(3, '0')}`;
+            }
+            code = candidateCode;
+          }
+
+          const stockPorTallaList: StockPorTalla[] = [];
+          for (const talla of serieConfig.tallas) {
+            Talla.create(talla.numero, serieVO);
+            stockPorTallaList.push(StockPorTalla.create(talla.id, 0, 0, 0));
+          }
+
+          const nuevoProductoId = crypto.randomUUID();
+          const nuevoProducto = Producto.crear(
+            nuevoProductoId,
+            id,
+            code,
+            colorClean,
+            colorData.imageUrl ?? null,
+            Money.create(costVal),
+            Money.create(saleVal),
+            serieVO,
+            stockPorTallaList,
+            model.supplierId || null,
+          );
+
+          await this.productoRepository.save(nuevoProducto);
+          model.products.push({
+            id: nuevoProductoId,
+            color: colorClean,
+            serieId: serieConfig.id,
+            supplierId: model.supplierId,
+            costPrice: costVal as any,
+            salePrice: saleVal as any,
+          } as any);
+          nuevosCreados++;
+        }
+      }
+    }
+
+    return {
+      message: `Se sincronizaron ${nuevosCreados} series faltantes en todos los colores del modelo.`,
+      creados: nuevosCreados,
+    };
   }
 
   @Put('productos/:id')
