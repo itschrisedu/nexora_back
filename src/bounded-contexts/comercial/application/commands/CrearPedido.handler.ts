@@ -131,7 +131,7 @@ export class CrearPedidoHandler {
         productId: lineaInput.productId,
         tallaId: resolvedTallaId,
         tallaNumero: stockTalla?.talla?.numero,
-        serieId: prod.serieId,
+        serieId: lineaInput.serieId || prod.serieId,
         cantidad: lineaInput.cantidad,
         precioUnitario: precioUnit,
         tipoVenta: TipoVenta.create(lineaInput.tipoVenta),

@@ -34,6 +34,10 @@ class LineaPedidoDto {
 
   @IsOptional()
   precioUnitario?: number;
+
+  @IsString()
+  @IsOptional()
+  serieId?: string;
 }
 
 export class CrearPedidoDto {

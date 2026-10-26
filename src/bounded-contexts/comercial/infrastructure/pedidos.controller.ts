@@ -516,7 +516,7 @@ export class PedidosController {
         orderId: id,
         productId: l.productId,
         tallaId: l.tallaId,
-        serieId: prod.serieId || 'DEFAULT_SERIE',
+        serieId: l.serieId || prod.serieId || 'DEFAULT_SERIE',
         cantidad: l.cantidad,
         cantidadEntregada: cantEntregada,
         precioUnitario,
