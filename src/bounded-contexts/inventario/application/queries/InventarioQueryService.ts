@@ -2,6 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../../../shared/infrastructure/prisma/prisma.service';
 import { EncryptionService } from '../../../../shared/infrastructure/encryption/encryption.service';
 import { generarSiglaProveedor } from '../../../../shared/utils/text-formatters';
+import { FifoInventoryService } from '../services/FifoInventoryService';
 
 /**
  * InventarioQueryService — Servicio de consultas de inventario.
@@ -13,6 +14,7 @@ export class InventarioQueryService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly encryptionService: EncryptionService,
+    private readonly fifoService: FifoInventoryService,
   ) {}
 
   async obtenerProducto(id: string) {
@@ -43,7 +45,16 @@ export class InventarioQueryService {
       throw new NotFoundException(`Producto con ID "${id}" no encontrado`);
     }
 
-    return this.formatProducto(producto);
+    const [activeCost, lastCost] = await Promise.all([
+      this.fifoService.obtenerCostoFifoActivo(id),
+      this.fifoService.obtenerUltimoCostoLote(id),
+    ]);
+    const fifoData = {
+      costosActivos: new Map([[id, activeCost]]),
+      ultimosCostos: new Map([[id, lastCost]]),
+    };
+
+    return this.formatProducto(producto, undefined, fifoData);
   }
 
   async buscarProductos(filtros: {
@@ -102,7 +113,10 @@ export class InventarioQueryService {
       orderBy: { code: 'asc' },
     });
 
-    return productos.map((p: any) => this.formatProducto(p));
+    const allProductIds = productos.map((p: any) => p.id);
+    const fifoData = await this.fifoService.obtenerCostosFifoMasivos(allProductIds);
+
+    return productos.map((p: any) => this.formatProducto(p, undefined, fifoData));
   }
 
   async obtenerProductosPorSerie(serieNombre: string, tenantId?: string | null) {
@@ -134,7 +148,10 @@ export class InventarioQueryService {
       orderBy: { code: 'asc' },
     });
 
-    return productos.map((p: any) => this.formatProducto(p));
+    const allProductIds = productos.map((p: any) => p.id);
+    const fifoData = await this.fifoService.obtenerCostosFifoMasivos(allProductIds);
+
+    return productos.map((p: any) => this.formatProducto(p, undefined, fifoData));
   }
 
   async obtenerStockBajo(tenantId?: string | null) {
@@ -178,7 +195,10 @@ export class InventarioQueryService {
       ),
     );
 
-    return conStockBajo.map((p: any) => this.formatProducto(p));
+    const allProductIds = conStockBajo.map((p: any) => p.id);
+    const fifoData = await this.fifoService.obtenerCostosFifoMasivos(allProductIds);
+
+    return conStockBajo.map((p: any) => this.formatProducto(p, undefined, fifoData));
   }
 
   async obtenerMovimientos(productoId: string) {
@@ -251,6 +271,17 @@ export class InventarioQueryService {
 
     // FASE 2: Auto-sincronización transparente de series en todos los colores del modelo
     await this.autoSincronizarSeriesFaltantes(modelos);
+
+    // FASE 3: Obtención de costos FIFO activos y últimos costos de entrada
+    const allModelProductIds: string[] = [];
+    for (const m of modelos) {
+      if (m.products) {
+        for (const p of m.products) {
+          allModelProductIds.push(p.id);
+        }
+      }
+    }
+    const fifoData = await this.fifoService.obtenerCostosFifoMasivos(allModelProductIds);
 
     return modelos.map((m: any) => {
       const associatedSuppliers: any[] = [];
@@ -340,14 +371,18 @@ export class InventarioQueryService {
         alternateSupplierIds: m.alternateSupplierIds || [],
         suppliers: enrichedSuppliers,
         createdAt: m.createdAt,
-        products: m.products.map((p: any) => this.formatProducto(p, m)),
+        products: m.products.map((p: any) => this.formatProducto(p, m, fifoData)),
       };
     });
   }
 
   // ── Formatear respuesta ─────────────────────
 
-  private formatProducto(record: any, modelo?: any) {
+  private formatProducto(
+    record: any,
+    modelo?: any,
+    fifoData?: { costosActivos: Map<string, number>; ultimosCostos: Map<string, number> },
+  ) {
     const mdl = modelo || record.model;
     const existingStockMap = new Map<string, any>();
     (record.stockByTalla || []).forEach((s: any) => {
@@ -449,7 +484,8 @@ export class InventarioQueryService {
       material: mdl?.material ?? null,
       color: record.color,
       fotoUrl,
-      precioCosto: Number(record.costPrice),
+      precioCosto: fifoData?.costosActivos?.get(record.id) ?? Number(record.costPrice),
+      ultimoCostoLote: fifoData?.ultimosCostos?.get(record.id) ?? Number(record.costPrice),
       precioVenta: Number(record.salePrice),
       supplierId: record.supplierId || mdl?.supplierId || null,
       supplier: variantSupplier
@@ -812,128 +848,34 @@ export class InventarioQueryService {
   }
 
   /**
-   * FASE 2: Auto-reparación y sincronización transparente de series
-   * Detecta si algún color de un modelo carece de series que otros colores de ese mismo
-   * modelo ya poseen, y genera automáticamente las variantes faltantes con stock 0.
+   * Asegura la integridad de stockByTalla para los productos existentes.
+   * NO crea nuevos productos ni variantes, respetando estrictamente las series asignadas por proveedor.
    */
   private async autoSincronizarSeriesFaltantes(modelos: any[]): Promise<void> {
     for (const m of modelos) {
       if (!m.products || m.products.length === 0) continue;
 
-      const allSerieIds = Array.from(
-        new Set(m.products.map((p: any) => p.serieId).filter(Boolean)),
-      ) as string[];
-
-      if (allSerieIds.length <= 1) continue;
-
-      const colorMap = new Map<string, { imageUrl: string | null }>();
       for (const p of m.products) {
-        const cClean = (p.color || '').trim();
-        if (cClean && !colorMap.has(cClean)) {
-          colorMap.set(cClean, { imageUrl: p.imageUrl });
-        }
-      }
+        if (!p.serie || !p.serie.tallas || p.serie.tallas.length === 0) continue;
+        const existingTallaIds = new Set((p.stockByTalla || []).map((s: any) => s.tallaId));
+        const missingTallas = p.serie.tallas.filter((t: any) => !existingTallaIds.has(t.id));
 
-      if (colorMap.size <= 1) continue;
-
-      let necesitaSincronizar = false;
-      for (const colorName of colorMap.keys()) {
-        const seriesDeEsteColor = new Set(
-          m.products
-            .filter((p: any) => p.color.trim().toLowerCase() === colorName.toLowerCase())
-            .map((p: any) => p.serieId),
-        );
-        if (seriesDeEsteColor.size < allSerieIds.length) {
-          necesitaSincronizar = true;
-          break;
-        }
-      }
-
-      if (!necesitaSincronizar) continue;
-
-      let supplierSigla = '';
-      if (m.supplierId) {
-        const sup = await this.prisma.supplier.findUnique({
-          where: { id: m.supplierId },
-          select: { razonSocial: true },
-        });
-        if (sup) {
-          supplierSigla = generarSiglaProveedor(sup.razonSocial);
-        }
-      }
-
-      for (const [colorName, colorData] of colorMap.entries()) {
-        for (const sid of allSerieIds) {
-          const prodExistente = m.products.find(
-            (p: any) =>
-              p.color.trim().toLowerCase() === colorName.toLowerCase() &&
-              p.serieId === sid,
-          );
-
-          if (!prodExistente) {
-            const refProd =
-              m.products.find(
-                (p: any) => p.serieId === sid && p.serie?.tallas?.length > 0,
-              ) || m.products.find((p: any) => p.serieId === sid);
-
-            if (!refProd || !refProd.serie) continue;
-
-            const costVal = Number(refProd.costPrice) > 0 ? Number(refProd.costPrice) : 10;
-            const saleVal = Number(refProd.salePrice) > 0 ? Number(refProd.salePrice) : 13;
-            const supplierId = refProd.supplierId || m.supplierId || null;
-
-            const colorClean = colorName.trim();
-            const colorSuffix = colorClean.substring(0, 3).toUpperCase();
-            const serieSuffix = (refProd.serie?.nombre || 'SER').substring(0, 3).toUpperCase();
-            const siglaSuffix = supplierSigla ? `-${supplierSigla}` : '';
-            let candidateCode = `${m.baseCode}-${colorSuffix}-${serieSuffix}${siglaSuffix}`;
-
-            let counter = 2;
-            while (await this.prisma.product.findUnique({ where: { code: candidateCode } })) {
-              candidateCode = `${m.baseCode}-${colorSuffix}-${serieSuffix}${siglaSuffix}-${String(counter).padStart(3, '0')}`;
-              counter++;
-            }
-
-            const tallasToCreate = (refProd.serie.tallas || []).map((t: any) => ({
-              tallaId: t.id,
-              quantity: 0,
-              reservedQuantity: 0,
-              minStock: 0,
-            }));
-
+        if (missingTallas.length > 0) {
+          for (const mt of missingTallas) {
             try {
-              const nuevoProd = await this.prisma.product.create({
+              const created = await this.prisma.stockByTalla.create({
                 data: {
-                  modelId: m.id,
-                  code: candidateCode,
-                  color: colorClean,
-                  imageUrl: colorData.imageUrl ?? null,
-                  costPrice: costVal,
-                  salePrice: saleVal,
-                  serieId: sid,
-                  supplierId,
-                  active: true,
-                  stockByTalla: {
-                    create: tallasToCreate,
-                  },
+                  productId: p.id,
+                  tallaId: mt.id,
+                  quantity: 0,
+                  reservedQuantity: 0,
+                  minStock: 0,
                 },
-                include: {
-                  supplier: true,
-                  serie: {
-                    include: {
-                      tallas: { orderBy: { numero: 'asc' } },
-                    },
-                  },
-                  stockByTalla: {
-                    include: { talla: true },
-                    orderBy: { talla: { numero: 'asc' } },
-                  },
-                },
+                include: { talla: true },
               });
-
-              m.products.push(nuevoProd);
-            } catch (err) {
-              // Silencioso ante concurrencia
+              p.stockByTalla.push(created);
+            } catch (e) {
+              // Si ya existía por concurrencia, ignorar
             }
           }
         }

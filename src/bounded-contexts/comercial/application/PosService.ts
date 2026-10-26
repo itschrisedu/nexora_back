@@ -3,6 +3,8 @@ import { PrismaService } from '../../../shared/infrastructure/prisma/prisma.serv
 import { EncryptionService } from '../../../shared/infrastructure/encryption/encryption.service';
 import { CanalEntrada, EstadoPedido, TipoPago, TipoVenta, MovimientoTipo, TipoCobro, CobroEstado } from '@prisma/client';
 
+import { FifoInventoryService } from '../../inventario/application/services/FifoInventoryService';
+
 export interface AbrirCajaDto {
   montoInicial: number;
   notas?: string;
@@ -55,6 +57,7 @@ export class PosService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly encryption: EncryptionService,
+    private readonly fifoService: FifoInventoryService,
   ) {}
 
   /**
@@ -306,6 +309,14 @@ export class PosService {
             reason: 'Venta directa en mostrador POS',
             userId,
           },
+        });
+
+        // Descontar del lote FIFO más antiguo con pares disponibles
+        await this.fifoService.descontarStockFifo({
+          productId: linea.productId,
+          tallaId: linea.tallaId,
+          cantidad: linea.cantidad,
+          tx,
         });
       }
 

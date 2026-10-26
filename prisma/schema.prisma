@@ -304,6 +304,8 @@ model TallaConfig {
   serie        SeriesConfig   @relation(fields: [serieId], references: [id], onDelete: Cascade)
   stockByTalla StockByTalla[]
 
+  inventoryLots     InventoryLot[]
+
   @@map("talla_config")
 }
 
@@ -352,6 +354,7 @@ model Product {
   stockReservations StockReservation[]
   stockMovements    StockMovement[]
   priceHistory      PriceHistory[]
+  inventoryLots     InventoryLot[]
 
   @@map("products")
 }
@@ -424,6 +427,26 @@ model PriceHistory {
   product           Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
 
   @@map("price_history")
+}
+
+model InventoryLot {
+  id                String      @id @default(uuid())
+  productId         String
+  tallaId           String
+  unitCost          Decimal     @db.Decimal(10, 2)
+  quantity          Int
+  remainingQuantity Int
+  entryDate         DateTime    @default(now())
+  origin            String      // "ORDER_PURCHASE" | "MANUAL_ENTRY" | "INICIAL"
+  referenceId       String?
+  createdAt         DateTime    @default(now())
+  updatedAt         DateTime    @updatedAt
+  product           Product     @relation(fields: [productId], references: [id], onDelete: Cascade)
+  talla             TallaConfig @relation(fields: [tallaId], references: [id], onDelete: Cascade)
+
+  @@index([productId, tallaId, remainingQuantity])
+  @@index([productId, remainingQuantity])
+  @@map("inventory_lots")
 }
 
 // ──────────────────────────────────────────

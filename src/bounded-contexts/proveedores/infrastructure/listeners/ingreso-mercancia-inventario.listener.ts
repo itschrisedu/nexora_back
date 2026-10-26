@@ -41,6 +41,7 @@ export class IngresoMercanciaInventarioListener {
             'INGRESO_MERCANCIA',
             payload.entradaId,
             'SYSTEM', // Registrado por el sistema de forma asíncrona
+            line.precioCosto ? Number(line.precioCosto) : undefined,
           ),
         );
         this.logger.log(`✅ Stock aumentado para producto ${line.productId}, talla ${line.tallaId} — Cantidad: ${line.cantidadIngresada}`);

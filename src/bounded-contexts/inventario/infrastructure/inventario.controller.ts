@@ -51,6 +51,7 @@ import { AumentarStockCommand } from '../application/commands/AumentarStock.comm
 import { DescontarStockHandler } from '../application/commands/DescontarStock.handler';
 import { DescontarStockCommand } from '../application/commands/DescontarStock.command';
 import { InventarioQueryService } from '../application/queries/InventarioQueryService';
+import { FifoInventoryService } from '../application/services/FifoInventoryService';
 import { PrismaService } from '../../../shared/infrastructure/prisma/prisma.service';
 import { CloudinaryService } from '../../../shared/infrastructure/cloudinary/cloudinary.service';
 import { EncryptionService } from '../../../shared/infrastructure/encryption/encryption.service';
@@ -69,6 +70,7 @@ export class InventarioController {
     private readonly aumentarStockHandler: AumentarStockHandler,
     private readonly descontarStockHandler: DescontarStockHandler,
     private readonly queryService: InventarioQueryService,
+    private readonly fifoService: FifoInventoryService,
     private readonly prisma: PrismaService,
     private readonly cloudinaryService: CloudinaryService,
     private readonly encryption: EncryptionService,
@@ -108,6 +110,12 @@ export class InventarioController {
   @Roles(Rol.ROL_ADMIN, Rol.ROL_BODEGUERO)
   async obtenerMovimientos(@Param('id') id: string) {
     return this.queryService.obtenerMovimientos(id);
+  }
+
+  @Get('productos/:id/fifo-info')
+  @Roles(Rol.ROL_ADMIN, Rol.ROL_VENDEDOR, Rol.ROL_BODEGUERO)
+  async obtenerFifoInfo(@Param('id') id: string) {
+    return this.fifoService.obtenerDetalleFifoProducto(id);
   }
 
   @Get('modelos/matriz')
@@ -387,7 +395,7 @@ export class InventarioController {
   @Roles(Rol.ROL_ADMIN, Rol.ROL_BODEGUERO)
   async aumentarStockLote(
     @Param('id') id: string,
-    @Body() dto: { items: { tallaId: string; cantidad: number }[]; motivo: string; referenceId?: string },
+    @Body() dto: { items: { tallaId: string; cantidad: number }[]; motivo: string; referenceId?: string; precioCosto?: number },
     @Req() req: any,
   ) {
     if (!dto.items || !Array.isArray(dto.items) || dto.items.length === 0) {
@@ -397,6 +405,11 @@ export class InventarioController {
     if (!producto) {
       throw new NotFoundException(`El producto con ID "${id}" no existe`);
     }
+
+    const defaultUnitCost = await this.fifoService.obtenerUltimoCostoLote(id);
+    const finalUnitCost = (dto.precioCosto !== undefined && Number(dto.precioCosto) > 0)
+      ? Number(dto.precioCosto)
+      : defaultUnitCost;
 
     await this.prisma.$transaction(async (tx) => {
       for (const item of dto.items) {
@@ -413,11 +426,22 @@ export class InventarioController {
             userId: req.user.sub,
           },
         });
+
+        // Registrar lote FIFO en la transacción
+        await this.fifoService.registrarLoteEntrada({
+          productId: id,
+          tallaId: item.tallaId,
+          cantidad: item.cantidad,
+          precioCosto: finalUnitCost,
+          origen: 'MANUAL_ENTRY',
+          referenceId: dto.referenceId ?? dto.motivo,
+          tx,
+        });
       }
       await this.productoRepository.update(producto);
     });
 
-    return { message: 'Entrada multiformato por serie/lote registrada exitosamente' };
+    return { message: 'Entrada multiformato por serie/lote registrada exitosamente', unitCost: finalUnitCost };
   }
 
   @Post('productos/:id/salida')
@@ -1087,6 +1111,175 @@ export class InventarioController {
     }
 
     return { message: 'Modelo y series sincronizados exitosamente en todos los colores', model: updated };
+  }
+
+  @Put('modelos/:id/proveedor-series')
+  @Roles(Rol.ROL_ADMIN)
+  async actualizarSeriesProveedor(
+    @Param('id') modelId: string,
+    @Body()
+    dto: {
+      supplierId: string | null;
+      serieIds: string[];
+      seriesPrices: Record<string, { costPrice: number; salePrice: number }>;
+      customTallas?: Record<string, string[]>;
+    },
+  ) {
+    const model = await this.prisma.productModel.findUnique({
+      where: { id: modelId },
+      include: {
+        products: {
+          include: { stockByTalla: true },
+        },
+      },
+    });
+    if (!model) throw new NotFoundException(`Modelo con ID ${modelId} no encontrado`);
+
+    const targetSupplierId = dto.supplierId || null;
+
+    // Productos que pertenecen a este proveedor específico en este modelo
+    const prodsProveedor = model.products.filter(p => {
+      if (targetSupplierId) {
+        return p.supplierId === targetSupplierId || (!p.supplierId && targetSupplierId === model.supplierId);
+      } else {
+        return !p.supplierId || p.supplierId === model.supplierId;
+      }
+    });
+
+    // Colores únicos que maneja este proveedor en este modelo (o todos los colores del modelo si aún no tenía)
+    const colorMap = new Map<string, { imageUrl: string | null }>();
+    if (prodsProveedor.length > 0) {
+      for (const p of prodsProveedor) {
+        const cClean = p.color.trim();
+        if (!colorMap.has(cClean)) {
+          colorMap.set(cClean, { imageUrl: p.imageUrl });
+        }
+      }
+    } else {
+      for (const p of model.products) {
+        const cClean = p.color.trim();
+        if (!colorMap.has(cClean)) {
+          colorMap.set(cClean, { imageUrl: p.imageUrl });
+        }
+      }
+    }
+
+    // Sigla del proveedor para la nomenclatura de códigos
+    let supplierSigla = '';
+    if (targetSupplierId) {
+      const sup = await this.prisma.supplier.findUnique({
+        where: { id: targetSupplierId },
+        select: { razonSocial: true },
+      });
+      if (sup) {
+        supplierSigla = generarSiglaProveedor(sup.razonSocial);
+      }
+    }
+
+    const activeSerieIds = dto.serieIds || [];
+    const seriesConfigs = await this.prisma.seriesConfig.findMany({
+      where: { id: { in: activeSerieIds } },
+      include: { tallas: { orderBy: { numero: 'asc' } } },
+    });
+
+    // 1. ACTIVAR / ACTUALIZAR / CREAR las series seleccionadas en TODOS los colores de este proveedor
+    for (const [colorName, colorData] of colorMap.entries()) {
+      for (const serieConfig of seriesConfigs) {
+        const seriePrices = dto.seriesPrices?.[serieConfig.id];
+        const costVal = seriePrices?.costPrice && seriePrices.costPrice > 0 ? seriePrices.costPrice : 10;
+        const saleVal = seriePrices?.salePrice && seriePrices.salePrice > 0 ? seriePrices.salePrice : 13;
+
+        const prodExistente = prodsProveedor.find(
+          p =>
+            p.color.trim().toLowerCase() === colorName.toLowerCase() &&
+            p.serieId === serieConfig.id,
+        );
+
+        if (prodExistente) {
+          // Ya existía: asegurar que esté activo y actualizar precios
+          await this.prisma.product.update({
+            where: { id: prodExistente.id },
+            data: {
+              active: true,
+              costPrice: costVal,
+              salePrice: saleVal,
+              ...(targetSupplierId && { supplierId: targetSupplierId }),
+            },
+          });
+        } else {
+          // No existía para este color y proveedor: crear variante con stock 0
+          const colorClean = colorName.trim();
+          const colorSuffix = colorClean.substring(0, 3).toUpperCase();
+          const serieSuffix = serieConfig.nombre.substring(0, 3).toUpperCase();
+          const siglaSuffix = supplierSigla ? `-${supplierSigla}` : '';
+          let code = `${model.baseCode}-${colorSuffix}-${serieSuffix}${siglaSuffix}`;
+
+          let counter = 2;
+          while (await this.prisma.product.findUnique({ where: { code } })) {
+            code = `${model.baseCode}-${colorSuffix}-${serieSuffix}${siglaSuffix}-${String(counter).padStart(3, '0')}`;
+            counter++;
+          }
+
+          const tallasToCreate = (serieConfig.tallas || []).map((t: any) => ({
+            tallaId: t.id,
+            quantity: 0,
+            reservedQuantity: 0,
+            minStock: 0,
+          }));
+
+          const nuevoProd = await this.prisma.product.create({
+            data: {
+              modelId: model.id,
+              code,
+              color: colorClean,
+              imageUrl: colorData.imageUrl ?? null,
+              costPrice: costVal,
+              salePrice: saleVal,
+              serieId: serieConfig.id,
+              supplierId: targetSupplierId,
+              active: true,
+              stockByTalla: {
+                create: tallasToCreate,
+              },
+            },
+          });
+          prodsProveedor.push(nuevoProd as any);
+        }
+      }
+    }
+
+    // 2. DESACTIVAR o ELIMINAR (si tienen 0 stock) las series que se apagaron para este proveedor
+    const prodsADesactivar = prodsProveedor.filter(
+      p => !activeSerieIds.includes(p.serieId),
+    );
+
+    for (const p of prodsADesactivar) {
+      const totalStock = (p.stockByTalla || []).reduce(
+        (sum, s) => sum + (s.quantity || 0),
+        0,
+      );
+
+      if (totalStock === 0) {
+        try {
+          await this.prisma.stockByTalla.deleteMany({ where: { productId: p.id } });
+          await this.prisma.product.delete({ where: { id: p.id } });
+        } catch (err) {
+          await this.prisma.product.update({
+            where: { id: p.id },
+            data: { active: false },
+          });
+        }
+      } else {
+        await this.prisma.product.update({
+          where: { id: p.id },
+          data: { active: false },
+        });
+      }
+    }
+
+    return {
+      message: 'Series y precios del proveedor actualizados exitosamente en todos los colores',
+    };
   }
 
   @Post('modelos/:id/sincronizar-series')

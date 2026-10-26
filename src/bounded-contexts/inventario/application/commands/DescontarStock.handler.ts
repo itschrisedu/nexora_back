@@ -3,6 +3,7 @@ import { IProductoRepository } from '../../domain/IProductoRepository';
 import { DescontarStockCommand } from './DescontarStock.command';
 import { PrismaService } from '../../../../shared/infrastructure/prisma/prisma.service';
 import { MovimientoTipo } from '@prisma/client';
+import { FifoInventoryService } from '../services/FifoInventoryService';
 
 @Injectable()
 export class DescontarStockHandler {
@@ -10,6 +11,7 @@ export class DescontarStockHandler {
     @Inject('IProductoRepository')
     private readonly productoRepository: IProductoRepository,
     private readonly prisma: PrismaService,
+    private readonly fifoService: FifoInventoryService,
   ) {}
 
   async execute(command: DescontarStockCommand): Promise<void> {
@@ -32,6 +34,13 @@ export class DescontarStockHandler {
         referenceId: command.referenceId,
         userId: command.userId,
       },
+    });
+
+    // Descontar del lote FIFO más antiguo vigente
+    await this.fifoService.descontarStockFifo({
+      productId: command.productoId,
+      tallaId: command.tallaId,
+      cantidad: command.cantidad,
     });
 
     // Actualizar el agregador

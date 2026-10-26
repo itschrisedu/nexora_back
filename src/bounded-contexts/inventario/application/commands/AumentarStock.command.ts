@@ -6,5 +6,6 @@ export class AumentarStockCommand {
     public readonly motivo: string,
     public readonly referenceId: string | null,
     public readonly userId: string,
+    public readonly precioCosto?: number,
   ) {}
 }

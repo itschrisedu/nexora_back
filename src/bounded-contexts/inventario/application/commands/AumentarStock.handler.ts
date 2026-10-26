@@ -3,6 +3,7 @@ import { IProductoRepository } from '../../domain/IProductoRepository';
 import { AumentarStockCommand } from './AumentarStock.command';
 import { PrismaService } from '../../../../shared/infrastructure/prisma/prisma.service';
 import { MovimientoTipo } from '@prisma/client';
+import { FifoInventoryService } from '../services/FifoInventoryService';
 
 @Injectable()
 export class AumentarStockHandler {
@@ -10,6 +11,7 @@ export class AumentarStockHandler {
     @Inject('IProductoRepository')
     private readonly productoRepository: IProductoRepository,
     private readonly prisma: PrismaService,
+    private readonly fifoService: FifoInventoryService,
   ) {}
 
   async execute(command: AumentarStockCommand): Promise<void> {
@@ -140,7 +142,21 @@ export class AumentarStockHandler {
       },
     });
 
-    // 7. Persistir cambios en el agregador
+    // 7. Registrar Lote FIFO para trazabilidad de costos reales
+    const finalUnitCost = (command.precioCosto !== undefined && command.precioCosto > 0)
+      ? command.precioCosto
+      : Number(producto.costPrice.amount);
+
+    await this.fifoService.registrarLoteEntrada({
+      productId: realProductId,
+      tallaId: targetTallaId,
+      cantidad: command.cantidad,
+      precioCosto: finalUnitCost,
+      origen: command.motivo === 'INGRESO_MERCANCIA' ? 'ORDER_PURCHASE' : 'MANUAL_ENTRY',
+      referenceId: command.referenceId ?? command.motivo,
+    });
+
+    // 8. Persistir cambios en el agregador
     await this.productoRepository.update(producto);
   }
 }

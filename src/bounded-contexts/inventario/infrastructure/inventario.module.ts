@@ -18,6 +18,7 @@ import { DescontarStockHandler } from '../application/commands/DescontarStock.ha
 
 // Application — Queries
 import { InventarioQueryService } from '../application/queries/InventarioQueryService';
+import { FifoInventoryService } from '../application/services/FifoInventoryService';
 
 @Module({
   imports: [AuthModule],
@@ -28,6 +29,9 @@ import { InventarioQueryService } from '../application/queries/InventarioQuerySe
       provide: 'IProductoRepository',
       useClass: PrismaProductoRepository,
     },
+
+    // Services
+    FifoInventoryService,
 
     // Command Handlers
     CrearProductoHandler,
@@ -48,6 +52,7 @@ import { InventarioQueryService } from '../application/queries/InventarioQuerySe
   ],
   exports: [
     'IProductoRepository',
+    FifoInventoryService,
     InventarioQueryService,
     ReservarStockHandler,
     LiberarReservaHandler,
