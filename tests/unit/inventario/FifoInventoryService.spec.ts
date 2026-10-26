@@ -151,25 +151,29 @@ describe('FifoInventoryService - Valoración FIFO de Inventario (Fase 3)', () =>
 
   it('debe obtener el costo unitario del lote activo vigente (el más antiguo no agotado)', async () => {
     mockPrisma.inventoryLot.findFirst.mockResolvedValue({
-      id: 'lote-activo',
-      productId: 'prod-01',
       unitCost: 14.5,
-      remainingQuantity: 5,
     });
 
-    const costoActivo = await service.obtenerCostoUnitarioActivo('prod-01');
+    const costoActivo = await service.obtenerCostoFifoActivo('prod-01');
     expect(costoActivo).toBe(14.5);
   });
 
   it('debe recurrir al costo base del producto si no existen lotes FIFO registrados', async () => {
     mockPrisma.inventoryLot.findFirst.mockResolvedValue(null);
     mockPrisma.product.findUnique.mockResolvedValue({
-      id: 'prod-01',
       costPrice: 12.0,
-      price: 25.0,
     });
 
-    const costoActivo = await service.obtenerCostoUnitarioActivo('prod-01');
+    const costoActivo = await service.obtenerCostoFifoActivo('prod-01');
     expect(costoActivo).toBe(12.0);
+  });
+
+  it('debe obtener el último costo de lote ingresado para sugerir en el modal de ingreso', async () => {
+    mockPrisma.inventoryLot.findFirst.mockResolvedValue({
+      unitCost: 16.0,
+    });
+
+    const ultimoCosto = await service.obtenerUltimoCostoLote('prod-01');
+    expect(ultimoCosto).toBe(16.0);
   });
 });
