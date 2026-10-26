@@ -223,6 +223,17 @@ export class ActualizarModeloDto {
   @IsString({ each: true })
   @IsOptional()
   alternateSupplierIds?: string[];
+
+  @IsArray()
+  @IsString({ each: true })
+  @IsOptional()
+  serieIds?: string[];
+
+  @IsOptional()
+  seriesPrices?: Record<string, { costPrice: number; salePrice: number }>;
+
+  @IsOptional()
+  customTallas?: Record<string, string[]>;
 }
 
 // ── Actualizar producto / variante (foto, precios, color, serie, tallas) ──

@@ -933,7 +933,141 @@ export class InventarioController {
       },
     });
 
-    return { message: 'Modelo actualizado exitosamente', model: updated };
+    // FASE 2: Propagación de series a TODOS los colores existentes del modelo
+    if (dto.serieIds && dto.serieIds.length > 0) {
+      // 1. Obtener todas las variantes existentes del modelo
+      const existingProducts = await this.prisma.product.findMany({
+        where: { modelId: id },
+        include: { stockByTalla: true },
+      });
+
+      // 2. Extraer todos los colores únicos registrados en este modelo
+      const colorMap = new Map<string, { imageUrl: string | null }>();
+      for (const p of existingProducts) {
+        const cClean = p.color.trim();
+        if (!colorMap.has(cClean)) {
+          colorMap.set(cClean, { imageUrl: p.imageUrl });
+        }
+      }
+
+      // 3. Cargar las configuraciones de series seleccionadas
+      const seriesConfigs = await this.prisma.seriesConfig.findMany({
+        where: { id: { in: dto.serieIds } },
+        include: { tallas: { orderBy: { numero: 'asc' } } },
+      });
+
+      // 4. Determinar sigla del proveedor asignado
+      let supplierSigla = '';
+      if (finalSupplierId) {
+        const sup = await this.prisma.supplier.findUnique({
+          where: { id: finalSupplierId },
+          select: { razonSocial: true },
+        });
+        if (sup) {
+          supplierSigla = generarSiglaProveedor(sup.razonSocial);
+        }
+      }
+
+      // 5. Bucle transaccional: Para CADA color del modelo, asegurar que existan TODAS las series
+      for (const [colorName, colorData] of colorMap.entries()) {
+        for (const serieConfig of seriesConfigs) {
+          const serieVO = Serie.create(serieConfig.nombre);
+          const seriePrices = dto.seriesPrices?.[serieConfig.id];
+          const costVal = seriePrices?.costPrice ?? 10;
+          const saleVal = seriePrices?.salePrice ?? 13;
+
+          // Buscar si este color ya tiene variante con esta serie
+          const prodExistente = existingProducts.find(
+            (p) =>
+              p.color.trim().toLowerCase() === colorName.toLowerCase() &&
+              p.serieId === serieConfig.id,
+          );
+
+          if (prodExistente) {
+            // Actualizar precios y proveedor en la variante existente si corresponde al proveedor principal o sin proveedor
+            const pSupId = prodExistente.supplierId;
+            const isPrimaryOrUnassigned = !pSupId || pSupId === model.supplierId || pSupId === finalSupplierId;
+
+            if (isPrimaryOrUnassigned) {
+              await this.prisma.product.update({
+                where: { id: prodExistente.id },
+                data: {
+                  active: true,
+                  ...(seriePrices && {
+                    costPrice: costVal,
+                    salePrice: saleVal,
+                  }),
+                  ...(finalSupplierId !== undefined && { supplierId: finalSupplierId }),
+                },
+              });
+            }
+          } else {
+            // NO EXISTÍA: Crear la variante para este color y esta serie (garantiza 0 colores huérfanos)
+            const colorClean = colorName.trim();
+            const colorSuffix = colorClean.substring(0, 3).toUpperCase();
+            const serieSuffix = serieConfig.nombre.substring(0, 3).toUpperCase();
+            const siglaSuffix = supplierSigla ? `-${supplierSigla}` : '';
+            let code = `${updated.baseCode}-${colorSuffix}-${serieSuffix}${siglaSuffix}`;
+
+            // Evitar colisión de código con secuencial limpio
+            const existeCodigo = await this.productoRepository.findByCodigo(code);
+            if (existeCodigo) {
+              let counter = 2;
+              let candidateCode = `${code}-${String(counter).padStart(3, '0')}`;
+              while (await this.productoRepository.findByCodigo(candidateCode)) {
+                counter++;
+                candidateCode = `${code}-${String(counter).padStart(3, '0')}`;
+              }
+              code = candidateCode;
+            }
+
+            // Estructurar tallas de la serie
+            const stockPorTallaList: StockPorTalla[] = [];
+            const customTallaIds = dto.customTallas?.[serieConfig.id];
+
+            if (customTallaIds !== undefined && customTallaIds !== null) {
+              const tallaCountMap = new Map<string, number>();
+              for (const tid of customTallaIds) {
+                tallaCountMap.set(tid, (tallaCountMap.get(tid) || 0) + 1);
+              }
+              for (const tallaConfig of serieConfig.tallas) {
+                const count = tallaCountMap.get(tallaConfig.id) || 0;
+                if (customTallaIds.length > 0 && count === 0) continue;
+                Talla.create(tallaConfig.numero, serieVO);
+                stockPorTallaList.push(
+                  StockPorTalla.create(tallaConfig.id, 0, 0, 0),
+                );
+              }
+            } else {
+              for (const talla of serieConfig.tallas) {
+                Talla.create(talla.numero, serieVO);
+                stockPorTallaList.push(
+                  StockPorTalla.create(talla.id, 0, 0, 0),
+                );
+              }
+            }
+
+            const nuevoProductoId = crypto.randomUUID();
+            const nuevoProducto = Producto.crear(
+              nuevoProductoId,
+              id,
+              code,
+              colorClean,
+              colorData.imageUrl ?? null,
+              Money.create(costVal),
+              Money.create(saleVal),
+              serieVO,
+              stockPorTallaList,
+              finalSupplierId || null,
+            );
+
+            await this.productoRepository.save(nuevoProducto);
+          }
+        }
+      }
+    }
+
+    return { message: 'Modelo y series sincronizados exitosamente en todos los colores', model: updated };
   }
 
   @Put('productos/:id')
