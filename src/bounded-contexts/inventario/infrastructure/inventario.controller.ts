@@ -463,6 +463,50 @@ export class InventarioController {
     return { message: 'Stock descontado exitosamente' };
   }
 
+  @Post('productos/:id/salida-lote')
+  @Roles(Rol.ROL_ADMIN, Rol.ROL_BODEGUERO)
+  async descontarStockLote(
+    @Param('id') id: string,
+    @Body() dto: { items: { tallaId: string; cantidad: number }[]; motivo: string; referenceId?: string },
+    @Req() req: any,
+  ) {
+    if (!dto.items || !Array.isArray(dto.items) || dto.items.length === 0) {
+      throw new BadRequestException('El lote de salida debe contener al menos una talla con cantidad.');
+    }
+    const producto = await this.productoRepository.findById(id);
+    if (!producto) {
+      throw new NotFoundException(`El producto con ID "${id}" no existe`);
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      for (const item of dto.items) {
+        if (!item.tallaId || !item.cantidad || item.cantidad <= 0) continue;
+        producto.descontarStock(item.tallaId, item.cantidad);
+        await tx.stockMovement.create({
+          data: {
+            productId: id,
+            tallaId: item.tallaId,
+            type: MovimientoTipo.AJUSTE,
+            quantity: -item.cantidad,
+            reason: dto.motivo,
+            referenceId: dto.referenceId ?? null,
+            userId: req.user.sub,
+          },
+        });
+
+        await this.fifoService.descontarStockFifo({
+          productId: id,
+          tallaId: item.tallaId,
+          cantidad: item.cantidad,
+          tx,
+        });
+      }
+      await this.productoRepository.update(producto);
+    });
+
+    return { message: 'Salida de stock por serie/lote registrada exitosamente' };
+  }
+
   @Post('transferir-stock')
   @Roles(Rol.ROL_ADMIN, Rol.ROL_BODEGUERO)
   async transferirStock(@Body() dto: TransferirStockDto, @Req() req: any) {
