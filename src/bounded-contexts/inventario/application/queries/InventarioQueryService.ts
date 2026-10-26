@@ -249,6 +249,9 @@ export class InventarioQueryService {
       ]),
     );
 
+    // FASE 2: Auto-sincronización transparente de series en todos los colores del modelo
+    await this.autoSincronizarSeriesFaltantes(modelos);
+
     return modelos.map((m: any) => {
       const associatedSuppliers: any[] = [];
       const seenIds = new Set<string>();
@@ -806,6 +809,136 @@ export class InventarioQueryService {
       matrizName: res.redSucursales[0]?.nombre || 'Matriz / Red',
       modelosMatriz: res.modelosRed,
     };
+  }
+
+  /**
+   * FASE 2: Auto-reparación y sincronización transparente de series
+   * Detecta si algún color de un modelo carece de series que otros colores de ese mismo
+   * modelo ya poseen, y genera automáticamente las variantes faltantes con stock 0.
+   */
+  private async autoSincronizarSeriesFaltantes(modelos: any[]): Promise<void> {
+    for (const m of modelos) {
+      if (!m.products || m.products.length === 0) continue;
+
+      const allSerieIds = Array.from(
+        new Set(m.products.map((p: any) => p.serieId).filter(Boolean)),
+      ) as string[];
+
+      if (allSerieIds.length <= 1) continue;
+
+      const colorMap = new Map<string, { imageUrl: string | null }>();
+      for (const p of m.products) {
+        const cClean = (p.color || '').trim();
+        if (cClean && !colorMap.has(cClean)) {
+          colorMap.set(cClean, { imageUrl: p.imageUrl });
+        }
+      }
+
+      if (colorMap.size <= 1) continue;
+
+      let necesitaSincronizar = false;
+      for (const colorName of colorMap.keys()) {
+        const seriesDeEsteColor = new Set(
+          m.products
+            .filter((p: any) => p.color.trim().toLowerCase() === colorName.toLowerCase())
+            .map((p: any) => p.serieId),
+        );
+        if (seriesDeEsteColor.size < allSerieIds.length) {
+          necesitaSincronizar = true;
+          break;
+        }
+      }
+
+      if (!necesitaSincronizar) continue;
+
+      let supplierSigla = '';
+      if (m.supplierId) {
+        const sup = await this.prisma.supplier.findUnique({
+          where: { id: m.supplierId },
+          select: { razonSocial: true },
+        });
+        if (sup) {
+          supplierSigla = generarSiglaProveedor(sup.razonSocial);
+        }
+      }
+
+      for (const [colorName, colorData] of colorMap.entries()) {
+        for (const sid of allSerieIds) {
+          const prodExistente = m.products.find(
+            (p: any) =>
+              p.color.trim().toLowerCase() === colorName.toLowerCase() &&
+              p.serieId === sid,
+          );
+
+          if (!prodExistente) {
+            const refProd =
+              m.products.find(
+                (p: any) => p.serieId === sid && p.serie?.tallas?.length > 0,
+              ) || m.products.find((p: any) => p.serieId === sid);
+
+            if (!refProd || !refProd.serie) continue;
+
+            const costVal = Number(refProd.costPrice) > 0 ? Number(refProd.costPrice) : 10;
+            const saleVal = Number(refProd.salePrice) > 0 ? Number(refProd.salePrice) : 13;
+            const supplierId = refProd.supplierId || m.supplierId || null;
+
+            const colorClean = colorName.trim();
+            const colorSuffix = colorClean.substring(0, 3).toUpperCase();
+            const serieSuffix = (refProd.serie?.nombre || 'SER').substring(0, 3).toUpperCase();
+            const siglaSuffix = supplierSigla ? `-${supplierSigla}` : '';
+            let candidateCode = `${m.baseCode}-${colorSuffix}-${serieSuffix}${siglaSuffix}`;
+
+            let counter = 2;
+            while (await this.prisma.product.findUnique({ where: { code: candidateCode } })) {
+              candidateCode = `${m.baseCode}-${colorSuffix}-${serieSuffix}${siglaSuffix}-${String(counter).padStart(3, '0')}`;
+              counter++;
+            }
+
+            const tallasToCreate = (refProd.serie.tallas || []).map((t: any) => ({
+              tallaId: t.id,
+              quantity: 0,
+              reservedQuantity: 0,
+              minStock: 0,
+            }));
+
+            try {
+              const nuevoProd = await this.prisma.product.create({
+                data: {
+                  modelId: m.id,
+                  code: candidateCode,
+                  color: colorClean,
+                  imageUrl: colorData.imageUrl ?? null,
+                  costPrice: costVal,
+                  salePrice: saleVal,
+                  serieId: sid,
+                  supplierId,
+                  active: true,
+                  stockByTalla: {
+                    create: tallasToCreate,
+                  },
+                },
+                include: {
+                  supplier: true,
+                  serie: {
+                    include: {
+                      tallas: { orderBy: { numero: 'asc' } },
+                    },
+                  },
+                  stockByTalla: {
+                    include: { talla: true },
+                    orderBy: { talla: { numero: 'asc' } },
+                  },
+                },
+              });
+
+              m.products.push(nuevoProd);
+            } catch (err) {
+              // Silencioso ante concurrencia
+            }
+          }
+        }
+      }
+    }
   }
 }
 
