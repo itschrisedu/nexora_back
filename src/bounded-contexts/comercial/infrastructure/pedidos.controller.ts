@@ -1664,8 +1664,8 @@ export class PedidosController {
       throw new NotFoundException(`El pedido con ID "${id}" no existe`);
     }
 
-    // Normalizar items a procesar (permite procesar por modelo, lista de productIds o individual)
-    const itemsAProcesar: Array<{ lineId?: string; productId?: string; productIds?: string[]; nuevoPrecio: number }> = [];
+    // Normalizar items a procesar (permite procesar por modelo, serie, lista de lineIds/productIds o individual)
+    const itemsAProcesar: Array<{ lineId?: string; lineIds?: string[]; productId?: string; productIds?: string[]; nuevoPrecio: number }> = [];
 
     if (dto.items && dto.items.length > 0) {
       for (const it of dto.items) {
@@ -1673,6 +1673,7 @@ export class PedidosController {
         if (!isNaN(p) && p > 0) {
           itemsAProcesar.push({
             lineId: it.lineId,
+            lineIds: it.lineIds,
             productId: it.productId,
             productIds: it.productIds,
             nuevoPrecio: p,
@@ -1686,6 +1687,7 @@ export class PedidosController {
       }
       itemsAProcesar.push({
         lineId: dto.lineId,
+        lineIds: dto.lineIds,
         productId: dto.productId,
         productIds: dto.productIds,
         nuevoPrecio: p,
@@ -1701,7 +1703,9 @@ export class PedidosController {
 
     for (const item of itemsAProcesar) {
       let lineas = pedido.lines;
-      if (item.lineId) {
+      if (item.lineIds && item.lineIds.length > 0) {
+        lineas = pedido.lines.filter((l) => item.lineIds!.includes(l.id));
+      } else if (item.lineId) {
         lineas = pedido.lines.filter((l) => l.id === item.lineId);
       } else if (item.productIds && item.productIds.length > 0) {
         lineas = pedido.lines.filter((l) => item.productIds!.includes(l.productId));

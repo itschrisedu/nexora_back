@@ -195,6 +195,10 @@ export class ItemCorregirPrecioDto {
   @IsOptional()
   lineId?: string;
 
+  @IsArray()
+  @IsOptional()
+  lineIds?: string[];
+
   @IsString()
   @IsOptional()
   productId?: string;
@@ -211,6 +215,10 @@ export class CorregirPrecioLineaDto {
   @IsString()
   @IsOptional()
   lineId?: string;
+
+  @IsArray()
+  @IsOptional()
+  lineIds?: string[];
 
   @IsString()
   @IsOptional()
