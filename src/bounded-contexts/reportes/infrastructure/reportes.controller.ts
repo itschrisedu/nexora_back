@@ -107,8 +107,13 @@ export class ReportesController {
     @Query('fechaDesde') fechaDesde?: string,
     @Query('fechaHasta') fechaHasta?: string,
     @Query('sucursalId') sucursalId?: string,
+    @Query('vendedorId') vendedorId?: string,
+    @Query('canal') canal?: string,
   ) {
-    const filtros: FiltrosReporteDto = { periodo, fechaDesde, fechaHasta };
+    const userRole = req.user?.rol || req.user?.role;
+    const isVendedor = userRole === Rol.ROL_VENDEDOR;
+    const effectiveVendedorId = isVendedor ? (req.user.sub || req.user.id) : vendedorId;
+    const filtros: FiltrosReporteDto = { periodo, fechaDesde, fechaHasta, vendedorId: effectiveVendedorId, canal };
     const tenantIds = await this.determinarTenantIds(req, sucursalId);
     return this.reportesService.obtenerReporteCobranzas(tenantIds, filtros);
   }
@@ -139,6 +144,7 @@ export class ReportesController {
     @Query('fechaDesde') fechaDesde?: string,
     @Query('fechaHasta') fechaHasta?: string,
     @Query('vendedorId') vendedorId?: string,
+    @Query('canal') canal?: string,
     @Query('metodoPago') metodoPago?: string,
     @Query('modelo') modelo?: string,
     @Query('busqueda') busqueda?: string,
@@ -148,7 +154,7 @@ export class ReportesController {
     const isVendedor = userRole === Rol.ROL_VENDEDOR;
 
     const effectiveVendedorId = isVendedor ? (req.user.sub || req.user.id) : vendedorId;
-    const filtros = { periodo, fechaDesde, fechaHasta, vendedorId: effectiveVendedorId, metodoPago, modelo, busqueda };
+    const filtros = { periodo, fechaDesde, fechaHasta, vendedorId: effectiveVendedorId, canal, metodoPago, modelo, busqueda };
     const tenantIds = await this.determinarTenantIds(req, sucursalId);
     return this.reportesService.obtenerReportePos(tenantIds, filtros);
   }
@@ -165,12 +171,16 @@ export class ReportesController {
     @Query('fechaDesde') fechaDesde?: string,
     @Query('fechaHasta') fechaHasta?: string,
     @Query('sucursalId') sucursalId?: string,
+    @Query('vendedorId') vendedorId?: string,
+    @Query('canal') canal?: string,
   ) {
     const userRole = req.user?.rol || req.user?.role;
     const esAdminGeneral = Boolean(req.user?.esAdminGeneral);
     const isSuperAdmin = userRole === Rol.ROL_SUPER_ADMIN;
+    const isVendedor = userRole === Rol.ROL_VENDEDOR;
+    const effectiveVendedorId = isVendedor ? (req.user.sub || req.user.id) : vendedorId;
 
-    const filtros = { periodo, fechaDesde, fechaHasta };
+    const filtros = { periodo, fechaDesde, fechaHasta, vendedorId: effectiveVendedorId, canal };
     let allTenantIds: string[];
     let targetSucursalId: string | undefined;
 

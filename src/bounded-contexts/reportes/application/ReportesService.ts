@@ -58,11 +58,37 @@ export class ReportesService {
       orderBy: { createdAt: 'asc' },
     });
 
+    const orderIds = orders.map((o) => o.id);
+
     // 2. Consultar Abonos / Cobranzas del periodo
     const whereAbono: any = {
       createdAt: { gte: inicio, lte: fin },
       cobro: { tenantId: tenantFilter },
     };
+
+    if (filtros.vendedorId && filtros.vendedorId !== 'TODOS') {
+      if (filtros.canal && filtros.canal !== 'TODOS') {
+        whereAbono.AND = [
+          {
+            OR: [
+              { userId: filtros.vendedorId },
+              { cobro: { saleNote: { orderId: { in: orderIds } } } },
+            ],
+          },
+          { cobro: { saleNote: { orderId: { in: orderIds } } } },
+        ];
+      } else {
+        whereAbono.OR = [
+          { userId: filtros.vendedorId },
+          { cobro: { saleNote: { orderId: { in: orderIds } } } },
+        ];
+      }
+    } else if (filtros.canal && filtros.canal !== 'TODOS') {
+      whereAbono.cobro = {
+        tenantId: tenantFilter,
+        saleNote: { orderId: { in: orderIds } },
+      };
+    }
 
     const abonos = await this.prisma.cobroAbono.findMany({
       where: whereAbono,
@@ -73,6 +99,12 @@ export class ReportesService {
             clientId: true,
             saldoPendiente: true,
             montoTotal: true,
+            saleNote: {
+              select: {
+                numero: true,
+                orderId: true,
+              },
+            },
           },
         },
       },
@@ -277,18 +309,91 @@ export class ReportesService {
     });
 
     // Saldo Total de Cartera Pendiente en la empresa y cantidad de clientes con deuda
+    const whereSaldoCartera: any = {
+      tenantId: tenantFilter,
+      estado: { not: 'SALDADO' },
+      saldoPendiente: { gt: 0 },
+    };
+    if (orderIds.length > 0 && ((filtros.vendedorId && filtros.vendedorId !== 'TODOS') || (filtros.canal && filtros.canal !== 'TODOS'))) {
+      whereSaldoCartera.saleNote = { orderId: { in: orderIds } };
+    } else if ((filtros.vendedorId && filtros.vendedorId !== 'TODOS') || (filtros.canal && filtros.canal !== 'TODOS')) {
+      whereSaldoCartera.id = '__none__';
+    }
+
     const saldoCarteraRes = await this.prisma.cobro.aggregate({
-      where: { tenantId: tenantFilter, estado: { not: 'SALDADO' }, saldoPendiente: { gt: 0 } },
+      where: whereSaldoCartera,
       _sum: { saldoPendiente: true },
     });
     const saldoCarteraTotal = Number(saldoCarteraRes._sum.saldoPendiente || 0);
 
     const cobrosPendientes = await this.prisma.cobro.findMany({
-      where: { tenantId: tenantFilter, estado: { not: 'SALDADO' }, saldoPendiente: { gt: 0 } },
+      where: whereSaldoCartera,
       select: { clientId: true },
       distinct: ['clientId'],
     });
     const clientesConDeudaCount = cobrosPendientes.length;
+
+    // Desglose analítico de abonos por canal y por trabajador
+    const orderMap = new Map<string, any>();
+    orders.forEach((o) => orderMap.set(o.id, o));
+
+    const recaudacionPorCanal: { [key: string]: { count: number; monto: number } } = {
+      MANUAL: { count: 0, monto: 0 },
+      WHATSAPP: { count: 0, monto: 0 },
+      CATALOGO: { count: 0, monto: 0 },
+    };
+    const recaudacionPorVendedorMap = new Map<string, { userId: string; nombre: string; rol: string; totalAbonos: number; count: number }>();
+
+    abonos.forEach((a) => {
+      const o = orderMap.get(a.cobro?.saleNote?.orderId);
+      const cKey = o?.canal || 'MANUAL';
+      if (!recaudacionPorCanal[cKey]) recaudacionPorCanal[cKey] = { count: 0, monto: 0 };
+      recaudacionPorCanal[cKey].count += 1;
+      recaudacionPorCanal[cKey].monto += Number(a.monto || 0);
+
+      const u = userMap.get(a.userId);
+      const uid = a.userId || 'SISTEMA';
+      if (!recaudacionPorVendedorMap.has(uid)) {
+        recaudacionPorVendedorMap.set(uid, {
+          userId: uid,
+          nombre: u?.nombre || 'Caja / Venta Directa',
+          rol: u?.rol || 'ROL_VENDEDOR',
+          totalAbonos: 0,
+          count: 0,
+        });
+      }
+      const vRec = recaudacionPorVendedorMap.get(uid)!;
+      vRec.totalAbonos += Number(a.monto || 0);
+      vRec.count += 1;
+    });
+    const recaudacionPorVendedor = Array.from(recaudacionPorVendedorMap.values()).sort((a, b) => b.totalAbonos - a.totalAbonos);
+
+    const clientIdsAbono = [...new Set(abonos.map((a) => a.cobro?.clientId).filter(Boolean))];
+    const clientsAbono = clientIdsAbono.length > 0
+      ? await this.prisma.client.findMany({
+          where: { id: { in: clientIdsAbono as string[] } },
+          select: { id: true, nombre: true, apellido: true },
+        })
+      : [];
+    const clientMapAbono = new Map<string, any>();
+    clientsAbono.forEach((c) => clientMapAbono.set(c.id, c));
+
+    const abonosRecientes = abonos.slice(-50).reverse().map((a) => {
+      const u = userMap.get(a.userId);
+      const c = clientMapAbono.get(a.cobro?.clientId);
+      const o = orderMap.get(a.cobro?.saleNote?.orderId);
+      return {
+        id: a.id,
+        fecha: a.createdAt,
+        monto: Number(a.monto || 0),
+        metodo: a.metodo || 'EFECTIVO',
+        notas: a.notas || '',
+        usuarioNombre: u?.nombre || 'Caja / Mostrador',
+        clienteNombre: c?.nombre ? `${c.nombre} ${c.apellido || ''}`.trim() : 'Cliente Local',
+        canal: o?.canal || 'MANUAL',
+        notaNumero: a.cobro?.saleNote?.numero || null,
+      };
+    });
 
     // Top 10 Modelos Más Vendidos
     const topModelos = Array.from(productoVentasMap.values())
@@ -468,6 +573,9 @@ export class ReportesService {
       distribucionCanales: canalesMap,
       distribucionFormasPago: formasPagoMap,
       distribucionMetodosAbono: metodosAbonoMap,
+      recaudacionPorCanal,
+      recaudacionPorVendedor,
+      abonosRecientes,
       ventasPorSucursal,
     };
   }
@@ -516,11 +624,37 @@ export class ReportesService {
     const tenantFilter = tenantIds.length === 1 ? tenantIds[0] : { in: tenantIds };
 
     // 1. Obtener todos los cobros con saldo pendiente > 0
-    const cobros = await this.prisma.cobro.findMany({
-      where: {
+    const whereCobro: any = {
+      tenantId: tenantFilter,
+      saldoPendiente: { gt: 0 },
+    };
+
+    let orderIdsFiltro: string[] | null = null;
+    if ((filtros.vendedorId && filtros.vendedorId !== 'TODOS') || (filtros.canal && filtros.canal !== 'TODOS')) {
+      const whereOrderMatch: any = {
         tenantId: tenantFilter,
-        saldoPendiente: { gt: 0 },
-      },
+        estado: { not: 'CANCELADO' },
+      };
+      if (filtros.vendedorId && filtros.vendedorId !== 'TODOS') {
+        whereOrderMatch.userId = filtros.vendedorId;
+      }
+      if (filtros.canal && filtros.canal !== 'TODOS') {
+        whereOrderMatch.canal = filtros.canal;
+      }
+      const matchedOrders = await this.prisma.order.findMany({
+        where: whereOrderMatch,
+        select: { id: true },
+      });
+      orderIdsFiltro = matchedOrders.map((o) => o.id);
+      if (orderIdsFiltro.length > 0) {
+        whereCobro.saleNote = { orderId: { in: orderIdsFiltro } };
+      } else {
+        whereCobro.id = '__none__';
+      }
+    }
+
+    const cobros = await this.prisma.cobro.findMany({
+      where: whereCobro,
       include: {
         saleNote: { select: { numero: true, total: true, createdAt: true } },
         abonos: { orderBy: { createdAt: 'desc' }, take: 1 },
@@ -540,11 +674,29 @@ export class ReportesService {
     });
 
     // 3. Abonos recaudados en el periodo seleccionado
+    const whereAbonoCobranza: any = {
+      createdAt: { gte: inicio, lte: fin },
+      cobro: { tenantId: tenantFilter },
+    };
+    if (filtros.vendedorId && filtros.vendedorId !== 'TODOS') {
+      whereAbonoCobranza.OR = [
+        { userId: filtros.vendedorId },
+        ...(orderIdsFiltro && orderIdsFiltro.length > 0 ? [{ cobro: { saleNote: { orderId: { in: orderIdsFiltro } } } }] : []),
+      ];
+    }
+    if (filtros.canal && filtros.canal !== 'TODOS') {
+      if (orderIdsFiltro && orderIdsFiltro.length > 0) {
+        whereAbonoCobranza.cobro = {
+          tenantId: tenantFilter,
+          saleNote: { orderId: { in: orderIdsFiltro } },
+        };
+      } else {
+        whereAbonoCobranza.id = '__none__';
+      }
+    }
+
     const abonosEnPeriodo = await this.prisma.cobroAbono.findMany({
-      where: {
-        createdAt: { gte: inicio, lte: fin },
-        cobro: { tenantId: tenantFilter },
-      },
+      where: whereAbonoCobranza,
     });
     const totalRecaudado = abonosEnPeriodo.reduce((s, a) => s + Number(a.monto), 0);
 
@@ -689,9 +841,14 @@ export class ReportesService {
     const whereOrder: any = {
       tenantId: tenantFilter,
       estado: { not: 'CANCELADO' },
-      canal: 'MANUAL',
       createdAt: { gte: inicio, lte: fin },
     };
+
+    if (filtros.canal && filtros.canal !== 'TODOS') {
+      whereOrder.canal = filtros.canal;
+    } else {
+      whereOrder.canal = 'MANUAL';
+    }
 
     if (filtros.vendedorId && filtros.vendedorId !== 'TODOS') {
       whereOrder.userId = filtros.vendedorId;
@@ -1014,12 +1171,20 @@ export class ReportesService {
       orderBy: { createdAt: 'asc' },
     });
 
+    const whereOrdersAll: any = {
+      tenantId: { in: allTenantIds },
+      estado: { not: 'CANCELADO' },
+      createdAt: { gte: inicio, lte: fin },
+    };
+    if (filtros.vendedorId && filtros.vendedorId !== 'TODOS') {
+      whereOrdersAll.userId = filtros.vendedorId;
+    }
+    if (filtros.canal && filtros.canal !== 'TODOS') {
+      whereOrdersAll.canal = filtros.canal;
+    }
+
     const ordersAll = await this.prisma.order.findMany({
-      where: {
-        tenantId: { in: allTenantIds },
-        estado: { not: 'CANCELADO' },
-        createdAt: { gte: inicio, lte: fin },
-      },
+      where: whereOrdersAll,
       include: {
         lines: true,
       },
