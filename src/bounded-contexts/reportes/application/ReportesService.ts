@@ -157,6 +157,13 @@ export class ReportesService {
       costo: number;
     }>();
 
+    const ventasPorProductoMap = new Map<string, {
+      pares: number;
+      ingresos: number;
+      costo: number;
+      pedidos: number;
+    }>();
+
     const vendedorMap = new Map<string, {
       userId: string;
       nombre: string;
@@ -252,6 +259,21 @@ export class ReportesService {
         const costoUnit = Number(prod?.costPrice || (Number(l.precioUnitario) * 0.6));
         const costoLinea = cant * costoUnit;
         costoEstimadoTotal += costoLinea;
+
+        // Registro detallado por producto individual
+        if (!ventasPorProductoMap.has(l.productId)) {
+          ventasPorProductoMap.set(l.productId, {
+            pares: 0,
+            ingresos: 0,
+            costo: 0,
+            pedidos: 0,
+          });
+        }
+        const vProd = ventasPorProductoMap.get(l.productId)!;
+        vProd.pares += cant;
+        vProd.ingresos += cant * Number(l.precioUnitario || 0);
+        vProd.costo += costoLinea;
+        vProd.pedidos += 1;
 
         // Top modelos (agrupados por modelo para evitar duplicar nombres)
         const modelName = prod?.model?.name || 'Calzado de Cuero';
@@ -395,31 +417,125 @@ export class ReportesService {
       };
     });
 
-    // Top 10 Modelos Más Vendidos
+    // Top Modelos Más Vendidos (TODOS, sin límite)
     const topModelos = Array.from(productoVentasMap.values())
-      .sort((a, b) => b.pares - a.pares)
-      .slice(0, 10);
+      .sort((a, b) => b.pares - a.pares);
 
-    // Modelos de Baja Rotación (tienen stock pero 0 o muy pocas ventas en el periodo)
-    const bajaRotacion = products
-      .map((p) => {
-        const stockTotal = p.stockByTalla.reduce((acc: number, s: any) => acc + (s.stock || s.quantity || 0), 0);
-        const ventasObj = productoVentasMap.get(p.id);
-        const paresVendidos = ventasObj?.pares || 0;
-        return {
-          productId: p.id,
-          modelName: p.model?.name || 'Calzado',
-          color: p.color,
-          serieNombre: p.serie?.nombre || 'Estándar',
-          imageUrl: p.imageUrl,
-          stockActual: stockTotal,
-          paresVendidosEnPeriodo: paresVendidos,
-          precioVenta: Number(p.salePrice),
-        };
-      })
-      .filter((p) => p.stockActual > 0 && p.paresVendidosEnPeriodo <= 2)
-      .sort((a, b) => b.stockActual - a.stockActual)
-      .slice(0, 8);
+    // ── CATÁLOGO COMPLETO DE PRODUCTOS CON ANÁLISIS DE ROTACIÓN ──
+    // Lista de series disponibles para filtro en frontend
+    const seriesSet = new Map<string, string>();
+    products.forEach((p) => {
+      const sId = p.serieId || 'SIN_SERIE';
+      const sNombre = p.serie?.nombre || 'Sin Serie';
+      if (!seriesSet.has(sId)) seriesSet.set(sId, sNombre);
+    });
+    const seriesDisponibles = Array.from(seriesSet.entries()).map(([id, nombre]) => ({ id, nombre }));
+
+    // Calcular umbral de alta rotación (percentil 75 de ventas entre productos que vendieron)
+    const paresVendidosArr = products
+      .map((p) => ventasPorProductoMap.get(p.id)?.pares || 0)
+      .filter((v) => v > 0)
+      .sort((a, b) => a - b);
+    const p75Index = Math.floor(paresVendidosArr.length * 0.75);
+    const umbralAlta = paresVendidosArr.length > 0 ? paresVendidosArr[Math.min(p75Index, paresVendidosArr.length - 1)] : 6;
+    const umbralMedia = Math.max(1, Math.floor(umbralAlta / 3));
+
+    const catalogoProductosCompleto = products.map((p) => {
+      const stockTotal = p.stockByTalla.reduce((acc: number, s: any) => acc + Math.max(0, s.quantity || 0), 0);
+      const stockDisponible = p.stockByTalla.reduce(
+        (acc: number, s: any) => acc + Math.max(0, (s.quantity || 0) - (s.reservedQuantity || 0)),
+        0,
+      );
+      const ventasData = ventasPorProductoMap.get(p.id);
+      const paresVendidos = ventasData?.pares || 0;
+      const ingresosProducto = ventasData?.ingresos || 0;
+      const costoProducto = ventasData?.costo || 0;
+      const pedidosProducto = ventasData?.pedidos || 0;
+      const margenProducto = ingresosProducto > 0 ? Math.round(((ingresosProducto - costoProducto) / ingresosProducto) * 100) : 0;
+      const precioVenta = Number(p.salePrice || 0);
+      const precioCosto = Number(p.costPrice || 0);
+      const capitalRetenido = stockTotal * precioCosto;
+      const valorComercial = stockTotal * precioVenta;
+
+      // Tallas con stock detallado
+      const tallasDetalle = p.stockByTalla
+        .map((s: any) => ({
+          talla: s.talla?.numero || '??',
+          stock: s.quantity || 0,
+          reservado: s.reservedQuantity || 0,
+          disponible: Math.max(0, (s.quantity || 0) - (s.reservedQuantity || 0)),
+        }))
+        .sort((a: any, b: any) => Number(a.talla) - Number(b.talla));
+
+      const tallasAgotadas = tallasDetalle.filter((t: any) => t.disponible <= 0).map((t: any) => t.talla);
+      const tallasConStock = tallasDetalle.filter((t: any) => t.disponible > 0).length;
+
+      // Clasificación de rotación
+      let rotacion: 'ALTA' | 'MEDIA' | 'BAJA' | 'SIN_MOVIMIENTO';
+      if (paresVendidos >= umbralAlta) rotacion = 'ALTA';
+      else if (paresVendidos >= umbralMedia) rotacion = 'MEDIA';
+      else if (paresVendidos > 0) rotacion = 'BAJA';
+      else rotacion = 'SIN_MOVIMIENTO';
+
+      return {
+        productId: p.id,
+        modelId: p.modelId,
+        modelName: p.model?.name || 'Calzado',
+        color: p.color,
+        serieId: p.serieId || 'SIN_SERIE',
+        serieNombre: p.serie?.nombre || 'Sin Serie',
+        imageUrl: p.imageUrl,
+        active: p.active,
+        precioVenta,
+        precioCosto,
+        stockTotal,
+        stockDisponible,
+        paresVendidos,
+        ingresos: ingresosProducto,
+        costo: costoProducto,
+        margen: margenProducto,
+        pedidos: pedidosProducto,
+        capitalRetenido: Math.round(capitalRetenido * 100) / 100,
+        valorComercial: Math.round(valorComercial * 100) / 100,
+        rotacion,
+        tallasDetalle,
+        tallasAgotadas,
+        tallasConStock,
+      };
+    });
+
+    // Métricas resumen de rotación
+    const totalConVentas = catalogoProductosCompleto.filter((p) => p.paresVendidos > 0).length;
+    const totalSinVentas = catalogoProductosCompleto.filter((p) => p.paresVendidos === 0).length;
+    const totalConStock = catalogoProductosCompleto.filter((p) => p.stockTotal > 0).length;
+    const totalSinStock = catalogoProductosCompleto.filter((p) => p.stockTotal <= 0).length;
+    const totalRotacionAlta = catalogoProductosCompleto.filter((p) => p.rotacion === 'ALTA').length;
+    const totalRotacionMedia = catalogoProductosCompleto.filter((p) => p.rotacion === 'MEDIA').length;
+    const totalRotacionBaja = catalogoProductosCompleto.filter((p) => p.rotacion === 'BAJA').length;
+    const totalSinMovimiento = catalogoProductosCompleto.filter((p) => p.rotacion === 'SIN_MOVIMIENTO').length;
+    const capitalEnRiesgo = catalogoProductosCompleto
+      .filter((p) => p.rotacion === 'SIN_MOVIMIENTO' && p.stockTotal > 0)
+      .reduce((acc, p) => acc + p.capitalRetenido, 0);
+
+    const rotacionResumen = {
+      totalProductos: catalogoProductosCompleto.length,
+      totalConVentas,
+      totalSinVentas,
+      totalConStock,
+      totalSinStock,
+      totalRotacionAlta,
+      totalRotacionMedia,
+      totalRotacionBaja,
+      totalSinMovimiento,
+      capitalEnRiesgo: Math.round(capitalEnRiesgo * 100) / 100,
+      umbralAlta,
+      umbralMedia,
+    };
+
+    // bajaRotacion legacy (sin límite, para compatibilidad)
+    const bajaRotacion = catalogoProductosCompleto
+      .filter((p) => p.stockTotal > 0 && p.paresVendidos <= 2)
+      .sort((a, b) => b.stockTotal - a.stockTotal);
 
     // Ranking de Vendedores
     const rankingVendedores = Array.from(vendedorMap.values()).sort(
@@ -569,6 +685,9 @@ export class ReportesService {
       serieTemporal,
       topModelos,
       bajaRotacion,
+      catalogoProductosCompleto,
+      rotacionResumen,
+      seriesDisponibles,
       rankingVendedores,
       distribucionCanales: canalesMap,
       distribucionFormasPago: formasPagoMap,
