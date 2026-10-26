@@ -221,6 +221,29 @@ export class ReportesController {
   }
 
   /**
+   * GET /reportes/ventas-modelos-margen
+   * Reporte analítico de ventas por modelo con margen de ganancia real basado en costos FIFO
+   */
+  @Get('ventas-modelos-margen')
+  @Roles(Rol.ROL_ADMIN, Rol.ROL_SUPER_ADMIN, Rol.ROL_VENDEDOR, Rol.ROL_BODEGUERO)
+  async obtenerReporteVentasModelosMargen(
+    @Req() req: any,
+    @Query('periodo') periodo?: 'HOY' | 'SEMANAL' | 'MENSUAL' | 'TRIMESTRAL' | 'SEMESTRAL' | 'ANUAL' | 'PERSONALIZADO',
+    @Query('fechaDesde') fechaDesde?: string,
+    @Query('fechaHasta') fechaHasta?: string,
+    @Query('sucursalId') sucursalId?: string,
+    @Query('categoria') categoria?: string,
+  ) {
+    const tenantIds = await this.determinarTenantIds(req, sucursalId);
+    return this.reportesService.obtenerReporteVentasModelosMargen(tenantIds, {
+      periodo,
+      fechaDesde,
+      fechaHasta,
+      categoria,
+    });
+  }
+
+  /**
    * Determina los tenantIds permitidos según el rol del usuario autenticado:
    * - Super Administrador: intacto (mantiene su lógica original).
    * - Vendedor o Admin de Sucursal: forzado a su propio local (tenantId).

@@ -112,6 +112,7 @@ export class PosService {
         baseCode: p.model?.baseCode || p.code,
         modelName: p.model?.name || 'Calzado',
         color: p.color || 'Estándar',
+        costPrice: Number(p.costPrice || 0),
         salePrice: Number(p.salePrice || 0),
         serieNombre: p.serie?.nombre || 'General',
         serieId: p.serieId,

@@ -1736,4 +1736,183 @@ export class ReportesService {
       ultimasDevoluciones: ultimasDevoluciones.slice(0, 30),
     };
   }
+
+  // ══════════════════════════════════════════════════════════════
+  // 9. FASE 8: REPORTE DE VENTAS POR MODELO CON MARGEN FIFO REAL
+  // ══════════════════════════════════════════════════════════════
+  async obtenerReporteVentasModelosMargen(
+    tenantIds: string[],
+    filtros: {
+      periodo?: string;
+      fechaDesde?: string;
+      fechaHasta?: string;
+      categoria?: string;
+    },
+  ) {
+    const { inicio, fin } = this.calcularRangoFechas(filtros as any);
+    const tenantFilter = tenantIds.length === 1 ? tenantIds[0] : { in: tenantIds };
+
+    const orders = await this.prisma.order.findMany({
+      where: {
+        tenantId: tenantFilter,
+        estado: { not: 'CANCELADO' },
+        createdAt: { gte: inicio, lte: fin },
+      },
+      include: {
+        lines: true,
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    const productIds = new Set<string>();
+    orders.forEach((o) => o.lines.forEach((l) => productIds.add(l.productId)));
+
+    const products = await this.prisma.product.findMany({
+      where: { id: { in: Array.from(productIds) } },
+      include: {
+        model: true,
+        serie: true,
+        stockByTalla: {
+          include: { talla: true },
+        },
+      },
+    });
+
+    const productMap = new Map(products.map((p) => [p.id, p]));
+
+    // Obtener lotes FIFO para costo real consumido
+    const lotes = await this.prisma.inventoryLot.findMany({
+      where: { productId: { in: Array.from(productIds) } },
+      orderBy: { entryDate: 'asc' },
+    });
+
+    const fifoCostByProduct = new Map<string, number>();
+    lotes.forEach((l) => {
+      if (l.remainingQuantity > 0 && !fifoCostByProduct.has(l.productId)) {
+        fifoCostByProduct.set(l.productId, Number(l.unitCost));
+      }
+    });
+    lotes.forEach((l) => {
+      if (!fifoCostByProduct.has(l.productId)) {
+        fifoCostByProduct.set(l.productId, Number(l.unitCost));
+      }
+    });
+
+    const modeloStatsMap = new Map<string, {
+      modelId: string;
+      modelName: string;
+      baseCode: string;
+      color: string;
+      serieNombre: string;
+      categoria: string;
+      imageUrl?: string;
+      paresVendidos: number;
+      ingresoTotal: number;
+      costoTotalFifo: number;
+      stockActual: number;
+    }>();
+
+    const categoriasSet = new Set<string>();
+
+    orders.forEach((order) => {
+      order.lines.forEach((line) => {
+        const prod = productMap.get(line.productId);
+        const modelId = prod?.modelId || prod?.id || line.productId;
+        const modelName = prod?.model?.name || 'Calzado Mostrador';
+        const baseCode = prod?.model?.baseCode || prod?.code || '';
+        const color = prod?.color || 'Estándar';
+        const serieNombre = prod?.serie?.nombre || 'General';
+        const cat = prod?.model?.material || (prod as any)?.model?.category || 'General';
+        categoriasSet.add(cat);
+
+        if (filtros.categoria && filtros.categoria !== 'TODAS' && cat !== filtros.categoria) {
+          return;
+        }
+
+        const stockActual = prod?.stockByTalla
+          ? prod.stockByTalla.reduce((acc: number, s: any) => acc + (s.quantity || 0), 0)
+          : 0;
+
+        const unitCost = fifoCostByProduct.get(line.productId) ?? Number(prod?.costPrice || 10);
+        const subtotalIngreso = line.cantidad * Number(line.precioUnitario);
+        const subtotalCosto = line.cantidad * unitCost;
+
+        const key = `${modelId}_${color}_${prod?.serieId || 'SIN_SERIE'}`;
+        const cur = modeloStatsMap.get(key);
+        if (cur) {
+          cur.paresVendidos += line.cantidad;
+          cur.ingresoTotal += subtotalIngreso;
+          cur.costoTotalFifo += subtotalCosto;
+        } else {
+          modeloStatsMap.set(key, {
+            modelId,
+            modelName,
+            baseCode,
+            color,
+            serieNombre,
+            categoria: cat,
+            imageUrl: prod?.imageUrl || undefined,
+            paresVendidos: line.cantidad,
+            ingresoTotal: subtotalIngreso,
+            costoTotalFifo: subtotalCosto,
+            stockActual,
+          });
+        }
+      });
+    });
+
+    const modelosArray = Array.from(modeloStatsMap.values())
+      .map((m) => {
+        const precioPromedio = m.paresVendidos > 0 ? m.ingresoTotal / m.paresVendidos : 0;
+        const costoPromedioFifo = m.paresVendidos > 0 ? m.costoTotalFifo / m.paresVendidos : 0;
+        const gananciaNeta = m.ingresoTotal - m.costoTotalFifo;
+        const margenPorcentual = m.ingresoTotal > 0 ? Math.round((gananciaNeta / m.ingresoTotal) * 100) : 0;
+
+        return {
+          ...m,
+          ingresoTotal: Number(m.ingresoTotal.toFixed(2)),
+          costoTotalFifo: Number(m.costoTotalFifo.toFixed(2)),
+          gananciaNeta: Number(gananciaNeta.toFixed(2)),
+          margenPorcentual,
+          precioPromedio: Number(precioPromedio.toFixed(2)),
+          costoPromedioFifo: Number(costoPromedioFifo.toFixed(2)),
+        };
+      })
+      .sort((a, b) => b.paresVendidos - a.paresVendidos);
+
+    const totalPares = modelosArray.reduce((acc, m) => acc + m.paresVendidos, 0);
+    const totalIngresos = modelosArray.reduce((acc, m) => acc + m.ingresoTotal, 0);
+    const totalCostoFifo = modelosArray.reduce((acc, m) => acc + m.costoTotalFifo, 0);
+    const gananciaTotal = totalIngresos - totalCostoFifo;
+    const margenPromedio = totalIngresos > 0 ? Math.round((gananciaTotal / totalIngresos) * 100) : 0;
+
+    const topModelosGrafica = modelosArray.slice(0, 8).map((m) => ({
+      nombre: `${m.modelName} (${m.color})`,
+      baseCode: m.baseCode,
+      paresVendidos: m.paresVendidos,
+      margenPorcentual: m.margenPorcentual,
+      gananciaNeta: m.gananciaNeta,
+      porcentajeParticipacion: totalPares > 0 ? Math.round((m.paresVendidos / totalPares) * 100) : 0,
+      imageUrl: m.imageUrl,
+    }));
+
+    return {
+      periodo: filtros.periodo || 'MENSUAL',
+      rangoFechas: {
+        desde: inicio.toISOString(),
+        hasta: fin.toISOString(),
+      },
+      metricas: {
+        totalPares,
+        totalIngresos: Number(totalIngresos.toFixed(2)),
+        totalCostoFifo: Number(totalCostoFifo.toFixed(2)),
+        gananciaTotal: Number(gananciaTotal.toFixed(2)),
+        margenPromedio,
+        totalModelosVendidos: modelosArray.length,
+      },
+      modelos: modelosArray,
+      topModelosGrafica,
+      categorias: Array.from(categoriasSet),
+    };
+  }
 }

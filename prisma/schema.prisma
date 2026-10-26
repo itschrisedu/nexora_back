@@ -247,6 +247,13 @@ model BusinessConfig {
   mostrarPreciosPublico Boolean  @default(true)
   mostrarStockPublico   Boolean  @default(true)
 
+  // Estrategia Comercial (Fase 9: Estándar vs Dinámico)
+  estrategiaComercialTipo   String   @default("ESTANDAR") // "ESTANDAR" | "DINAMICO"
+  margenMinimoDinamico      Decimal  @default(25.00) @db.Decimal(5, 2)
+  temporadaComercial        String   @default("AUTO") // "AUTO" | "ALTA" | "REGULAR" | "BAJA"
+  descuentoTemporadaBaja    Decimal  @default(10.00) @db.Decimal(5, 2)
+  diasRotacionTemporadaBaja Int      @default(30)
+
   updatedAt             DateTime @updatedAt
   tenant                Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 

@@ -180,6 +180,25 @@ export class UpdateBusinessConfigDto {
   @IsOptional()
   precioPlanMayorista?: number;
 
+  // ── Estrategia Comercial (Fase 9: Estándar vs Dinámico) ──
+  @IsString()
+  @IsOptional()
+  estrategiaComercialTipo?: string; // "ESTANDAR" | "DINAMICO"
+
+  @IsOptional()
+  margenMinimoDinamico?: number;
+
+  @IsString()
+  @IsOptional()
+  temporadaComercial?: string; // "AUTO" | "ALTA" | "REGULAR" | "BAJA"
+
+  @IsOptional()
+  descuentoTemporadaBaja?: number;
+
+  @IsInt()
+  @IsOptional()
+  diasRotacionTemporadaBaja?: number;
+
   @IsOptional()
   tenantId?: string;
 }

@@ -61,6 +61,18 @@ export class ConfiguracionController {
   }
 
   // ══════════════════════════════
+  // ESTRATEGIA COMERCIAL (FASE 9)
+  // ══════════════════════════════
+
+  @Get('estrategia-comercial')
+  @Roles(Rol.ROL_ADMIN, Rol.ROL_SUPER_ADMIN, Rol.ROL_VENDEDOR, Rol.ROL_BODEGUERO)
+  async getEstrategiaComercial(@Req() req: any, @Query('tenantId') queryTenantId?: string) {
+    const isSuperAdmin = req.user?.rol === Rol.ROL_SUPER_ADMIN;
+    const targetTenantId = isSuperAdmin ? (queryTenantId || null) : req.user?.tenantId;
+    return this.configuracionService.getEstrategiaComercialVigente(targetTenantId);
+  }
+
+  // ══════════════════════════════
   // NIVELES DE CRÉDITO (SCORING)
   // ══════════════════════════════
 

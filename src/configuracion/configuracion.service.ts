@@ -108,6 +108,11 @@ export class ConfiguracionService {
         direccion: 'Cantón Cevallos, Tungurahua',
         telefono: '',
         tieneP12: false,
+        estrategiaComercialTipo: 'ESTANDAR',
+        margenMinimoDinamico: 25,
+        temporadaComercial: 'AUTO',
+        descuentoTemporadaBaja: 10,
+        diasRotacionTemporadaBaja: 30,
       };
     }
 
@@ -116,6 +121,11 @@ export class ConfiguracionService {
       tenantId: targetTenantId,
       nombre: nombreNegocio,
       ruc: config.ruc ? this.encryption.decrypt(config.ruc) : '',
+      estrategiaComercialTipo: config.estrategiaComercialTipo || 'ESTANDAR',
+      margenMinimoDinamico: Number(config.margenMinimoDinamico ?? 25),
+      temporadaComercial: config.temporadaComercial || 'AUTO',
+      descuentoTemporadaBaja: Number(config.descuentoTemporadaBaja ?? 10),
+      diasRotacionTemporadaBaja: Number(config.diasRotacionTemporadaBaja ?? 30),
       firmaPasswordEnc: undefined, // Nunca enviar contraseña cifrada al frontend
       tieneP12: !!config.firmaP12Path, // Indicador booleano para el frontend
     };
@@ -199,6 +209,13 @@ export class ConfiguracionService {
     if (dto.tiktokUrl !== undefined) data.tiktokUrl = dto.tiktokUrl;
     if (dto.mostrarPreciosPublico !== undefined) data.mostrarPreciosPublico = dto.mostrarPreciosPublico;
     if (dto.mostrarStockPublico !== undefined) data.mostrarStockPublico = dto.mostrarStockPublico;
+
+    // Estrategia Comercial (Fase 9: Estándar vs Dinámico)
+    if (dto.estrategiaComercialTipo !== undefined) data.estrategiaComercialTipo = dto.estrategiaComercialTipo;
+    if (dto.margenMinimoDinamico !== undefined) data.margenMinimoDinamico = dto.margenMinimoDinamico;
+    if (dto.temporadaComercial !== undefined) data.temporadaComercial = dto.temporadaComercial;
+    if (dto.descuentoTemporadaBaja !== undefined) data.descuentoTemporadaBaja = dto.descuentoTemporadaBaja;
+    if (dto.diasRotacionTemporadaBaja !== undefined) data.diasRotacionTemporadaBaja = dto.diasRotacionTemporadaBaja;
 
     if (existing) {
       if (existing.logoUrl && existing.logoUrl !== dto.logoUrl && existing.logoUrl.includes('cloudinary.com')) {
@@ -298,6 +315,81 @@ export class ConfiguracionService {
     } catch (err) {
       this.logger.warn('No se pudieron propagar campos visuales a sucursales hijas: ' + (err as any).message);
     }
+  }
+
+  // ══════════════════════════════
+  // FASE 9: ESTRATEGIA COMERCIAL (ESTÁNDAR VS DINÁMICO)
+  // ══════════════════════════════
+
+  async getEstrategiaComercialVigente(tenantId?: string | null) {
+    const config = await this.getBusinessConfig(tenantId);
+    const tipo = config?.estrategiaComercialTipo || 'ESTANDAR';
+    const margenMinimo = Number(config?.margenMinimoDinamico ?? 25);
+    const temporadaConfig = config?.temporadaComercial || 'AUTO';
+    const descuentoBaja = Number(config?.descuentoTemporadaBaja ?? 10);
+    const diasRotacion = Number(config?.diasRotacionTemporadaBaja ?? 30);
+
+    let temporadaEfectiva: 'ALTA' | 'REGULAR' | 'BAJA' = 'REGULAR';
+    let motivoTemporada = 'Temporada regular comercial';
+
+    if (temporadaConfig === 'ALTA') {
+      temporadaEfectiva = 'ALTA';
+      motivoTemporada = 'Fijada manualmente en temporada alta';
+    } else if (temporadaConfig === 'BAJA') {
+      temporadaEfectiva = 'BAJA';
+      motivoTemporada = 'Fijada manualmente en temporada baja';
+    } else if (temporadaConfig === 'REGULAR') {
+      temporadaEfectiva = 'REGULAR';
+      motivoTemporada = 'Fijada manualmente en temporada regular';
+    } else {
+      // AUTO: evaluar temporadas activas en la BD
+      const ahora = new Date();
+      const seasonActiva = await this.prisma.season.findFirst({
+        where: {
+          tenantId: config.tenantId,
+          activa: true,
+          fechaInicio: { lte: ahora },
+          fechaFin: { gte: ahora },
+        },
+      });
+
+      if (seasonActiva) {
+        if (seasonActiva.tipo === 'INICIO_CLASES' || seasonActiva.tipo === 'NAVIDAD' || seasonActiva.tipo === 'FIESTAS_LOCALES') {
+          temporadaEfectiva = 'ALTA';
+          motivoTemporada = `Temporada alta activa: ${seasonActiva.nombre}`;
+        } else {
+          temporadaEfectiva = 'REGULAR';
+          motivoTemporada = `Temporada activa: ${seasonActiva.nombre}`;
+        }
+      } else {
+        // Estacionalidad mensual en la sierra ecuatoriana (calzado escolar / festivo)
+        const mes = ahora.getMonth(); // 0=Enero, 7=Agosto, 8=Septiembre, 11=Diciembre
+        if (mes === 7 || mes === 8 || mes === 11) {
+          temporadaEfectiva = 'ALTA';
+          motivoTemporada = mes === 11 ? 'Diciembre (Navidad y Fin de Año)' : 'Agosto - Septiembre (Inicio de Clases Sierra)';
+        } else if (mes === 4 || mes === 5) {
+          temporadaEfectiva = 'BAJA';
+          motivoTemporada = 'Mayo - Junio (Periodo inter-campaña de menor demanda)';
+        } else {
+          temporadaEfectiva = 'REGULAR';
+          motivoTemporada = 'Ciclo comercial regular';
+        }
+      }
+    }
+
+    return {
+      estrategiaComercialTipo: tipo,
+      temporadaConfigurada: temporadaConfig,
+      temporadaEfectiva,
+      motivoTemporada,
+      margenMinimoDinamico: margenMinimo,
+      descuentoTemporadaBaja: descuentoBaja,
+      diasRotacionTemporadaBaja: diasRotacion,
+      reglas: {
+        validarMargenMinimo: tipo === 'DINAMICO' && (temporadaEfectiva === 'ALTA' || temporadaEfectiva === 'REGULAR'),
+        habilitarPromocionesBaja: tipo === 'DINAMICO' && temporadaEfectiva === 'BAJA',
+      },
+    };
   }
 
   // ══════════════════════════════
