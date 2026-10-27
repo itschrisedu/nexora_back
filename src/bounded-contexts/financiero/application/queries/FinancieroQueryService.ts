@@ -890,37 +890,13 @@ export class FinancieroQueryService {
       (a, b) => new Date(a.fecha).getTime() - new Date(b.fecha).getTime(),
     );
 
-    // Mapa pedidoId → cobro real para validar si la compra generó deuda efectiva
-    const cobroPorPedido = new Map<string, any>();
-    for (const c of cobros) {
-      if (c.saleNote?.orderId) {
-        cobroPorPedido.set(c.saleNote.orderId, c);
-      }
-    }
-
-    // Función auxiliar: determina si un movimiento de compra generó deuda real
-    const generaDeuda = (m: any): boolean => {
-      if (m.tipo === 'DEUDA_INICIAL') return true;
-      if (m.tipo !== 'COMPRA_PEDIDO') return false;
-      // Primero verificar contra el cobro real si existe
-      if (m.pedidoId) {
-        const cobroReal = cobroPorPedido.get(m.pedidoId);
-        if (cobroReal) {
-          // Si el cobro es de CONTADO y ya está SALDADO, no generó deuda
-          if ((cobroReal.tipo as string) === 'CONTADO' && cobroReal.estado === 'SALDADO') return false;
-          // Si el cobro tiene saldo pendiente o es de crédito, sí generó deuda
-          return true;
-        }
-      }
-      // Fallback al tipoPago del movimiento
-      return m.detalles?.tipoPago === 'CREDITO';
-    };
-
-    // Calcular delta acumulado de los movimientos conocidos
+    // En la cuenta corriente comercial del cliente:
+    // - Las entregas de pedidos (COMPRA_PEDIDO) y deudas directas (DEUDA_INICIAL) son cargos (+ monto)
+    // - Los abonos recibidos (ABONO) y devoluciones (DEVOLUCION) son descargos (- monto)
     let deltaNeto = 0;
     movsCronologicos.forEach((m) => {
       const monto = Number(m.monto || 0);
-      if (generaDeuda(m)) {
+      if (m.tipo === 'COMPRA_PEDIDO' || m.tipo === 'DEUDA_INICIAL') {
         deltaNeto += monto;
       } else if (m.tipo === 'ABONO' || m.tipo === 'DEVOLUCION') {
         deltaNeto -= monto;
@@ -933,7 +909,7 @@ export class FinancieroQueryService {
     for (const m of movsCronologicos) {
       m.saldoAnterior = Math.round(saldoCorriente * 100) / 100;
       const monto = Number(m.monto || 0);
-      if (generaDeuda(m)) {
+      if (m.tipo === 'COMPRA_PEDIDO' || m.tipo === 'DEUDA_INICIAL') {
         saldoCorriente += monto;
       } else if (m.tipo === 'ABONO') {
         saldoCorriente = Math.max(0, saldoCorriente - monto);
@@ -946,15 +922,6 @@ export class FinancieroQueryService {
     // Asegurar que el saldo del movimiento más reciente sea idéntico al saldo deudor pendiente
     if (movsCronologicos.length > 0) {
       movsCronologicos[movsCronologicos.length - 1].nuevoSaldo = saldoPendienteTotal;
-    }
-
-    // Los movimientos de CONTADO saldado no afectan la deuda: eliminar saldoAnterior/nuevoSaldo
-    // para evitar mostrar valores idénticos que confunden al usuario
-    for (const m of movsCronologicos) {
-      if (m.tipo === 'COMPRA_PEDIDO' && !generaDeuda(m)) {
-        delete m.saldoAnterior;
-        delete m.nuevoSaldo;
-      }
     }
 
     // Invertir para mostrar el más reciente arriba en la vista del usuario

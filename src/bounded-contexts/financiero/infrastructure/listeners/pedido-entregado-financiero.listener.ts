@@ -201,60 +201,31 @@ export class PedidoEntregadoFinancieroListener {
       // Usamos crearCredito como base para poder registrar los abonos secuenciales y mantener la trazabilidad
       cobro = Cobro.crearCredito(cobroId, saleNoteId, payload.clientId, Money.create(total), vencimiento);
 
-      if (payload.tipoPago === 'CONTADO') {
-        if (adelantoDisponible > 0) {
-          const adelantoReal = Math.min(adelantoDisponible, total);
-          cobro.registrarAbono(
-            crypto.randomUUID(),
-            Money.create(adelantoReal),
-            order.metodoAdelanto || 'EFECTIVO',
-            order.userId || 'system',
-            `Anticipo recibido al registrar pedido ${order.referenciaAdelanto ? `(Ref: ${order.referenciaAdelanto})` : ''}`.trim(),
-          );
-
-          const saldoRestante = Math.round((total - adelantoReal) * 100) / 100;
-          if (saldoRestante > 0) {
-            cobro.registrarAbono(
-              crypto.randomUUID(),
-              Money.create(saldoRestante),
-              metodoPago,
-              order.userId || 'system',
-              'Pago de saldo restante de contado al entregar',
-            );
-          }
-        } else {
-          cobro.registrarAbono(
-            crypto.randomUUID(),
-            Money.create(total),
-            metodoPago,
-            order.userId || 'system',
-            notasPago,
-          );
-        }
-      } else {
-        // CREDITO: Registrar anticipo si hubo uno previo
-        if (adelantoDisponible > 0) {
-          const adelantoReal = Math.min(adelantoDisponible, total);
-          cobro.registrarAbono(
-            crypto.randomUUID(),
-            Money.create(adelantoReal),
-            order.metodoAdelanto || 'EFECTIVO',
-            order.userId || 'system',
-            `Anticipo recibido al registrar pedido ${order.referenciaAdelanto ? `(Ref: ${order.referenciaAdelanto})` : ''}`.trim(),
-          );
-        }
+      // Si el cliente dio un anticipo real al registrar el pedido, registrarlo como abono formal
+      if (adelantoDisponible > 0) {
+        const adelantoReal = Math.min(adelantoDisponible, total);
+        cobro.registrarAbono(
+          crypto.randomUUID(),
+          Money.create(adelantoReal),
+          order.metodoAdelanto || 'EFECTIVO',
+          order.userId || 'system',
+          `Anticipo recibido al registrar pedido ${order.referenciaAdelanto ? `(Ref: ${order.referenciaAdelanto})` : ''}`.trim(),
+        );
       }
 
       await this.cobroRepo.save(cobro, tenantId);
 
-      // Actualizar tipo de cobro exacto en DB (CONTADO vs CREDITO)
-      if (payload.tipoPago === 'CONTADO') {
+      // Si el adelanto cubrió el 100% del pedido, queda saldado y de contado inmediatamente
+      if (adelantoDisponible >= total) {
         await this.prisma.cobro.update({
           where: { id: cobroId },
-          data: { tipo: 'CONTADO' },
+          data: { tipo: 'CONTADO', estado: 'SALDADO', saldoPendiente: 0 },
         });
       } else {
-        // Recalcular crédito utilizado del cliente
+        // Si hay saldo restante por pagar:
+        // Mantener el cobro con saldo pendiente en Cartera para que el cajero/usuario registre
+        // el cobro real con el método de pago utilizado y quede constancia de quién lo cobró.
+        // Al cobrarse dentro de las 24 horas, la regla de Pronto Pago lo reclasifica a CONTADO.
         const todosCobrosPendientes = await this.prisma.cobro.findMany({
           where: { clientId: payload.clientId, estado: { in: ['PENDIENTE', 'PARCIALMENTE_PAGADO'] } },
           select: { saldoPendiente: true },
