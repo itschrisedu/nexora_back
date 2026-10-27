@@ -108,6 +108,8 @@ export class ConfiguracionService {
         direccion: 'Cantón Cevallos, Tungurahua',
         telefono: '',
         tieneP12: false,
+        autoWhatsAppHabilitado: true,
+        autoEmailHabilitado: true,
         estrategiaComercialTipo: 'ESTANDAR',
         margenMinimoDinamico: 25,
         temporadaComercial: 'AUTO',
@@ -181,6 +183,8 @@ export class ConfiguracionService {
     if (dto.horaFinOperativa !== undefined) data.horaFinOperativa = dto.horaFinOperativa;
     if (dto.duracionSesionHoras !== undefined) data.duracionSesionHoras = dto.duracionSesionHoras;
     if (dto.autoDespachoHabilitado !== undefined) data.autoDespachoHabilitado = dto.autoDespachoHabilitado;
+    if (dto.autoWhatsAppHabilitado !== undefined) data.autoWhatsAppHabilitado = dto.autoWhatsAppHabilitado;
+    if (dto.autoEmailHabilitado !== undefined) data.autoEmailHabilitado = dto.autoEmailHabilitado;
 
     // Campos SRI opcionales (solo incluir si fueron enviados)
     if (dto.sriAmbiente !== undefined) data.sriAmbiente = dto.sriAmbiente;

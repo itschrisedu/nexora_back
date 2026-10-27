@@ -59,6 +59,15 @@ export class UpdateBusinessConfigDto {
   @IsOptional()
   autoDespachoHabilitado?: boolean;
 
+  // ── Switches de Notificaciones y Comprobantes Automáticos ──
+  @IsBoolean()
+  @IsOptional()
+  autoWhatsAppHabilitado?: boolean;
+
+  @IsBoolean()
+  @IsOptional()
+  autoEmailHabilitado?: boolean;
+
   // ── Facturación Electrónica SRI (Fase 12) ──
 
   @IsString()

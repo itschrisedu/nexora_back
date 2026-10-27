@@ -217,6 +217,10 @@ model BusinessConfig {
   // Switch de Despacho Automático de Órdenes a Proveedores (Fase E5)
   autoDespachoHabilitado Boolean @default(true)
 
+  // Switches de Notificaciones y Comprobantes Automáticos
+  autoWhatsAppHabilitado Boolean @default(true)
+  autoEmailHabilitado    Boolean @default(true)
+
   // Configuración Facturación Electrónica SRI (Fase 12)
   firmaP12Path          String?
   firmaPasswordEnc      String?  // Contraseña .p12 cifrada con AES-256
