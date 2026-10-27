@@ -41,7 +41,7 @@ export class Cobro extends AggregateRoot {
     private readonly _id: string,
     private readonly _saleNoteId: string,
     private readonly _clientId: string,
-    private readonly _tipo: TipoCobro,
+    private _tipo: TipoCobro,
     private readonly _montoTotal: Money,
     private _saldoPendiente: Money,
     private _estado: CobroEstado,
@@ -191,6 +191,13 @@ export class Cobro extends AggregateRoot {
         new DeudaSaldadaEvent(this._id, this._clientId, this._montoTotal.amount, this._tipo),
       );
     }
+  }
+
+  /**
+   * Reclasifica el tipo de cobro a CONTADO (ej: pronto pago dentro de las 24h).
+   */
+  reclasificarAContado(): void {
+    this._tipo = TipoCobro.CONTADO;
   }
 
   // ── Reconstrucción ─────────────────────────

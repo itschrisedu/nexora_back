@@ -412,9 +412,15 @@ export class FinancieroQueryService {
         ? 0
         : Math.max(0, Number(cobro.saldoPendiente || 0));
 
+      const esProntoPago24h = cobro.tipo === 'CONTADO' && (
+        cobro.abonos.some((a) => a.notas?.includes('PRONTO PAGO')) ||
+        Boolean(order?.notas?.includes('Pronto Pago 24h'))
+      );
+
       return {
         ...cobro,
         saldoPendiente: saldoLimpio,
+        esProntoPago24h,
         orderId,
         orderCodigo,
         orderNumero: orderCodigo,
@@ -611,16 +617,24 @@ export class FinancieroQueryService {
         ? histUserMap.get(dispatch.confirmadoPorId)
         : null;
 
+      // Resolver si califica como Pronto Pago 24h
+      const cobroAsociado = cobros.find((c) => c.saleNote?.orderId === p.id);
+      const esProntoPago24h = p.tipoPago === 'CONTADO' && (
+        Boolean(p.notas?.includes('Pronto Pago 24h')) ||
+        Boolean(cobroAsociado?.abonos?.some((a) => a.notas?.includes('PRONTO PAGO')))
+      );
+
       movimientos.push({
         id: `pedido-${p.id}`,
         pedidoId: p.id,
         tipo: 'COMPRA_PEDIDO',
         titulo: `#${numCod}`,
         numeroCodigo: numCod,
-        descripcion: `Compra por canal ${p.canal} (${p.tipoPago}) - ${p.estado}`,
+        descripcion: `Compra por canal ${p.canal} (${p.tipoPago}${esProntoPago24h ? ' • Pronto Pago 24h' : ''}) - ${p.estado}`,
         monto: Number(p.montoTotal),
         estado: p.estado,
         fecha: p.createdAt,
+        esProntoPago24h,
         vendedorNombre: vendedorPedido?.nombre || '',
         vendedorEmail: vendedorPedido?.email || '',
         vendedorRol: vendedorPedido?.rol || '',
@@ -634,6 +648,7 @@ export class FinancieroQueryService {
           notas: p.notas,
           canal: p.canal,
           tipoPago: p.tipoPago,
+          esProntoPago24h,
         },
       });
     });
@@ -1281,6 +1296,7 @@ export class FinancieroQueryService {
       montoAplicado: number;
       saldoAnteriorNota: number;
       nuevoSaldoNota: number;
+      reclasificadoAContado?: boolean;
     }> = [];
 
     // 2. Distribuir el abono en cascada FIFO
@@ -1291,6 +1307,24 @@ export class FinancieroQueryService {
       const nuevoSaldoNota = Math.round((saldoNota - montoAplicar) * 100) / 100;
       const nuevoEstado = nuevoSaldoNota === 0 ? CobroEstado.SALDADO : CobroEstado.PARCIALMENTE_PAGADO;
 
+      // ── REGLA DE PRONTO PAGO (24 HORAS) ──
+      // Si la nota a crédito se salda al 100% (nuevoSaldoNota === 0) dentro de las primeras
+      // 24 horas desde su emisión/creación, se reclasifica automáticamente a CONTADO.
+      let reclasificadoAContado = false;
+      let tipoFinal: any = cobro.tipo;
+
+      if (nuevoSaldoNota === 0 && cobro.tipo === 'CREDITO') {
+        const fechaRef = new Date(cobro.createdAt).getTime();
+        const diffHoras = (Date.now() - fechaRef) / (1000 * 60 * 60);
+        if (diffHoras <= 24) {
+          reclasificadoAContado = true;
+          tipoFinal = 'CONTADO';
+        }
+      }
+
+      const tagProntoPago = reclasificadoAContado ? '[PRONTO PAGO 24H: RECLASIFICADO A CONTADO] ' : '';
+      const notasAbonoFinal = `[${reciboRef}] ${tagProntoPago}${data.notas ? data.notas.trim() : (reclasificadoAContado ? 'Liquidación total en 24h' : 'Abono unificado a cuenta')}`.trim();
+
       const abonoId = crypto.randomUUID();
       await this.prisma.cobroAbono.create({
         data: {
@@ -1298,7 +1332,7 @@ export class FinancieroQueryService {
           cobroId: cobro.id,
           monto: montoAplicar,
           metodo: data.metodo || 'EFECTIVO',
-          notas: `[${reciboRef}] ${data.notas ? data.notas.trim() : 'Abono unificado a cuenta'}`,
+          notas: notasAbonoFinal,
           userId,
         },
       });
@@ -1308,8 +1342,46 @@ export class FinancieroQueryService {
         data: {
           saldoPendiente: nuevoSaldoNota,
           estado: nuevoEstado,
+          tipo: tipoFinal,
         },
       });
+
+      // Si fue reclasificado a CONTADO, sincronizar la orden de pedido origen
+      if (reclasificadoAContado && cobro.saleNote?.orderId) {
+        try {
+          const orderActual = await this.prisma.order.findUnique({
+            where: { id: cobro.saleNote.orderId },
+            select: { notas: true },
+          });
+          const auditTag = '[Pronto Pago 24h: Reclasificado automáticamente a CONTADO]';
+          const notasActualizadas = orderActual?.notas
+            ? `${orderActual.notas.trim()} | ${auditTag}`
+            : auditTag;
+          await this.prisma.order.update({
+            where: { id: cobro.saleNote.orderId },
+            data: {
+              tipoPago: 'CONTADO',
+              notas: notasActualizadas,
+            },
+          });
+        } catch (errOrder) {
+          // Continuar sin romper el flujo principal
+        }
+      }
+
+      // Si la deuda quedó saldada, emitir evento DeudaSaldada con el tipo correspondiente
+      if (nuevoEstado === CobroEstado.SALDADO && this.eventEmitter) {
+        try {
+          this.eventEmitter.emit('DeudaSaldada', {
+            cobroId: cobro.id,
+            clientId,
+            montoTotal: Number(cobro.montoTotal),
+            tipo: tipoFinal,
+          });
+        } catch (e) {
+          // Continuar
+        }
+      }
 
       cobrosAfectados.push({
         cobroId: cobro.id,
@@ -1317,6 +1389,7 @@ export class FinancieroQueryService {
         montoAplicado: montoAplicar,
         saldoAnteriorNota: saldoNota,
         nuevoSaldoNota,
+        reclasificadoAContado,
       });
 
       restante = Math.round((restante - montoAplicar) * 100) / 100;
@@ -1364,15 +1437,20 @@ export class FinancieroQueryService {
       // Ignorar errores no críticos de eventos
     }
 
+    const algunaReclasificada = cobrosAfectados.some((c) => c.reclasificadoAContado);
+
     return {
       ok: true,
-      message: `Abono unificado de $${montoTotal.toFixed(2)} registrado exitosamente.`,
+      message: algunaReclasificada
+        ? `Abono unificado de $${montoTotal.toFixed(2)} registrado. ¡Cobro saldado dentro de las 24h y reclasificado automáticamente a CONTADO!`
+        : `Abono unificado de $${montoTotal.toFixed(2)} registrado exitosamente.`,
       reciboRef,
       montoTotal,
       saldoAnterior,
       nuevoSaldo: nuevoCreditoUtilizado,
       saldoAFavor: nuevoSaldoAFavor,
       cobrosAfectados,
+      reclasificadoAContado: algunaReclasificada,
       fecha: new Date(),
     };
   }

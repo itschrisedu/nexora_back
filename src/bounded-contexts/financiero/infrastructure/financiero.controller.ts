@@ -84,14 +84,20 @@ export class FinancieroController {
     @Body() body: { monto: number; metodo: string; notas?: string },
     @Req() req: any,
   ) {
-    await this.registrarAbonoHandler.execute({
+    const res = await this.registrarAbonoHandler.execute({
       cobroId,
       monto: body.monto,
       metodo: body.metodo,
       notas: body.notas,
       userId: req.user.sub,
     });
-    return { ok: true, message: 'Abono registrado correctamente' };
+    return {
+      ok: true,
+      message: res?.reclasificadoAContado
+        ? 'Abono registrado. ¡Cobro saldado dentro de las 24h y reclasificado a CONTADO!'
+        : 'Abono registrado correctamente',
+      reclasificadoAContado: res?.reclasificadoAContado || false,
+    };
   }
 
   @Post('cliente/:clientId/abono')

@@ -93,6 +93,7 @@ export class PrismaCobroRepository implements ICobroRepository {
     await this.prisma.cobro.update({
       where: { id: cobro.id },
       data: {
+        tipo: cobro.tipo,
         saldoPendiente: cobro.saldoPendiente.amount,
         estado: cobro.estado,
       },
