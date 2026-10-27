@@ -667,14 +667,22 @@ export class FinancieroQueryService {
           if (c.saleNote?.numero) {
             notasAfectadas.add(`#${String(c.saleNote.numero).padStart(4, '0')}`);
           }
+          const limpiaNota = a.notas ? a.notas.replace(/\[REC-[A-Z0-9]+\]/i, '').trim() : '';
+          const esNotaGenerica = !limpiaNota || limpiaNota.toLowerCase() === 'abono unificado a cuenta';
+          const comprobanteAbono = !esNotaGenerica ? limpiaNota : undefined;
+
           abonosAgrupadosMap.set(keyGroup, {
             id: `abono-grp-${a.id}`,
             tipo: 'ABONO',
             reciboRef: reciboTag,
             titulo: reciboTag ? `Abono a Cuenta (#${reciboTag})` : `Abono a Cobro #${c.saleNote?.numero || c.id.slice(0, 8).toUpperCase()}`,
+            numeroCodigo: reciboTag || comprobanteAbono || undefined,
             monto: Number(a.monto),
             metodo: a.metodo,
             notas: a.notas,
+            comprobante: comprobanteAbono,
+            referencia: comprobanteAbono,
+            numeroTransaccion: comprobanteAbono,
             fecha: a.createdAt,
             cobradoPor: cajero?.nombre || 'Usuario del sistema',
             cobradoPorEmail: cajero?.email || '',
@@ -689,9 +697,11 @@ export class FinancieroQueryService {
 
     abonosAgrupadosMap.forEach((abonoGrp) => {
       let desc = `Método: ${abonoGrp.metodo}`;
-      if (abonoGrp.notas) {
+      if (abonoGrp.comprobante) {
+        desc += ` • Trans/Comp: #${abonoGrp.comprobante.replace(/^#/, '')}`;
+      } else if (abonoGrp.notas) {
         const limpiaNota = abonoGrp.notas.replace(/\[REC-[A-Z0-9]+\]/i, '').trim();
-        if (limpiaNota) desc += ` - ${limpiaNota}`;
+        if (limpiaNota && limpiaNota.toLowerCase() !== 'abono unificado a cuenta') desc += ` • ${limpiaNota}`;
       }
       if (abonoGrp.notasAfectadas.size > 0) {
         desc += ` (Aplicado a ${Array.from(abonoGrp.notasAfectadas).join(', ')})`;
