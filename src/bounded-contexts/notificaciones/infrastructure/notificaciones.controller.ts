@@ -65,7 +65,7 @@ export class NotificacionesController {
     body: {
       destinatario: string;
       asunto: string;
-      tipo: 'ABONO' | 'PEDIDO' | 'ENTREGA' | 'DEVOLUCION' | 'COMPRA' | 'GENERAL';
+      tipo: 'ABONO' | 'PEDIDO' | 'ENTREGA' | 'DEVOLUCION' | 'COMPRA' | 'GENERAL' | 'FACTURA';
       cuerpoHtml?: string;
       detalles?: any;
     },
