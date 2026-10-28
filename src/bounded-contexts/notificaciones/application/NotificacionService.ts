@@ -22,7 +22,11 @@ export class NotificacionService {
    */
   async enviar(payload: NotificationPayload): Promise<void> {
     // 1. Respetar switches maestros de notificaciones automáticas (las facturas electrónicas oficiales quedan exceptuadas)
-    if (payload.canal === 'EMAIL' && !payload.eventoOrigen?.startsWith('Comprobante_FACTURA')) {
+    const esFacturaNotif =
+      payload.eventoOrigen?.toUpperCase().includes('FACTURA') ||
+      payload.asunto?.toUpperCase().includes('FACTURA');
+
+    if (payload.canal === 'EMAIL' && !esFacturaNotif) {
       const configs = await this.prisma.businessConfig.findMany({
         where: { tenant: { name: { not: 'NEXORA_SAAS_PLATFORM' } } },
         select: { autoEmailHabilitado: true },

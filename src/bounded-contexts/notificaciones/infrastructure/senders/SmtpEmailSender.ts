@@ -76,9 +76,12 @@ export class SmtpEmailSender implements INotificationSender {
           service: serv,
           lookup: ipv4Lookup as any,
           auth: {
-            user: smtpUser,
-            pass: smtpPass,
+            user: smtpUser.trim(),
+            pass: smtpPass.trim(),
           },
+          connectionTimeout: 10000,
+          greetingTimeout: 10000,
+          socketTimeout: 15000,
         } as any);
         this.logger.log(`📧 Servicio de correo SMTP [${serv?.toUpperCase()}] inicializado con usuario: ${smtpUser}`);
       } else if (smtpHost) {
@@ -101,17 +104,15 @@ export class SmtpEmailSender implements INotificationSender {
       }
     }
 
-    // Fallback: Si no hay SMTP configurado, verificar si existe Resend
-    if (!this.transporter) {
-      const resendApiKey = this.config.get<string>('RESEND_API_KEY');
-      if (resendApiKey) {
-        this.resend = new Resend(resendApiKey);
-        this.logger.log(`📧 Servicio de correo Resend inicializado con remitente: ${this.fromEmail}`);
-      } else {
-        this.logger.warn(
-          '⚠️ No se detectaron credenciales SMTP (Gmail/Hotmail/Yahoo) ni RESEND_API_KEY. Los correos se simularán de forma segura en consola.',
-        );
-      }
+    // Inicializar Resend como fallback de alta resiliencia si la clave existe
+    const resendApiKey = this.config.get<string>('RESEND_API_KEY');
+    if (resendApiKey) {
+      this.resend = new Resend(resendApiKey);
+      this.logger.log(`📧 Servicio de correo Resend inicializado como fallback para: ${this.fromEmail}`);
+    } else if (!this.transporter) {
+      this.logger.warn(
+        '⚠️ No se detectaron credenciales SMTP ni RESEND_API_KEY. Los correos se simularán de forma segura en consola.',
+      );
     }
   }
 

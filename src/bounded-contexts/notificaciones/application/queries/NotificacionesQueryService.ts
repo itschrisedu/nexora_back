@@ -724,7 +724,8 @@ export class NotificacionesQueryService {
     const { destinatario, asunto, tipo, cuerpoHtml, detalles } = params;
 
     // Las facturas electronicas autorizadas siempre se despachan al comprador; los demas tipos respetan el switch
-    if (tipo !== 'FACTURA') {
+    const esFactura = String(tipo || '').toUpperCase() === 'FACTURA';
+    if (!esFactura) {
       const configs = await this.prisma.businessConfig.findMany({
         where: { tenant: { name: { not: 'NEXORA_SAAS_PLATFORM' } } },
         select: { autoEmailHabilitado: true },
@@ -781,7 +782,7 @@ export class NotificacionesQueryService {
         destinatario,
         asunto,
         cuerpoHtml: finalHtml,
-        eventoOrigen: `Comprobante_${tipo}`,
+        eventoOrigen: `Comprobante_${String(tipo || 'GENERAL').toUpperCase()}`,
       });
 
       return {
