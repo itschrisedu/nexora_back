@@ -758,12 +758,17 @@ export class NotificacionesQueryService {
             ${detalles?.mensaje ? `<p style="font-size: 13px; line-height: 1.6; color: #cbd5e1; white-space: pre-line; margin: 0 0 16px 0;">${detalles.mensaje}</p>` : `<p style="font-size: 13px; color: #cbd5e1; margin: 0 0 16px 0;">Estimado/a cliente, adjuntamos la información de su transacción comercial.</p>`}
             
             ${urlComprobante ? `
-              <div style="text-align: center; margin: 24px 0 8px;">
-                <a href="${urlComprobante}" target="_blank" rel="noopener noreferrer" style="display: inline-block; background: #10b981; color: #ffffff; font-weight: 800; font-size: 14px; text-decoration: none; padding: 14px 28px; border-radius: 12px; box-shadow: 0 4px 14px rgba(16,185,129,0.35); letter-spacing: 0.02em;">
+              <div style="text-align: center; margin: 22px 0 6px;">
+                <a href="${urlComprobante}" target="_blank" rel="noopener noreferrer" style="display: inline-block; background: #10b981; color: #ffffff; font-weight: 800; font-size: 14px; text-decoration: none; padding: 13px 26px; border-radius: 12px; box-shadow: 0 4px 14px rgba(16,185,129,0.35); letter-spacing: 0.02em;">
                   📥 Descargar Comprobante Digital (PDF)
                 </a>
-                <p style="font-size: 11px; color: rgba(238,242,247,0.5); margin: 8px 0 0;">
-                  Acceso público directo disponible las 24 horas
+                <div style="margin-top: 14px;">
+                  <a href="${urlComprobante}" target="_blank" rel="noopener noreferrer" style="color: #38bdf8; font-size: 13px; font-weight: 600; text-decoration: underline; word-break: break-all;">
+                    ${urlComprobante}
+                  </a>
+                </div>
+                <p style="font-size: 11px; color: rgba(238,242,247,0.5); margin: 6px 0 0;">
+                  Acceso directo oficial para consultar y descargar la factura en PDF
                 </p>
               </div>
             ` : ''}
