@@ -18,7 +18,7 @@ import { FacturacionSriController } from './facturacion-sri.controller';
 @Module({
   imports: [
     HttpModule.register({
-      timeout: 30000, // 30 segundos (SRI SOAP puede tardar)
+      timeout: 60000, // 60 segundos (SRI SOAP o Render cold start pueden tardar)
       maxRedirects: 3,
     }),
   ],

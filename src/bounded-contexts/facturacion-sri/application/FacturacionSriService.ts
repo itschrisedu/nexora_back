@@ -109,15 +109,37 @@ export class FacturacionSriService {
     const secuencial = await this.obtenerSiguienteSecuencial(tenantId, config);
     const numeroComprobante = `${config.sriEstablecimiento}-${config.sriPuntoEmision}-${secuencial}`;
 
-    // 4. Registrar factura en estado PENDIENTE
-    const factura = await this.prisma.facturaElectronica.create({
-      data: {
-        tenantId,
-        saleNoteId: datosVenta.saleNoteId || null,
-        numeroComprobante,
-        estadoSri: 'PENDIENTE',
-      },
-    });
+    // 4. Registrar o actualizar factura en estado PENDIENTE (soporte de reintentos)
+    let factura = datosVenta.saleNoteId
+      ? await this.prisma.facturaElectronica.findUnique({
+          where: { saleNoteId: datosVenta.saleNoteId },
+        })
+      : null;
+
+    if (factura) {
+      if (factura.estadoSri === 'AUTORIZADO') {
+        throw new BadRequestException(
+          `Esta nota de venta ya cuenta con la factura autorizada ${factura.numeroComprobante}`,
+        );
+      }
+      factura = await this.prisma.facturaElectronica.update({
+        where: { id: factura.id },
+        data: {
+          numeroComprobante,
+          estadoSri: 'PENDIENTE',
+          errorMensaje: null,
+        },
+      });
+    } else {
+      factura = await this.prisma.facturaElectronica.create({
+        data: {
+          tenantId,
+          saleNoteId: datosVenta.saleNoteId || null,
+          numeroComprobante,
+          estadoSri: 'PENDIENTE',
+        },
+      });
+    }
 
     // 5. Enviar al microservicio SRI
     try {
