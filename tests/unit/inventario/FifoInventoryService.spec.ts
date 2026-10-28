@@ -282,4 +282,35 @@ describe('FifoInventoryService - Valoración FIFO de Inventario (Fase 3)', () =>
       }),
     );
   });
+
+  it('no debe sobreescribir el costo de un color hermano si pertenece a un proveedor diferente', async () => {
+    mockPrisma.product.findUnique.mockResolvedValue({
+      id: 'prod-01',
+      supplierId: 'prov-pedro',
+    });
+
+    const hermanoOtroProveedor = {
+      id: 'prod-03',
+      modelId: 'modelo-01',
+      color: 'Café',
+      supplierId: 'prov-maria', // Proveedor diferente
+      costPrice: 14,
+      salePrice: 18.67,
+    };
+
+    mockPrisma.product.findMany.mockResolvedValue([hermanoOtroProveedor]);
+    mockPrisma.inventoryLot.count.mockResolvedValue(0);
+    mockPrisma.product.update.mockClear();
+
+    await service.sincronizarHermanosMismoModelo({
+      modelId: 'modelo-01',
+      sourceProductId: 'prod-01',
+      nuevoCosto: 16,
+      userId: 'admin-01',
+      motivo: 'Nuevo lote de Don Pedro ingresado a $16',
+    });
+
+    // No debe actualizarse porque pertenece a Doña María
+    expect(mockPrisma.product.update).not.toHaveBeenCalled();
+  });
 });

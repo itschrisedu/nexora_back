@@ -356,6 +356,11 @@ export class FifoInventoryService {
     const db = tx || this.prisma;
 
     try {
+      const sourceProd = await db.product.findUnique({
+        where: { id: sourceProductId },
+        select: { id: true, supplierId: true },
+      });
+
       const hermanos = await db.product.findMany({
         where: {
           modelId,
@@ -365,6 +370,16 @@ export class FifoInventoryService {
       });
 
       for (const h of hermanos) {
+        // Si el color hermano tiene un proveedor diferente asignado,
+        // se respeta su propia tarifa comercial y no se sobreescribe su costo.
+        if (
+          sourceProd?.supplierId &&
+          h.supplierId &&
+          sourceProd.supplierId !== h.supplierId
+        ) {
+          continue;
+        }
+
         // En Opción B: Si el hermano tiene lotes anteriores con stock disponible > 0,
         // no le cambiamos el precio de venta en vitrina todavía. Se esperará a que se agoten sus lotes.
         const saldoLotesH = await db.inventoryLot.count({
