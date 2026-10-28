@@ -36,7 +36,6 @@ export class ConfiguracionService {
   // ══════════════════════════════
   // BUSINESS CONFIG
   // ══════════════════════════════
-
   private async getOrCreateSaasPlatformTenant(): Promise<string> {
     let saasTenant = await this.prisma.tenant.findFirst({
       where: { name: 'NEXORA_SAAS_PLATFORM' },
