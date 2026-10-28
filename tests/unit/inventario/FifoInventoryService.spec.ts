@@ -313,4 +313,31 @@ describe('FifoInventoryService - Valoración FIFO de Inventario (Fase 3)', () =>
     // No debe actualizarse porque pertenece a Doña María
     expect(mockPrisma.product.update).not.toHaveBeenCalled();
   });
+
+  it('debe aislar la sincronización a la misma serie (no mezclar costos de Caballero con Damas o Niños)', async () => {
+    mockPrisma.product.findUnique.mockResolvedValue({
+      id: 'prod-caballero-01',
+      supplierId: 'prov-pedro',
+      serieId: 'serie-caballero',
+    });
+
+    mockPrisma.product.findMany.mockResolvedValue([]);
+
+    await service.sincronizarHermanosMismoModelo({
+      modelId: 'modelo-01',
+      sourceProductId: 'prod-caballero-01',
+      nuevoCosto: 16,
+      userId: 'admin-01',
+    });
+
+    // Debe consultar únicamente variantes con la MISMA serieId ('serie-caballero')
+    expect(mockPrisma.product.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          modelId: 'modelo-01',
+          serieId: 'serie-caballero',
+        }),
+      }),
+    );
+  });
 });

@@ -358,7 +358,7 @@ export class FifoInventoryService {
     try {
       const sourceProd = await db.product.findUnique({
         where: { id: sourceProductId },
-        select: { id: true, supplierId: true },
+        select: { id: true, supplierId: true, serieId: true },
       });
 
       const hermanos = await db.product.findMany({
@@ -366,6 +366,10 @@ export class FifoInventoryService {
           modelId,
           id: { not: sourceProductId },
           active: true,
+          // La sincronización se restringe estrictamente a la MISMA serie
+          // (ej: Caballero con Caballero), ya que cada serie (Caballero, Damas, Niños)
+          // maneja tarifas y consumo de material totalmente distintos por proveedor.
+          ...(sourceProd?.serieId ? { serieId: sourceProd.serieId } : {}),
         },
       });
 
