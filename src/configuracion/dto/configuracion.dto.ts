@@ -90,6 +90,10 @@ export class UpdateBusinessConfigDto {
   @IsOptional()
   sriObligadoContabilidad?: boolean;
 
+  @IsString()
+  @IsOptional()
+  sriRegimen?: string; // "RIMPE_POPULAR" (0%) | "GENERAL_15" (15%)
+
   // ── Parámetros de Scoring Crediticio ──
   @IsOptional()
   creditMontoMaximoInicial?: number;

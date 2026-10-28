@@ -229,6 +229,7 @@ model BusinessConfig {
   sriPuntoEmision       String   @default("001")
   sriObligadoContabilidad Boolean @default(false)
   sriRazonSocial        String?  // Razón Social legal del contribuyente (exclusivo para facturación SRI)
+  sriRegimen            String?  @default("RIMPE_POPULAR") // "RIMPE_POPULAR" (0%) | "GENERAL_15" (15%)
 
   // Landing Page & Catálogo Online Público (Fase E3)
   heroTitulo            String?  @default("Calzado Ecuatoriano 100% Cuero de Cevallos")

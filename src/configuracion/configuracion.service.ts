@@ -199,6 +199,7 @@ export class ConfiguracionService {
     if (dto.sriEstablecimiento !== undefined) data.sriEstablecimiento = dto.sriEstablecimiento;
     if (dto.sriPuntoEmision !== undefined) data.sriPuntoEmision = dto.sriPuntoEmision;
     if (dto.sriObligadoContabilidad !== undefined) data.sriObligadoContabilidad = dto.sriObligadoContabilidad;
+    if (dto.sriRegimen !== undefined) data.sriRegimen = dto.sriRegimen;
 
     // Landing Page & Catálogo Online Público (Fase E3)
     if (dto.heroTitulo !== undefined) data.heroTitulo = dto.heroTitulo;
@@ -245,12 +246,13 @@ export class ConfiguracionService {
         }).catch(() => null);
       }
 
-      if (dto.autoEmailHabilitado !== undefined || dto.autoWhatsAppHabilitado !== undefined) {
+      if (dto.autoEmailHabilitado !== undefined || dto.autoWhatsAppHabilitado !== undefined || dto.sriRegimen !== undefined) {
         await this.prisma.businessConfig.updateMany({
           where: { tenant: { name: { not: 'NEXORA_SAAS_PLATFORM' } } },
           data: {
             ...(dto.autoEmailHabilitado !== undefined ? { autoEmailHabilitado: dto.autoEmailHabilitado } : {}),
             ...(dto.autoWhatsAppHabilitado !== undefined ? { autoWhatsAppHabilitado: dto.autoWhatsAppHabilitado } : {}),
+            ...(dto.sriRegimen !== undefined ? { sriRegimen: dto.sriRegimen } : {}),
           },
         }).catch(() => null);
       }

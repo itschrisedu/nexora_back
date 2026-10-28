@@ -25,6 +25,16 @@ export class PrismaService
   async onModuleInit(): Promise<void> {
     await this.$connect();
     this.logger.log('Conexión a PostgreSQL establecida');
+    try {
+      await this.$executeRawUnsafe(
+        'ALTER TABLE "business_configs" ADD COLUMN IF NOT EXISTS "sriRegimen" TEXT DEFAULT \'RIMPE_POPULAR\';'
+      );
+      await this.$executeRawUnsafe(
+        'ALTER TABLE "business_configs" ADD COLUMN IF NOT EXISTS "sriRazonSocial" TEXT;'
+      );
+    } catch (e: any) {
+      this.logger.warn(`Error en auto-migración de columnas: ${e.message}`);
+    }
   }
 
   async onModuleDestroy(): Promise<void> {
