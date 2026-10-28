@@ -12,9 +12,18 @@ describe('FifoInventoryService - Valoración FIFO de Inventario (Fase 3)', () =>
       findMany: jest.fn(),
       findFirst: jest.fn(),
       update: jest.fn(),
+      count: jest.fn(),
     },
     product: {
       findUnique: jest.fn(),
+      findMany: jest.fn(),
+      update: jest.fn(),
+    },
+    priceHistory: {
+      create: jest.fn(),
+    },
+    productModel: {
+      update: jest.fn(),
     },
   };
 
@@ -175,5 +184,102 @@ describe('FifoInventoryService - Valoración FIFO de Inventario (Fase 3)', () =>
 
     const ultimoCosto = await service.obtenerUltimoCostoLote('prod-01');
     expect(ultimoCosto).toBe(16.0);
+  });
+
+  it('debe transicionar automáticamente el precio de venta cuando un lote anterior queda en saldo 0 y se activa el siguiente lote', async () => {
+    // Escenario:
+    // Lote 1: 5 pares a costo $12 (agotándose en esta salida)
+    // Lote 2: 24 pares a costo $16 (el siguiente lote que quedará activo)
+    const lote1 = {
+      id: 'lote-1',
+      productId: 'prod-01',
+      tallaId: 'talla-38',
+      unitCost: 12,
+      quantity: 5,
+      remainingQuantity: 5,
+      entryDate: new Date('2026-01-01'),
+    };
+
+    mockPrisma.inventoryLot.findMany.mockResolvedValue([lote1]);
+    mockPrisma.inventoryLot.update.mockResolvedValue({});
+
+    // Al agotarse el lote 1, el lote activo vigente siguiente es lote 2 con costo $16
+    mockPrisma.inventoryLot.findFirst.mockResolvedValue({
+      id: 'lote-2',
+      productId: 'prod-01',
+      unitCost: 16,
+      remainingQuantity: 24,
+    });
+
+    mockPrisma.product.findUnique.mockResolvedValue({
+      id: 'prod-01',
+      costPrice: 12,
+      salePrice: 16,
+      modelId: 'modelo-01',
+    });
+    mockPrisma.product.update.mockResolvedValue({});
+    mockPrisma.priceHistory.create.mockResolvedValue({});
+
+    const res = await service.descontarStockFifo({
+      productId: 'prod-01',
+      tallaId: 'talla-38',
+      cantidad: 5,
+    });
+
+    expect(res.totalDescontado).toBe(5);
+    // Verificamos que se actualizó el producto al nuevo costo $16 y nuevo PVP con margen (~$21.33)
+    expect(mockPrisma.product.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'prod-01' },
+        data: expect.objectContaining({
+          costPrice: 16,
+          salePrice: expect.any(Number),
+        }),
+      }),
+    );
+    expect(mockPrisma.priceHistory.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          productId: 'prod-01',
+          previousCostPrice: 12,
+          newCostPrice: 16,
+          changedById: 'FIFO_AUTO_TRANSITION',
+        }),
+      }),
+    );
+  });
+
+  it('debe sincronizar hermanos del mismo modelo solo si no tienen lotes previos con saldo', async () => {
+    const hermanoSinSaldo = {
+      id: 'prod-02',
+      modelId: 'modelo-01',
+      color: 'Blanco',
+      costPrice: 12,
+      salePrice: 16,
+    };
+
+    mockPrisma.product.findMany.mockResolvedValue([hermanoSinSaldo]);
+    // El hermano tiene 0 lotes con saldo remanente
+    mockPrisma.inventoryLot.count.mockResolvedValue(0);
+    mockPrisma.product.update.mockResolvedValue({});
+    mockPrisma.priceHistory.create.mockResolvedValue({});
+
+    await service.sincronizarHermanosMismoModelo({
+      modelId: 'modelo-01',
+      sourceProductId: 'prod-01',
+      nuevoCosto: 16,
+      userId: 'admin-01',
+      motivo: 'Nuevo lote ingresado a $16',
+    });
+
+    expect(mockPrisma.product.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'prod-02' },
+        data: expect.objectContaining({
+          costPrice: 16,
+          salePrice: expect.any(Number),
+        }),
+      }),
+    );
   });
 });

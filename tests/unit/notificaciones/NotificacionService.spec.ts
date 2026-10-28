@@ -14,6 +14,11 @@ describe('NotificacionService', () => {
     mockPrisma = {
       notificationLog: { create: jest.fn().mockResolvedValue({}) },
       client: { findUnique: jest.fn() },
+      businessConfig: {
+        findMany: jest.fn().mockResolvedValue([
+          { autoEmailHabilitado: true, autoWhatsAppHabilitado: true },
+        ]),
+      },
     };
 
     service = new NotificacionService(
