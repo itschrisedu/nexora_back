@@ -366,13 +366,13 @@ export class FacturacionSriService {
   }
 
   /**
-   * Formatea Date a dd/mm/yyyy (formato requerido por SRI)
+   * Formatea Date a dd/mm/yyyy en zona horaria Ecuador (UTC-5), formato requerido por SRI
    */
   private formatearFecha(fecha: Date | string): string {
     const d = new Date(fecha);
-    const dia = String(d.getDate()).padStart(2, '0');
-    const mes = String(d.getMonth() + 1).padStart(2, '0');
-    const anio = d.getFullYear();
+    // Forzar zona horaria Ecuador (America/Guayaquil = UTC-5)
+    const ecuadorStr = d.toLocaleDateString('en-CA', { timeZone: 'America/Guayaquil' }); // yyyy-mm-dd
+    const [anio, mes, dia] = ecuadorStr.split('-');
     return `${dia}/${mes}/${anio}`;
   }
 }
