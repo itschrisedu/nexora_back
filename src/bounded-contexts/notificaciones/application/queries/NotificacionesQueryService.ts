@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../../../shared/infrastructure/prisma/prisma.service';
 import { EncryptionService } from '../../../../shared/infrastructure/encryption/encryption.service';
 import { NotificacionService } from '../NotificacionService';
@@ -23,6 +23,8 @@ export interface EnviarRecordatorioDto {
 
 @Injectable()
 export class NotificacionesQueryService {
+  private readonly logger = new Logger(NotificacionesQueryService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly encryptionService: EncryptionService,
@@ -709,13 +711,27 @@ export class NotificacionesQueryService {
   /**
    * Envía un comprobante oficial de transacción (abono, cobro, pedido, entrega, devolución) por correo electrónico.
    */
-  async enviarEmailComprobante(params: {
-    destinatario: string;
-    asunto: string;
-    tipo: 'ABONO' | 'PEDIDO' | 'ENTREGA' | 'DEVOLUCION' | 'COMPRA' | 'GENERAL';
-    cuerpoHtml?: string;
-    detalles?: any;
-  }) {
+  async enviarEmailComprobante(
+    params: {
+      destinatario: string;
+      asunto: string;
+      tipo: 'ABONO' | 'PEDIDO' | 'ENTREGA' | 'DEVOLUCION' | 'COMPRA' | 'GENERAL';
+      cuerpoHtml?: string;
+      detalles?: any;
+    },
+    tenantId?: string,
+  ) {
+    if (tenantId) {
+      const config = await this.prisma.businessConfig.findUnique({
+        where: { tenantId },
+        select: { autoEmailHabilitado: true },
+      });
+      if (config && config.autoEmailHabilitado === false) {
+        this.logger.log(`Envío automático de correo deshabilitado para tenant ${tenantId}.`);
+        return { ok: false, deshabilitado: true, mensaje: 'Envío de correos automáticos deshabilitado en configuración' };
+      }
+    }
+
     const { destinatario, asunto, tipo, cuerpoHtml, detalles } = params;
 
     let finalHtml = cuerpoHtml;

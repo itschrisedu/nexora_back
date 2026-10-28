@@ -21,6 +21,29 @@ export class NotificacionService {
    * Envía una notificación y registra el resultado en NotificationLog.
    */
   async enviar(payload: NotificationPayload): Promise<void> {
+    // 1. Respetar switches maestros de notificaciones automáticas
+    if (payload.canal === 'EMAIL') {
+      const config = await this.prisma.businessConfig.findFirst({
+        where: { tenant: { name: { not: 'NEXORA_SAAS_PLATFORM' } } },
+        select: { autoEmailHabilitado: true },
+      });
+      if (config && config.autoEmailHabilitado === false) {
+        this.logger.log(`[NotificacionService] Envío de EMAIL cancelado: autoEmailHabilitado está desactivado.`);
+        return;
+      }
+    }
+
+    if (payload.canal === 'WHATSAPP') {
+      const config = await this.prisma.businessConfig.findFirst({
+        where: { tenant: { name: { not: 'NEXORA_SAAS_PLATFORM' } } },
+        select: { autoWhatsAppHabilitado: true },
+      });
+      if (config && config.autoWhatsAppHabilitado === false) {
+        this.logger.log(`[NotificacionService] Envío de WHATSAPP cancelado: autoWhatsAppHabilitado está desactivado.`);
+        return;
+      }
+    }
+
     const sender = payload.canal === 'EMAIL' ? this.emailSender : this.whatsAppSender;
 
     try {

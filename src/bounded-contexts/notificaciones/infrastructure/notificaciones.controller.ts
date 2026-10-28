@@ -69,8 +69,9 @@ export class NotificacionesController {
       cuerpoHtml?: string;
       detalles?: any;
     },
+    @Req() req: any,
   ) {
-    return this.queryService.enviarEmailComprobante(body);
+    return this.queryService.enviarEmailComprobante(body, req.user?.tenantId);
   }
 
   /**

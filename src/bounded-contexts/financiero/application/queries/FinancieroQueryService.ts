@@ -223,7 +223,11 @@ export class FinancieroQueryService {
             estadoSri: true,
           },
         });
-        facturasMap = new Map(facturasSri.map((f) => [f.saleNoteId, f]));
+        facturasMap = new Map(
+          facturasSri
+            .filter((f): f is typeof f & { saleNoteId: string } => !!f.saleNoteId)
+            .map((f) => [f.saleNoteId, f]),
+        );
       } catch (errFactura) {
         // En caso de que la tabla aún no exista o falle la consulta
       }
