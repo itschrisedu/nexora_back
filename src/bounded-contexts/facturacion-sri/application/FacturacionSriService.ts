@@ -9,6 +9,8 @@ import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../../shared/infrastructure/prisma/prisma.service';
 import { EncryptionService } from '../../../shared/infrastructure/encryption/encryption.service';
 import { firstValueFrom } from 'rxjs';
+import * as fs from 'fs';
+import * as path from 'path';
 
 /**
  * FacturacionSriService — Conector HTTP entre Nexora y el microservicio
@@ -31,11 +33,12 @@ export class FacturacionSriService {
     private readonly encryption: EncryptionService,
     private readonly configService: ConfigService,
   ) {
-    // URL base del microservicio SRI local (ej: http://localhost:4000)
-    this.sriBaseUrl = this.configService.get<string>(
+    // URL base del microservicio SRI (limpia barras finales)
+    const rawUrl = this.configService.get<string>(
       'SRI_MICROSERVICE_URL',
       'http://localhost:4000',
     );
+    this.sriBaseUrl = (rawUrl || 'http://localhost:4000').trim().replace(/\/+$/, '');
   }
 
   // ══════════════════════════════════════════
@@ -109,6 +112,35 @@ export class FacturacionSriService {
     const secuencial = await this.obtenerSiguienteSecuencial(tenantId, config);
     const numeroComprobante = `${config.sriEstablecimiento}-${config.sriPuntoEmision}-${secuencial}`;
 
+    // Obtener firma P12 en Base64 para enviarla al microservicio
+    let firmaData: { archivoBase64: string; password?: string } | undefined;
+    if (config.firmaP12Path) {
+      let resolvedPath = config.firmaP12Path;
+      if (!path.isAbsolute(resolvedPath)) {
+        resolvedPath = path.resolve(process.cwd(), resolvedPath);
+      }
+      if (fs.existsSync(resolvedPath)) {
+        const p12Buffer = fs.readFileSync(resolvedPath);
+        let passwordDescifrada = '';
+        if (config.firmaPasswordEnc) {
+          try {
+            passwordDescifrada = this.encryption.decrypt(config.firmaPasswordEnc);
+          } catch {}
+        }
+        firmaData = {
+          archivoBase64: p12Buffer.toString('base64'),
+          password: passwordDescifrada,
+        };
+      } else {
+        this.logger.warn(`Archivo de firma P12 no encontrado en ruta: ${resolvedPath}`);
+      }
+    }
+
+    (facturaDto as any).secuencial = secuencial;
+    if (firmaData) {
+      (facturaDto as any).firma = firmaData;
+    }
+
     // 4. Registrar o actualizar factura en estado PENDIENTE (soporte de reintentos)
     let factura = datosVenta.saleNoteId
       ? await this.prisma.facturaElectronica.findUnique({
@@ -143,6 +175,9 @@ export class FacturacionSriService {
 
     // 5. Enviar al microservicio SRI
     try {
+      this.logger.log(
+        `Enviando factura ${numeroComprobante} a ${this.sriBaseUrl}/sri/emitir/factura (firma adjunta: ${!!firmaData})`,
+      );
       const response = await firstValueFrom(
         this.httpService.post(`${this.sriBaseUrl}/sri/emitir/factura`, facturaDto),
       );
