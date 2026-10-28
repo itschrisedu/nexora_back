@@ -11,6 +11,7 @@ import { EncryptionService } from '../shared/infrastructure/encryption/encryptio
 import { CloudinaryService } from '../shared/infrastructure/cloudinary/cloudinary.service';
 import { NivelCredito, Rol } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
+import * as fs from 'fs';
 import { ActiveSessionStore } from '../auth/active-session.store';
 import {
   CreateSeasonDto,
@@ -479,7 +480,7 @@ export class ConfiguracionService {
   }
 
   /**
-   * Guarda la ruta del archivo .p12 y su contraseña cifrada con AES-256
+   * Guarda la ruta del archivo .p12 (o su contenido en base64 para persistencia en nube) y su contraseña cifrada con AES-256
    */
   async guardarFirmaP12(tenantId: string, filePath: string, password: string) {
     const config = await this.prisma.businessConfig.findUnique({ where: { tenantId } });
@@ -489,15 +490,26 @@ export class ConfiguracionService {
 
     const encryptedPassword = this.encryption.encrypt(password);
 
+    // Leer el archivo .p12 y guardarlo como Base64 en la base de datos para persistencia total ante reinicios de contenedor
+    let p12Data = filePath;
+    try {
+      if (fs.existsSync(filePath)) {
+        const buffer = fs.readFileSync(filePath);
+        p12Data = `base64:${buffer.toString('base64')}`;
+      }
+    } catch (err: any) {
+      this.logger.warn(`No se pudo leer buffer para base64: ${err.message}`);
+    }
+
     const updated = await this.prisma.businessConfig.update({
       where: { id: config.id },
       data: {
-        firmaP12Path: filePath,
+        firmaP12Path: p12Data,
         firmaPasswordEnc: encryptedPassword,
       },
     });
 
-    this.logger.log(`Firma electrónica .p12 guardada para tenant ${tenantId}`);
+    this.logger.log(`Firma electrónica .p12 guardada y persistida en BD para tenant ${tenantId}`);
     return { ...updated, firmaPasswordEnc: undefined, tieneP12: true };
   }
 

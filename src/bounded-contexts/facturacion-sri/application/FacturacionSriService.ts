@@ -33,12 +33,16 @@ export class FacturacionSriService {
     private readonly encryption: EncryptionService,
     private readonly configService: ConfigService,
   ) {
-    // URL base del microservicio SRI (limpia barras finales)
+    // URL base del microservicio SRI (limpia barras finales y asegura protocolo)
     const rawUrl = this.configService.get<string>(
       'SRI_MICROSERVICE_URL',
       'http://localhost:4000',
     );
-    this.sriBaseUrl = (rawUrl || 'http://localhost:4000').trim().replace(/\/+$/, '');
+    let url = (rawUrl || 'http://localhost:4000').trim().replace(/\/+$/, '');
+    if (!url.startsWith('http://') && !url.startsWith('https://')) {
+      url = `https://${url}`;
+    }
+    this.sriBaseUrl = url;
   }
 
   // ══════════════════════════════════════════
@@ -115,12 +119,35 @@ export class FacturacionSriService {
     // Obtener firma P12 en Base64 para enviarla al microservicio
     let firmaData: { archivoBase64: string; password?: string } | undefined;
     if (config.firmaP12Path) {
-      let resolvedPath = config.firmaP12Path;
-      if (!path.isAbsolute(resolvedPath)) {
-        resolvedPath = path.resolve(process.cwd(), resolvedPath);
+      let p12Buffer: Buffer | null = null;
+      if (
+        config.firmaP12Path.startsWith('data:') ||
+        config.firmaP12Path.startsWith('base64:') ||
+        config.firmaP12Path.length > 500
+      ) {
+        // Viene persistido en Base64 directamente en la base de datos
+        const base64Str = config.firmaP12Path.includes(',')
+          ? config.firmaP12Path.split(',')[1]
+          : config.firmaP12Path.replace(/^base64:/, '');
+        try {
+          p12Buffer = Buffer.from(base64Str, 'base64');
+        } catch (err: any) {
+          this.logger.error(`Error parseando buffer de firma Base64: ${err.message}`);
+        }
+      } else {
+        // Viene como ruta en disco
+        let resolvedPath = config.firmaP12Path;
+        if (!path.isAbsolute(resolvedPath)) {
+          resolvedPath = path.resolve(process.cwd(), resolvedPath);
+        }
+        if (fs.existsSync(resolvedPath)) {
+          p12Buffer = fs.readFileSync(resolvedPath);
+        } else {
+          this.logger.warn(`Archivo de firma P12 no encontrado en ruta de disco: ${resolvedPath}`);
+        }
       }
-      if (fs.existsSync(resolvedPath)) {
-        const p12Buffer = fs.readFileSync(resolvedPath);
+
+      if (p12Buffer) {
         let passwordDescifrada = '';
         if (config.firmaPasswordEnc) {
           try {
@@ -131,15 +158,17 @@ export class FacturacionSriService {
           archivoBase64: p12Buffer.toString('base64'),
           password: passwordDescifrada,
         };
-      } else {
-        this.logger.warn(`Archivo de firma P12 no encontrado en ruta: ${resolvedPath}`);
       }
     }
 
-    (facturaDto as any).secuencial = secuencial;
-    if (firmaData) {
-      (facturaDto as any).firma = firmaData;
+    if (!firmaData) {
+      throw new BadRequestException(
+        'El archivo de firma electrónica (.p12) no está disponible en el servidor. Por favor, suba nuevamente su archivo .p12 y contraseña en el menú Configuración -> Facturación SRI.',
+      );
     }
+
+    (facturaDto as any).secuencial = secuencial;
+    (facturaDto as any).firma = firmaData;
 
     // 4. Registrar o actualizar factura en estado PENDIENTE (soporte de reintentos)
     let factura = datosVenta.saleNoteId
