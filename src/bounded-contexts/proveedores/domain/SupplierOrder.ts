@@ -36,6 +36,11 @@ export class EstadoOrdenInvalidoException extends DomainException {
   }
 }
 
+/**
+ * Raíz de Agregado (Aggregate Root) que modela una Orden de Compra o Fabricación a Proveedores.
+ * Gestiona el requerimiento de producción de calzado a talleres artesanales,
+ * calculando subtotales por modelo y curva, controlando estados (BORRADOR, PENDIENTE, RECIBIDA, CANCELADA).
+ */
 export class SupplierOrder extends AggregateRoot {
   private constructor(
     private readonly _id: string,
@@ -50,6 +55,18 @@ export class SupplierOrder extends AggregateRoot {
     super();
   }
 
+  /**
+   * Método de fábrica para generar una nueva orden de compra hacia un taller artesanal.
+   * Valida cantidades pedidas y costos unitarios estrictamente positivos.
+   *
+   * @param id Identificador único de la orden (UUID).
+   * @param numero Número secuencial administrativo autoincremental.
+   * @param supplierId Identificador del proveedor o fabricante.
+   * @param lines Líneas de pedido con productos, pares requeridos y costo unitario pactado.
+   * @param observaciones Notas o especificaciones de fabricación.
+   * @param estadoInicial Estado inicial de la orden (BORRADOR o PENDIENTE).
+   * @returns Instancia de SupplierOrder inicializada.
+   */
   static crear(
     id: string,
     numero: number,

@@ -15,6 +15,10 @@ import {
 } from './events';
 import { StockInsuficienteException } from './exceptions/StockInsuficienteException';
 
+/**
+ * Registro inmutable del historial de cambios de precio para un calzado.
+ * Mantiene la trazabilidad de auditoría entre costos y precios de venta al público.
+ */
 export interface PriceHistoryEntry {
   previousCostPrice: Money;
   previousSalePrice: Money;
@@ -25,6 +29,12 @@ export interface PriceHistoryEntry {
   createdAt: Date;
 }
 
+/**
+ * Raíz de Agregado (Aggregate Root) que modela un calzado en el inventario.
+ * Representa la combinación única de modelo, color, serie y proveedor.
+ * Encapsula la gestión de stock distribuido por curvas de tallas,
+ * reservas temporales, control de precios y valoración por método FIFO.
+ */
 export class Producto extends AggregateRoot {
   private constructor(
     private readonly _id: string,
@@ -50,6 +60,22 @@ export class Producto extends AggregateRoot {
     super();
   }
 
+  /**
+   * Método de fábrica para instanciar un nuevo producto en el catálogo.
+   * Valida que los precios iniciales sean estrictamente positivos y emite el evento ProductoCreado.
+   *
+   * @param id Identificador único del producto (UUID).
+   * @param modelId Identificador del modelo base al que pertenece.
+   * @param code Código SKU único del calzado.
+   * @param color Variante de color del calzado.
+   * @param imageUrl Enlace a la imagen del producto en almacenamiento.
+   * @param costPrice Precio de costo inicial (adquisición al fabricante).
+   * @param salePrice Precio de venta inicial sugerido al público.
+   * @param serie Configuración de serie asociada (curva de tallas).
+   * @param stockPorTallaList Lista inicial de existencias por cada talla.
+   * @param supplierId Identificador del proveedor o taller artesanal asignado.
+   * @returns Instancia inicializada del agregado Producto.
+   */
   static crear(
     id: string,
     modelId: string,
@@ -195,6 +221,16 @@ export class Producto extends AggregateRoot {
 
   // ── Métodos de Negocio ──────────────────────
 
+  /**
+   * Modifica el precio de costo y venta del producto.
+   * Almacena una entrada inmutable en el historial de precios y emite el evento PrecioCambiado.
+   *
+   * @param nuevoPrecioCosto Nuevo costo unitario de compra.
+   * @param nuevoPrecioVenta Nuevo precio de venta al público en mostrador.
+   * @param userId Identificador del usuario o proceso del sistema que efectúa el cambio.
+   * @param motivo Justificación del cambio de precio (ej: transición FIFO, ajuste manual).
+   * @throws Error si alguno de los precios no es estrictamente positivo.
+   */
   cambiarPrecio(
     nuevoPrecioCosto: Money,
     nuevoPrecioVenta: Money,
@@ -233,6 +269,16 @@ export class Producto extends AggregateRoot {
     );
   }
 
+  /**
+   * Reserva pares en una talla específica para pedidos comerciales pendientes de despacho.
+   * Verifica la disponibilidad física y emite StockReservado y StockBajoMinimo si aplica.
+   *
+   * @param tallaId Identificador de la talla a reservar.
+   * @param cantidad Cantidad de pares a comprometer.
+   * @param reservaId Identificador de la reserva o pedido.
+   * @param expiresAt Fecha y hora de expiración de la reserva.
+   * @throws StockInsuficienteException si la cantidad disponible es menor a la requerida.
+   */
   reservarStock(
     tallaId: string,
     cantidad: number,
@@ -271,6 +317,13 @@ export class Producto extends AggregateRoot {
     }
   }
 
+  /**
+   * Libera una reserva previa devolviendo las unidades al inventario disponible.
+   *
+   * @param tallaId Identificador de la talla reservada.
+   * @param cantidad Cantidad de pares a liberar.
+   * @param reservaId Identificador de la reserva que se cancela o expira.
+   */
   liberarReserva(tallaId: string, cantidad: number, reservaId: string): void {
     const stock = this.obtenerStockOError(tallaId);
     const nuevoStock = stock.disminuirReserva(cantidad);
@@ -279,6 +332,13 @@ export class Producto extends AggregateRoot {
     this.addDomainEvent(new StockLiberado(this.id, tallaId, cantidad));
   }
 
+  /**
+   * Descuenta stock físico de una talla tras una venta o despacho confirmado.
+   *
+   * @param tallaId Identificador de la talla vendida.
+   * @param cantidad Cantidad de pares a descontar.
+   * @throws Error si la cantidad a descontar supera la existencia física.
+   */
   descontarStock(tallaId: string, cantidad: number): void {
     const stock = this.obtenerStockOError(tallaId);
 
@@ -295,6 +355,13 @@ export class Producto extends AggregateRoot {
     );
   }
 
+  /**
+   * Incrementa el stock físico de una talla por recepción de mercadería o compra.
+   * Emite StockActualizado y StockDisponible si la talla se encontraba agotada.
+   *
+   * @param tallaId Identificador de la talla a incrementar.
+   * @param cantidad Cantidad de pares recibidos.
+   */
   aumentarStock(tallaId: string, cantidad: number): void {
     let stock = this._stockPorTalla.get(tallaId);
     if (!stock) {
@@ -318,6 +385,14 @@ export class Producto extends AggregateRoot {
     }
   }
 
+  /**
+   * Registra la baja física de unidades de calzado por avería, defecto de fábrica o pérdida.
+   *
+   * @param tallaId Identificador de la talla a dar de baja.
+   * @param cantidad Cantidad de pares a retirar.
+   * @param motivo Justificación técnica u operativa de la baja.
+   * @throws Error si la cantidad a retirar supera las existencias disponibles.
+   */
   darDeBaja(tallaId: string, cantidad: number, motivo: string): void {
     const stock = this.obtenerStockOError(tallaId);
 
@@ -337,6 +412,10 @@ export class Producto extends AggregateRoot {
 
   // ── Reconstrucción ──────────────────────────
 
+  /**
+   * Reconstituye el agregado Producto desde la persistencia (Prisma) sin emitir eventos de dominio.
+   * Utilizado exclusivamente por repositorios de infraestructura.
+   */
   static reconstruir(
     id: string,
     modelId: string,

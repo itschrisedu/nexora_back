@@ -18,6 +18,11 @@ import {
   LimiteCreditoInsuficienteException,
 } from './exceptions/ClienteExceptions';
 
+/**
+ * Raíz de Agregado (Aggregate Root) que modela el Cliente y su Scoring Crediticio Progresivo.
+ * Encapsula la reputación comercial, historial de compras, cálculo de nivel crediticio
+ * automático por cumplimiento de pagos, control de cupo disponible y penalizaciones por mora.
+ */
 export class Cliente extends AggregateRoot {
   private constructor(
     private readonly _id: string,
@@ -40,6 +45,21 @@ export class Cliente extends AggregateRoot {
     super();
   }
 
+  /**
+   * Método de fábrica para registrar un nuevo cliente en el sistema.
+   * Inicializa al cliente en nivel 'SIN_CREDITO' con cupo $0 y emite ClienteRegistradoEvent.
+   *
+   * @param id Identificador único del cliente (UUID).
+   * @param nombre Nombres del cliente.
+   * @param apellido Apellidos del cliente.
+   * @param telefono Número de contacto telefónico.
+   * @param email Correo electrónico opcional.
+   * @param ruc Identificación RUC si aplica.
+   * @param cedula Cédula de ciudadanía ecuatoriana validada.
+   * @param direccion Domicilio o referencia de entrega.
+   * @param notas Observaciones comerciales adicionales.
+   * @returns Instancia inicializada del agregado Cliente.
+   */
   static crear(
     id: string,
     nombre: string,
@@ -143,6 +163,9 @@ export class Cliente extends AggregateRoot {
 
   // ── Métodos de Negocio ──────────────────────
 
+  /**
+   * Actualiza la información de contacto y fiscal del cliente.
+   */
   actualizarDatosPersonales(
     nombre: string,
     apellido: string,
@@ -163,6 +186,16 @@ export class Cliente extends AggregateRoot {
     this._notas = notas;
   }
 
+  /**
+   * Registra una compra finalizada exitosamente sin atrasos.
+   * Ejecuta el algoritmo de Scoring Crediticio Progresivo: incrementa el contador de compras,
+   * evalúa los umbrales configurados para cada nivel y, si el cliente califica, promueve
+   * su nivel crediticio y amplía su límite de crédito, emitiendo NivelCreditoSubioEvent.
+   *
+   * @param monto Monto total de la compra cancelada.
+   * @param esCredito Indica si la compra fue a crédito (para liberar cupo comprometido).
+   * @param configs Umbrales de compras y límites en dólares configurados por la administración.
+   */
   registrarCompraCompletada(
     monto: Money,
     esCredito: boolean,
@@ -207,6 +240,14 @@ export class Cliente extends AggregateRoot {
     }
   }
 
+  /**
+   * Registra un incumplimiento o mora en los plazos de pago acordados.
+   * Aplica la regla de degradación crediticia:
+   * - Con 1 atraso: reduce al nivel inmediato inferior.
+   * - Con 2 o más atrasos consecutivos: degrada forzosamente a Nivel 1 (SIN_CREDITO, solo contado).
+   *
+   * @param configs Parámetros de límites por nivel para recalcular cupo.
+   */
   registrarAtraso(
     configs: { nivel: PrismaNivelCredito; comprasRequeridas: number; limiteDolares: number }[],
   ): void {
@@ -234,6 +275,13 @@ export class Cliente extends AggregateRoot {
     }
   }
 
+  /**
+   * Bloquea cupo crediticio del cliente al realizar un pedido a crédito o nota con saldo.
+   *
+   * @param monto Monto a comprometer.
+   * @throws CreditoNoPermitidoException si el cliente está en nivel SIN_CREDITO.
+   * @throws LimiteCreditoInsuficienteException si el monto excede el cupo disponible.
+   */
   comprometerCredito(monto: Money): void {
     if (this._nivelCredito.value === 'SIN_CREDITO' || this._limiteCredito.amount <= 0) {
       throw new CreditoNoPermitidoException(
@@ -253,6 +301,11 @@ export class Cliente extends AggregateRoot {
     );
   }
 
+  /**
+   * Restablece cupo crediticio del cliente tras registrar un cobro o abono.
+   *
+   * @param monto Monto cancelado que se libera del cupo utilizado.
+   */
   liberarCredito(monto: Money): void {
     const nuevoUtilizado = Math.max(0, this._creditoUtilizado.amount - monto.amount);
     this._creditoUtilizado = Money.create(nuevoUtilizado);
@@ -261,6 +314,10 @@ export class Cliente extends AggregateRoot {
     );
   }
 
+  /**
+   * Permite al Administrador ajustar de forma extraordinaria el nivel de crédito de un cliente.
+   * Valida estrictamente permisos de rol para evitar modificaciones no autorizadas.
+   */
   ajustarNivelManualmente(
     nuevoNivel: NivelCredito,
     adminId: string,

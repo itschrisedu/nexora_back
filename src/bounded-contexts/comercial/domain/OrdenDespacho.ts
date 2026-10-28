@@ -21,6 +21,11 @@ export interface DispatchLineProps {
   aceptada: boolean;
 }
 
+/**
+ * Raíz de Agregado (Aggregate Root) que modela la Orden de Despacho y Picking en Bodega.
+ * Controla la verificación física de pares previo a la entrega, registrando
+ * la conformidad o rechazo de líneas por parte del bodeguero.
+ */
 export class OrdenDespacho extends AggregateRoot {
   private constructor(
     private readonly _id: string,
@@ -34,6 +39,15 @@ export class OrdenDespacho extends AggregateRoot {
     super();
   }
 
+  /**
+   * Método de fábrica para generar una orden de despacho vinculada a un pedido.
+   * Inicializa el estado en PENDIENTE_SEPARACION con todas las líneas pre-aceptadas.
+   *
+   * @param id Identificador único de la orden de despacho (UUID).
+   * @param orderId Identificador del pedido comercial asociado.
+   * @param lineas Líneas de pares a alistar en bodega.
+   * @returns Instancia de OrdenDespacho.
+   */
   static crear(id: string, orderId: string, lineas: Omit<DispatchLineProps, 'aceptada'>[]): OrdenDespacho {
     const lines: DispatchLineProps[] = lineas.map((l) => ({
       ...l,

@@ -11,11 +11,28 @@ export interface LineaPedidoProps {
   tipoVenta: TipoVenta;
 }
 
+/**
+ * Entidad de dominio que representa un ítem o renglón dentro de un pedido comercial.
+ * Almacena el calzado específico, serie, talla, cantidad de pares y precio unitario pactado.
+ */
 export class LineaPedido extends Entity<LineaPedidoProps> {
   private constructor(id: string, props: LineaPedidoProps) {
     super(id, props);
   }
 
+  /**
+   * Método de fábrica para instanciar una línea de pedido comercial.
+   * Valida que la cantidad de pares solicitada sea estrictamente mayor a cero.
+   *
+   * @param id Identificador único de la línea (UUID).
+   * @param productId Identificador del calzado específico.
+   * @param serieId Identificador de la serie o curva de tallas.
+   * @param tallaId Identificador de la talla solicitada.
+   * @param cantidad Cantidad de pares pedidos.
+   * @param precioUnitario Precio de venta por par.
+   * @param tipoVenta Modalidad de comercialización (PAR o CURVA).
+   * @returns Instancia de LineaPedido validada.
+   */
   static crear(
     id: string,
     productId: string,

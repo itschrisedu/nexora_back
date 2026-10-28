@@ -32,6 +32,11 @@ export class PrecioCostoEntryInvalidoException extends DomainException {
   }
 }
 
+/**
+ * Raíz de Agregado (Aggregate Root) que modela el Ingreso Físico de Mercadería a Bodega.
+ * Registra la recepción efectiva de calzado enviado por proveedores, cotejando
+ * cantidades esperadas vs. recibidas, costos unitarios de compra y generando lotes FIFO.
+ */
 export class MerchandiseEntry extends AggregateRoot {
   private constructor(
     private readonly _id: string,
@@ -47,6 +52,19 @@ export class MerchandiseEntry extends AggregateRoot {
     super();
   }
 
+  /**
+   * Método de fábrica para formalizar la entrada física de calzado al inventario.
+   * Valida la presencia de líneas con pares ingresados y costos mayores a cero.
+   *
+   * @param id Identificador único de la recepción (UUID).
+   * @param numero Número secuencial correlativo de la nota de ingreso.
+   * @param supplierId Identificador del fabricante o proveedor que entrega.
+   * @param lines Detalle de calzado por talla, cantidad y costo unitario.
+   * @param supplierOrderId Identificador de la orden de compra vinculada (si aplica).
+   * @param observaciones Notas o novedades detectadas en la entrega.
+   * @param estado Estado de conformidad (COMPLETA, RECIBIDA_PARCIAL, CON_DIFERENCIAS).
+   * @returns Instancia de MerchandiseEntry lista para persistir.
+   */
   static crear(
     id: string,
     numero: number,

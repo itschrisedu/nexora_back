@@ -18,6 +18,12 @@ import {
   LineaRechazadaPrimitive,
 } from './events/PedidoEvents';
 
+/**
+ * Raíz de Agregado (Aggregate Root) que modela el ciclo de vida de un Pedido Comercial.
+ * Controla el flujo de estados (PENDIENTE, EN_PREPARACION, EN_TRANSITO, ENTREGADO, CANCELADO, MODIFICADO),
+ * el canal de origen (VENTA_DIRECTA, POS, CATALOGO_DIGITAL), tipo de pago (CONTADO, CREDITO, MIXTO)
+ * y la integridad financiera de las líneas de calzado solicitadas.
+ */
 export class Pedido extends AggregateRoot {
   private constructor(
     private readonly _id: string,
@@ -33,6 +39,21 @@ export class Pedido extends AggregateRoot {
     super();
   }
 
+  /**
+   * Método de fábrica para crear un nuevo pedido comercial.
+   * Valida la existencia de al menos una línea con cantidad válida,
+   * totaliza los subtotales y emite el evento correspondiente según el estado inicial.
+   *
+   * @param id Identificador único del pedido (UUID).
+   * @param clientId Identificador del cliente que realiza el pedido.
+   * @param canal Canal de venta utilizado.
+   * @param tipoPago Condición de pago acordada.
+   * @param lineas Lista de líneas de calzado solicitadas.
+   * @param estadoInicial Estado inicial del pedido (PENDIENTE o EN_ESPERA_STOCK).
+   * @param userId Identificador del usuario que registra el pedido.
+   * @returns Instancia inicializada del agregado Pedido.
+   * @throws Error si el pedido no contiene líneas.
+   */
   static crear(
     id: string,
     clientId: string,
@@ -118,6 +139,10 @@ export class Pedido extends AggregateRoot {
 
   // ── Métodos de Negocio (Fase 4A) ───────────
 
+  /**
+   * Confirma la disponibilidad de stock o aprobación comercial del pedido.
+   * Transiciona el estado a PENDIENTE y emite PedidoConfirmadoEvent.
+   */
   confirmar(): void {
     this._estado = this._estado.transicionarA(PrismaEstadoPedido.PENDIENTE);
 
@@ -126,16 +151,30 @@ export class Pedido extends AggregateRoot {
     );
   }
 
+  /**
+   * Indica que el personal de bodega ha comenzado la separación física del calzado.
+   * Transiciona a EN_PREPARACION y emite PedidoEnPreparacionEvent.
+   */
   iniciarPreparacion(): void {
     this._estado = this._estado.transicionarA(PrismaEstadoPedido.EN_PREPARACION);
     this.addDomainEvent(new PedidoEnPreparacionEvent(this.id));
   }
 
+  /**
+   * Marca el pedido como despachado y en ruta de transporte hacia el cliente.
+   * Transiciona a EN_TRANSITO y emite PedidoEnTransitoEvent.
+   */
   marcarEnTransito(): void {
     this._estado = this._estado.transicionarA(PrismaEstadoPedido.EN_TRANSITO);
     this.addDomainEvent(new PedidoEnTransitoEvent(this.id));
   }
 
+  /**
+   * Cancela el pedido liberando reservas de inventario y cupo crediticio.
+   * Transiciona a CANCELADO y emite PedidoCanceladoEvent con el motivo registrado.
+   *
+   * @param motivo Justificación operativa de la anulación.
+   */
   cancelar(motivo: string): void {
     this._estado = this._estado.transicionarA(PrismaEstadoPedido.CANCELADO);
 

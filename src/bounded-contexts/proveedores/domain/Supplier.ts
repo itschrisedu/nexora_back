@@ -20,6 +20,11 @@ export class RazonSocialVaciaException extends DomainException {
   }
 }
 
+/**
+ * Raíz de Agregado (Aggregate Root) que modela el Proveedor o Taller Artesanal.
+ * Gestiona la información de identificación fiscal (RUC), razón social,
+ * datos de contacto y estado de activación del fabricante de calzado.
+ */
 export class Supplier extends AggregateRoot {
   private constructor(
     private readonly _id: string,
@@ -34,6 +39,20 @@ export class Supplier extends AggregateRoot {
     super();
   }
 
+  /**
+   * Método de fábrica para registrar un nuevo proveedor o taller artesanal.
+   * Valida la obligatoriedad de RUC y Razón Social, emitiendo SupplierCreadoEvent.
+   *
+   * @param id Identificador único del proveedor (UUID).
+   * @param ruc Registro Único de Contribuyentes o cédula comercial.
+   * @param razonSocial Nombre comercial o denominación jurídica del taller.
+   * @param contacto Nombre del representante o contacto directo.
+   * @param direccion Ubicación del taller o fábrica.
+   * @param email Correo electrónico de contacto comercial.
+   * @returns Instancia inicializada del agregado Supplier.
+   * @throws RucVacioException si el RUC no es provisto.
+   * @throws RazonSocialVaciaException si la razón social está vacía.
+   */
   static crear(
     id: string,
     ruc: string,

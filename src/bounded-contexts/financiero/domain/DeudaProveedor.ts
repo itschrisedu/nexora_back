@@ -36,6 +36,11 @@ export interface PagoProveedorProps {
   createdAt: Date;
 }
 
+/**
+ * Raíz de Agregado (Aggregate Root) que gestiona las Cuentas por Pagar a Proveedores.
+ * Administra las obligaciones financieras derivadas de ingresos de mercadería a crédito,
+ * controla pagos y amortizaciones parciales y verifica que ningún pago exceda la deuda.
+ */
 export class DeudaProveedor extends AggregateRoot {
   private constructor(
     private readonly _id: string,
@@ -53,6 +58,16 @@ export class DeudaProveedor extends AggregateRoot {
 
   // ── Factory Methods ────────────────────────
 
+  /**
+   * Crea una nueva cuenta por pagar asociada a una recepción de mercadería a crédito.
+   *
+   * @param id Identificador único de la deuda (UUID).
+   * @param supplierId Identificador del proveedor acreedor.
+   * @param entradaId Identificador del comprobante o recepción de mercadería que originó la deuda.
+   * @param montoTotal Importe total facturado por el proveedor.
+   * @param fechaVencimiento Fecha límite acordada para la cancelación.
+   * @returns Instancia de DeudaProveedor en estado PENDIENTE.
+   */
   static crear(
     id: string,
     supplierId: string,
@@ -94,8 +109,18 @@ export class DeudaProveedor extends AggregateRoot {
   // ── Métodos de Negocio ─────────────────────
 
   /**
-   * Registra un pago parcial o total a la deuda de un proveedor.
-   * Invariante: el pago no puede superar el saldo pendiente.
+   * Registra un pago o abono parcial/total a la deuda con el proveedor.
+   * Aplica invariantes de dominio:
+   * 1. No permite registrar pagos si la deuda ya fue SALDADA.
+   * 2. El importe no puede superar el saldo pendiente actual.
+   *
+   * @param pagoId Identificador único del pago (UUID).
+   * @param monto Monto cancelado al proveedor.
+   * @param metodo Forma de egreso monetario (EFECTIVO, TRANSFERENCIA, CHEQUE).
+   * @param userId Identificador del usuario que efectúa el desembolso.
+   * @param notas Referencia del comprobante o número de cheque.
+   * @throws DeudaYaSaldadaException si la deuda ya se encontraba liquidada.
+   * @throws PagoSuperaDeudaException si el pago supera el saldo remanente.
    */
   registrarPago(
     pagoId: string,

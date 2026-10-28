@@ -36,6 +36,11 @@ export interface AbonoProps {
   createdAt: Date;
 }
 
+/**
+ * Raíz de Agregado (Aggregate Root) que gestiona el Cobro y la Cartera de Clientes.
+ * Modela cobros al contado y a crédito, controla los abonos parciales,
+ * asegura que ningún abono supere el saldo pendiente y emite eventos de liquidación de deuda.
+ */
 export class Cobro extends AggregateRoot {
   private constructor(
     private readonly _id: string,
@@ -55,7 +60,14 @@ export class Cobro extends AggregateRoot {
   // ── Factory Methods ────────────────────────
 
   /**
-   * Crea un cobro al contado: saldado inmediatamente.
+   * Crea un cobro bajo modalidad CONTADO.
+   * Nace en estado SALDADO con saldo pendiente $0 y emite CobroCreadoEvent y DeudaSaldadaEvent.
+   *
+   * @param id Identificador único del cobro (UUID).
+   * @param saleNoteId Identificador de la nota de venta o transacción asociada.
+   * @param clientId Identificador del cliente.
+   * @param montoTotal Monto total cancelado.
+   * @returns Instancia de Cobro saldada.
    */
   static crearContado(
     id: string,
@@ -87,7 +99,15 @@ export class Cobro extends AggregateRoot {
   }
 
   /**
-   * Crea un cobro a crédito: estado PENDIENTE con saldo total.
+   * Crea un cobro bajo modalidad CRÉDITO.
+   * Nace en estado PENDIENTE con saldo pendiente igual al total adeudado.
+   *
+   * @param id Identificador único del cobro (UUID).
+   * @param saleNoteId Identificador de la nota de venta vinculada.
+   * @param clientId Identificador del cliente deudor.
+   * @param montoTotal Monto total del crédito otorgado.
+   * @param fechaVencimiento Plazo límite acordado para cancelar la deuda.
+   * @returns Instancia de Cobro en estado PENDIENTE.
    */
   static crearCredito(
     id: string,
@@ -132,10 +152,19 @@ export class Cobro extends AggregateRoot {
   // ── Métodos de Negocio ─────────────────────
 
   /**
-   * Registra un abono parcial o total al cobro.
-   * Invariantes:
-   *  1. El abono no puede superar el saldoPendiente.
-   *  2. Un cobro SALDADO no acepta más abonos.
+   * Registra un abono parcial o total contra el saldo del cobro.
+   * Aplica invariantes de dominio:
+   * 1. El monto del abono no puede superar el saldo pendiente actual.
+   * 2. Un cobro ya en estado SALDADO no acepta abonos posteriores.
+   * Si el saldo llega a $0, transiciona a SALDADO y emite DeudaSaldadaEvent.
+   *
+   * @param abonoId Identificador único del abono (UUID).
+   * @param monto Valor monetario del abono recibido.
+   * @param metodo Forma de pago (EFECTIVO, TRANSFERENCIA, DEPOSITO).
+   * @param userId Identificador del cobrador o usuario en sesión.
+   * @param notas Referencia o comentario del comprobante bancario.
+   * @throws CobroYaSaldadoException si el cobro ya se encuentra liquidado.
+   * @throws AbonoPorEncimaSaldoException si el abono supera el saldo remanente.
    */
   registrarAbono(
     abonoId: string,
