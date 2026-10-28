@@ -50,6 +50,14 @@ export interface CerrarCajaDto {
   notas?: string;
 }
 
+/**
+ * Servicio de Aplicación para el Punto de Venta (POS) y Mostrador Comercial.
+ * Coordina la apertura y cierre de caja con control de arqueo físico,
+ * el catálogo en tiempo real con inventario por curva de tallas,
+ * la emisión de comprobantes de venta directa,
+ * el cobro inmediato (efectivo, tarjeta, transferencia)
+ * y el descuento automatizado de inventario mediante el algoritmo FIFO.
+ */
 @Injectable()
 export class PosService {
   private readonly logger = new Logger(PosService.name);

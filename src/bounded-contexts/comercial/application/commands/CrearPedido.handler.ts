@@ -16,6 +16,12 @@ import { ClientesQueryService } from '../../../clientes/application/queries/Clie
 import { Money } from '../../../../shared/domain/Money';
 import { EstadoPedido as PrismaEstadoPedido } from '@prisma/client';
 
+/**
+ * Manejador de Comando (Command Handler) para la creación de pedidos comerciales.
+ * Valida la existencia física de las líneas de calzado, reserva el inventario por curva de tallas,
+ * evalúa el scoring y cupo crediticio del cliente si la compra es a crédito,
+ * y encola el pedido en espera de stock si no hay suficiente disponibilidad física.
+ */
 @Injectable()
 export class CrearPedidoHandler {
   private readonly logger = new Logger(CrearPedidoHandler.name);

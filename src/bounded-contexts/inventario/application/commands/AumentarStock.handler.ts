@@ -6,6 +6,13 @@ import { MovimientoTipo } from '@prisma/client';
 import { FifoInventoryService } from '../services/FifoInventoryService';
 import { Money } from '../../../../shared/domain/Money';
 
+/**
+ * Manejador de Comando (Command Handler) para el incremento físico de stock.
+ * Registra entradas de calzado por recepción de mercadería u órdenes de compra,
+ * genera el lote FIFO correspondiente con el costo real del proveedor,
+ * aplica la regla de protección de precios en mostrador (Opción B)
+ * y propaga el nuevo costo sugerido entre variantes del mismo modelo y serie.
+ */
 @Injectable()
 export class AumentarStockHandler {
   constructor(

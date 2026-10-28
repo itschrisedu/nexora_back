@@ -5,6 +5,11 @@ import { PrismaService } from '../../../../shared/infrastructure/prisma/prisma.s
 import { Money } from '../../../../shared/domain/Money';
 import { EventBus } from '../../../../shared/infrastructure/event-bus/event-bus.service';
 
+/**
+ * Manejador de Comando (Command Handler) para el registro de compras finalizadas.
+ * Ejecuta la evaluación del algoritmo de scoring progresivo tras la liquidación de una compra,
+ * computa el ascenso automático de nivel crediticio y publica los eventos de dominio resultantes.
+ */
 @Injectable()
 export class RegistrarCompraCompletadaHandler {
   constructor(

@@ -7,6 +7,12 @@ import { RegistrarMerchandiseEntryCommand } from './RegistrarMerchandiseEntry.co
 import { PrismaService } from '../../../../shared/infrastructure/prisma/prisma.service';
 import { EventBus } from '../../../../shared/infrastructure/event-bus/event-bus.service';
 
+/**
+ * Manejador de Comando (Command Handler) para registrar el ingreso físico de mercadería.
+ * Formaliza la recepción en bodega de calzado entregado por talleres artesanales,
+ * coteja contra órdenes de compra previas, actualiza estados de recepción (COMPLETA / PARCIAL)
+ * y genera la cuenta por pagar al proveedor si la entrega fue a crédito.
+ */
 @Injectable()
 export class RegistrarMerchandiseEntryHandler {
   constructor(
