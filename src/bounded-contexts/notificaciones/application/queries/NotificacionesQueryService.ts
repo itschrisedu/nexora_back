@@ -738,8 +738,10 @@ export class NotificacionesQueryService {
 
     let finalHtml = cuerpoHtml;
     if (!finalHtml) {
+      const anioActual = new Date().getFullYear();
       const urlComprobante = detalles?.urlComprobante || '';
       const emisorNombre = detalles?.nombreEmisor || detalles?.sucursalNombre || detalles?.emisor || 'COMPROBANTE OFICIAL';
+      const responsableEmisor = detalles?.responsable || detalles?.sriRazonSocial || detalles?.razonSocialEmisor || 'ICHINA REMACHE HECTOR GONZALO';
       finalHtml = `
         <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 540px; margin: 0 auto; background: #07080a; color: #eef2f7; border-radius: 20px; padding: 32px 24px; border: 1px solid rgba(255,255,255,0.08);">
           <div style="text-align: center; margin-bottom: 24px;">
@@ -774,9 +776,17 @@ export class NotificacionesQueryService {
             ` : ''}
           </div>
 
-          <p style="text-align: center; font-size: 11px; color: rgba(238,242,247,0.4); margin: 20px 0 0;">
-            Gracias por confiar en NEXORA · Sistema de Gestión Comercial
-          </p>
+          <div style="text-align: center; font-size: 11px; color: rgba(238,242,247,0.5); margin: 24px 0 0; line-height: 1.6;">
+            <p style="margin: 0 0 4px 0;">
+              Este es un correo automático, por favor no responda a este mensaje.
+            </p>
+            <p style="margin: 0 0 14px 0; font-weight: 700; color: rgba(238,242,247,0.75);">
+              &copy; ${anioActual} ${responsableEmisor}
+            </p>
+            <p style="margin: 0; font-size: 10px; color: rgba(238,242,247,0.35); text-align: justify; line-height: 1.45; border-top: 1px solid rgba(255,255,255,0.08); padding-top: 12px;">
+              <strong>Aviso de confidencialidad y descargo de responsabilidad:</strong> Este comprobante digital y la información adjunta están destinados exclusivamente a la persona natural o jurídica destinataria. Cualquier alteración, reproducción no autorizada, falsificación o uso indebido fuera de los fines comerciales y tributarios legítimos será de exclusiva responsabilidad de quien lo cometa, deslindando al emisor de toda responsabilidad legal civil o penal por el mal uso que terceros pudieran dar a este documento.
+            </p>
+          </div>
         </div>
       `;
     }
