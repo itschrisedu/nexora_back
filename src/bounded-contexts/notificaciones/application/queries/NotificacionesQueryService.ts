@@ -721,15 +721,13 @@ export class NotificacionesQueryService {
     },
     tenantId?: string,
   ) {
-    if (tenantId) {
-      const config = await this.prisma.businessConfig.findUnique({
-        where: { tenantId },
-        select: { autoEmailHabilitado: true },
-      });
-      if (config && config.autoEmailHabilitado === false) {
-        this.logger.log(`Envío automático de correo deshabilitado para tenant ${tenantId}.`);
-        return { ok: false, deshabilitado: true, mensaje: 'Envío de correos automáticos deshabilitado en configuración' };
-      }
+    const configs = await this.prisma.businessConfig.findMany({
+      where: { tenant: { name: { not: 'NEXORA_SAAS_PLATFORM' } } },
+      select: { autoEmailHabilitado: true },
+    });
+    if (configs.length > 0 && configs.some((c) => c.autoEmailHabilitado === false)) {
+      this.logger.log(`Envío automático de correo deshabilitado (autoEmailHabilitado = false).`);
+      return { ok: false, deshabilitado: true, mensaje: 'Envío de correos automáticos deshabilitado en configuración' };
     }
 
     const { destinatario, asunto, tipo, cuerpoHtml, detalles } = params;

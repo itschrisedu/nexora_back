@@ -245,6 +245,16 @@ export class ConfiguracionService {
         }).catch(() => null);
       }
 
+      if (dto.autoEmailHabilitado !== undefined || dto.autoWhatsAppHabilitado !== undefined) {
+        await this.prisma.businessConfig.updateMany({
+          where: { tenant: { name: { not: 'NEXORA_SAAS_PLATFORM' } } },
+          data: {
+            ...(dto.autoEmailHabilitado !== undefined ? { autoEmailHabilitado: dto.autoEmailHabilitado } : {}),
+            ...(dto.autoWhatsAppHabilitado !== undefined ? { autoWhatsAppHabilitado: dto.autoWhatsAppHabilitado } : {}),
+          },
+        }).catch(() => null);
+      }
+
       this.logger.log('Configuración del negocio actualizada');
 
       // Propagar campos visuales de landing a todos los demás tenants
