@@ -14,16 +14,16 @@ import { SeasonTipo } from '@prisma/client';
 
 export class UpdateBusinessConfigDto {
   @IsString()
-  @IsNotEmpty()
-  nombre!: string;
+  @IsOptional()
+  nombre?: string;
 
   @IsString()
-  @IsNotEmpty()
-  ruc!: string;
+  @IsOptional()
+  ruc?: string;
 
   @IsString()
-  @IsNotEmpty()
-  direccion!: string;
+  @IsOptional()
+  direccion?: string;
 
   @IsString()
   @IsOptional()
@@ -69,6 +69,10 @@ export class UpdateBusinessConfigDto {
   autoEmailHabilitado?: boolean;
 
   // ── Facturación Electrónica SRI (Fase 12) ──
+
+  @IsString()
+  @IsOptional()
+  sriRazonSocial?: string; // Razón Social del contribuyente (Exclusivo Facturación SRI)
 
   @IsString()
   @IsOptional()

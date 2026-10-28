@@ -123,6 +123,7 @@ export class ConfiguracionService {
       ...config,
       tenantId: targetTenantId,
       nombre: nombreNegocio,
+      sriRazonSocial: config.sriRazonSocial || '',
       ruc: config.ruc ? this.encryption.decrypt(config.ruc) : '',
       estrategiaComercialTipo: config.estrategiaComercialTipo || 'ESTANDAR',
       margenMinimoDinamico: Number(config.margenMinimoDinamico ?? 25),
@@ -153,8 +154,8 @@ export class ConfiguracionService {
       targetTenantId = createdTenant.id;
     }
 
-    // Verificar nombre duplicado al actualizar (insensible a mayúsculas)
-    if (dto.nombre && dto.nombre.trim()) {
+    // Verificar nombre duplicado al actualizar (insensible a mayúsculas) solo si se modifica el nombre comercial
+    if (dto.nombre && dto.nombre.trim() && dto.sriRazonSocial === undefined) {
       const duplicateName = await this.prisma.tenant.findFirst({
         where: {
           name: { equals: dto.nombre.trim(), mode: 'insensitive' },
@@ -166,19 +167,25 @@ export class ConfiguracionService {
       }
     }
 
-    const encryptedRuc = dto.ruc ? this.encryption.encrypt(dto.ruc) : '';
+    const encryptedRuc = dto.ruc !== undefined ? (dto.ruc ? this.encryption.encrypt(dto.ruc) : '') : undefined;
     const existing = await this.prisma.businessConfig.findUnique({ where: { tenantId: targetTenantId } });
 
     // Construir data excluyendo campos que no deben ir directo
-    const data: any = {
-      nombre: dto.nombre,
-      ruc: encryptedRuc,
-      direccion: dto.direccion,
-      telefono: dto.telefono,
-      email: dto.email,
-      logoUrl: dto.logoUrl,
-      primaryColor: dto.primaryColor,
-    };
+    const data: any = {};
+    if (dto.nombre !== undefined && dto.sriRazonSocial === undefined) {
+      data.nombre = dto.nombre;
+    }
+    if (dto.sriRazonSocial !== undefined) {
+      data.sriRazonSocial = dto.sriRazonSocial;
+    }
+    if (encryptedRuc !== undefined) {
+      data.ruc = encryptedRuc;
+    }
+    if (dto.direccion !== undefined) data.direccion = dto.direccion;
+    if (dto.telefono !== undefined) data.telefono = dto.telefono;
+    if (dto.email !== undefined) data.email = dto.email;
+    if (dto.logoUrl !== undefined) data.logoUrl = dto.logoUrl;
+    if (dto.primaryColor !== undefined) data.primaryColor = dto.primaryColor;
 
     if (dto.horaInicioOperativa !== undefined) data.horaInicioOperativa = dto.horaInicioOperativa;
     if (dto.horaFinOperativa !== undefined) data.horaFinOperativa = dto.horaFinOperativa;
@@ -231,7 +238,7 @@ export class ConfiguracionService {
         data,
       });
 
-      if (dto.nombre && targetTenantId) {
+      if (dto.nombre && targetTenantId && dto.sriRazonSocial === undefined) {
         await this.prisma.tenant.update({
           where: { id: targetTenantId },
           data: { name: dto.nombre },
@@ -247,10 +254,14 @@ export class ConfiguracionService {
     }
 
     const created = await this.prisma.businessConfig.create({
-      data: { ...data, tenantId: targetTenantId },
+      data: {
+        ...data,
+        nombre: data.nombre || 'Local Comercial',
+        tenantId: targetTenantId,
+      },
     });
 
-    if (dto.nombre && targetTenantId) {
+    if (dto.nombre && targetTenantId && dto.sriRazonSocial === undefined) {
       await this.prisma.tenant.update({
         where: { id: targetTenantId },
         data: { name: dto.nombre },

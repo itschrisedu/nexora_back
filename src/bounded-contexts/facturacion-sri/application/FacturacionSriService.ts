@@ -66,7 +66,7 @@ export class FacturacionSriService {
       fechaEmision: this.formatearFecha(datosVenta.fecha),
       emisor: {
         ruc: config.rucDescifrado,
-        razonSocial: config.nombre,
+        razonSocial: (config as any).sriRazonSocial?.trim() || config.nombre,
         nombreComercial: config.nombre,
         dirMatriz: config.direccion,
         dirEstablecimiento: config.direccion,
