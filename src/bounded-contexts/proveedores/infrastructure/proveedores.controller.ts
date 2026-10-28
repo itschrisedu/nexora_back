@@ -49,6 +49,11 @@ import {
 } from '../../../shared/utils/text-formatters';
 import { validarRuc, validarCedula } from '../../../shared/utils/ecuador-validators';
 
+/**
+ * Controlador REST para la gestión de talleres artesanales y proveedores de calzado.
+ * Expone endpoints para el catálogo de fabricantes, generación de órdenes de compra,
+ * recepción física de mercadería en bodega y liquidación de pagos.
+ */
 @Controller('proveedores')
 @UseGuards(JwtAuthGuard, RolesGuard)
 export class ProveedoresController {

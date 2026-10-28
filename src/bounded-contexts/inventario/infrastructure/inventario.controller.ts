@@ -57,6 +57,12 @@ import { CloudinaryService } from '../../../shared/infrastructure/cloudinary/clo
 import { EncryptionService } from '../../../shared/infrastructure/encryption/encryption.service';
 import { generarSiglaProveedor } from '../../../shared/utils/text-formatters';
 
+/**
+ * Controlador REST para la gestión integral del inventario de calzado.
+ * Expone endpoints protegidos con autenticación JWT y autorización basada en roles (RBAC).
+ * Gestiona modelos, variantes de color, curvas de tallas, valoración FIFO de lotes,
+ * movimientos de entrada y salida, transferencias entre sucursales y alertas de reposición.
+ */
 @Controller('inventario')
 @UseGuards(JwtAuthGuard, RolesGuard)
 export class InventarioController {

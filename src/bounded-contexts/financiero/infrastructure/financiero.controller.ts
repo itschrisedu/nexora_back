@@ -16,6 +16,11 @@ import { RegistrarAbonoHandler } from '../application/commands/RegistrarAbono.ha
 import { RegistrarPagoProveedorHandler } from '../application/commands/RegistrarPagoProveedor.handler';
 import { FinancieroQueryService } from '../application/queries/FinancieroQueryService';
 
+/**
+ * Controlador REST para el control financiero, cobros y cuentas por pagar.
+ * Provee endpoints para el registro de abonos a carteras de clientes,
+ * amortización de deudas con proveedores de calzado y resúmenes de liquidez.
+ */
 @Controller('financiero')
 @UseGuards(JwtAuthGuard, RolesGuard)
 export class FinancieroController {

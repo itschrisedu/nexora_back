@@ -47,7 +47,11 @@ import { ComercialQueryService } from '../application/queries/ComercialQueryServ
 import { PrismaService } from '../../../shared/infrastructure/prisma/prisma.service';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 
-// Controlador REST para gestionar operaciones comerciales y pedidos.
+/**
+ * Controlador REST para el ciclo de comercialización y pedidos de calzado.
+ * Expone endpoints para la recepción de pedidos comerciales, alistamiento en bodega,
+ * despacho en tránsito, confirmación de entregas, cancelaciones y notas de entrega internas.
+ */
 @Controller('pedidos')
 @UseGuards(JwtAuthGuard, RolesGuard)
 export class PedidosController {

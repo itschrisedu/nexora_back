@@ -43,6 +43,11 @@ import {
   formatearDireccion,
 } from '../../../shared/utils/text-formatters';
 
+/**
+ * Controlador REST para la gestión de clientes y scoring crediticio progresivo.
+ * Administra el registro con validación de cédula ecuatoriana, actualización de perfiles,
+ * consulta de historiales de compras y atrasos, y ajustes administrativos de cupo.
+ */
 @Controller('clientes')
 @UseGuards(JwtAuthGuard, RolesGuard)
 export class ClientesController {
