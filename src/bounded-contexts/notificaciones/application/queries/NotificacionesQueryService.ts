@@ -721,13 +721,16 @@ export class NotificacionesQueryService {
     },
     tenantId?: string,
   ) {
-    const configs = await this.prisma.businessConfig.findMany({
-      where: { tenant: { name: { not: 'NEXORA_SAAS_PLATFORM' } } },
-      select: { autoEmailHabilitado: true },
-    });
-    if (configs.length > 0 && configs.some((c) => c.autoEmailHabilitado === false)) {
-      this.logger.log(`Envío automático de correo deshabilitado (autoEmailHabilitado = false).`);
-      return { ok: false, deshabilitado: true, mensaje: 'Envío de correos automáticos deshabilitado en configuración' };
+    // Las facturas electrónicas autorizadas siempre se despachan al comprador; los demás tipos respetan el switch
+    if (tipo !== 'FACTURA') {
+      const configs = await this.prisma.businessConfig.findMany({
+        where: { tenant: { name: { not: 'NEXORA_SAAS_PLATFORM' } } },
+        select: { autoEmailHabilitado: true },
+      });
+      if (configs.length > 0 && configs.some((c) => c.autoEmailHabilitado === false)) {
+        this.logger.log(`Envío automático de correo deshabilitado (autoEmailHabilitado = false).`);
+        return { ok: false, deshabilitado: true, mensaje: 'Envío de correos automáticos deshabilitado en configuración' };
+      }
     }
 
     const { destinatario, asunto, tipo, cuerpoHtml, detalles } = params;
