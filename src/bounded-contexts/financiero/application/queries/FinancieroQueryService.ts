@@ -208,6 +208,27 @@ export class FinancieroQueryService {
       orderBy: { createdAt: 'desc' },
     });
 
+    // 2.1 Obtener facturas electrónicas asociadas a las notas de venta
+    const saleNoteIds = cobros.map((c) => c.saleNoteId).filter(Boolean) as string[];
+    let facturasMap = new Map<string, any>();
+    if (saleNoteIds.length > 0) {
+      try {
+        const facturasSri = await this.prisma.facturaElectronica.findMany({
+          where: { saleNoteId: { in: saleNoteIds } },
+          select: {
+            id: true,
+            saleNoteId: true,
+            numeroComprobante: true,
+            claveAcceso: true,
+            estadoSri: true,
+          },
+        });
+        facturasMap = new Map(facturasSri.map((f) => [f.saleNoteId, f]));
+      } catch (errFactura) {
+        // En caso de que la tabla aún no exista o falle la consulta
+      }
+    }
+
     const clientIds = [...new Set(cobros.map((c) => c.clientId).filter(Boolean))];
     const clients = await this.prisma.client.findMany({
       where: { id: { in: clientIds } },
@@ -452,6 +473,7 @@ export class FinancieroQueryService {
         costoEnvio: order?.costoEnvio ? Number(order.costoEnvio) : 0,
         notasPedido: order?.notas || null,
         lines: finalLines,
+        facturaSri: cobro.saleNoteId ? facturasMap.get(cobro.saleNoteId) || null : null,
       };
     });
   }

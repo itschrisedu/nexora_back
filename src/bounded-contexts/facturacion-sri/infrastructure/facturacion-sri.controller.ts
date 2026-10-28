@@ -46,7 +46,7 @@ export class FacturacionSriController {
    * Listar todas las facturas electrónicas del tenant
    */
   @Get('facturas')
-  @Roles(Rol.ROL_ADMIN)
+  @Roles(Rol.ROL_ADMIN, Rol.ROL_VENDEDOR)
   async listarFacturas(@Req() req: any) {
     return this.facturacionService.listarFacturas(req.user.tenantId);
   }
