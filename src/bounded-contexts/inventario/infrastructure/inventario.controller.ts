@@ -386,6 +386,7 @@ export class InventarioController {
       dto.motivo,
       dto.referenceId ?? null,
       req.user.sub,
+      dto.precioCosto,
     );
     await this.aumentarStockHandler.execute(command);
     return { message: 'Stock incrementado exitosamente' };
@@ -410,6 +411,30 @@ export class InventarioController {
     const finalUnitCost = (dto.precioCosto !== undefined && Number(dto.precioCosto) > 0)
       ? Number(dto.precioCosto)
       : defaultUnitCost;
+
+    const currentCost = Number(producto.costPrice.amount);
+    const currentSale = Number(producto.salePrice.amount);
+    const costChanged = Math.abs(finalUnitCost - currentCost) > 0.001;
+    const isUnderpriced = currentSale <= finalUnitCost;
+
+    if (costChanged || isUnderpriced) {
+      let marginPct = 0.25;
+      if (currentSale > currentCost && currentCost > 0) {
+        marginPct = (currentSale - currentCost) / currentSale;
+      }
+      marginPct = Math.max(0.15, Math.min(0.50, marginPct));
+      let newSalePrice = Number((finalUnitCost / (1 - marginPct)).toFixed(2));
+      if (newSalePrice <= finalUnitCost) {
+        newSalePrice = Number((finalUnitCost * 1.25).toFixed(2));
+      }
+
+      producto.cambiarPrecio(
+        Money.create(finalUnitCost),
+        Money.create(newSalePrice),
+        req.user?.sub || 'SISTEMA',
+        dto.motivo || `Actualización automática por entrada de lote (Costo: $${finalUnitCost})`,
+      );
+    }
 
     await this.prisma.$transaction(async (tx) => {
       for (const item of dto.items) {
@@ -439,6 +464,17 @@ export class InventarioController {
         });
       }
       await this.productoRepository.update(producto);
+
+      if (costChanged || isUnderpriced) {
+        await this.fifoService.sincronizarHermanosMismoModelo({
+          modelId: producto.modelId,
+          sourceProductId: id,
+          nuevoCosto: finalUnitCost,
+          userId: req.user?.sub,
+          motivo: dto.motivo || `Sincronización automática por entrada de lote ($${finalUnitCost})`,
+          tx,
+        });
+      }
     });
 
     return { message: 'Entrada multiformato por serie/lote registrada exitosamente', unitCost: finalUnitCost };

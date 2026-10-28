@@ -4,6 +4,7 @@ import { AumentarStockCommand } from './AumentarStock.command';
 import { PrismaService } from '../../../../shared/infrastructure/prisma/prisma.service';
 import { MovimientoTipo } from '@prisma/client';
 import { FifoInventoryService } from '../services/FifoInventoryService';
+import { Money } from '../../../../shared/domain/Money';
 
 @Injectable()
 export class AumentarStockHandler {
@@ -156,7 +157,43 @@ export class AumentarStockHandler {
       referenceId: command.referenceId ?? command.motivo,
     });
 
-    // 8. Persistir cambios en el agregador
+    // 8. Actualizar costo y precio de venta (con margen de ganancia) si el costo cambió o se vende por debajo
+    const currentCost = Number(producto.costPrice.amount);
+    const currentSale = Number(producto.salePrice.amount);
+    const costChanged = Math.abs(finalUnitCost - currentCost) > 0.001;
+    const isUnderpriced = currentSale <= finalUnitCost;
+
+    if (costChanged || isUnderpriced) {
+      let marginPct = 0.25; // 25% margen comercial estándar (Cevallos)
+      if (currentSale > currentCost && currentCost > 0) {
+        marginPct = (currentSale - currentCost) / currentSale;
+      }
+      marginPct = Math.max(0.15, Math.min(0.50, marginPct));
+      let newSalePrice = Number((finalUnitCost / (1 - marginPct)).toFixed(2));
+      if (newSalePrice <= finalUnitCost) {
+        newSalePrice = Number((finalUnitCost * 1.25).toFixed(2));
+      }
+
+      producto.cambiarPrecio(
+        Money.create(finalUnitCost),
+        Money.create(newSalePrice),
+        command.userId || 'SYSTEM',
+        `Actualización automática por nuevo lote FIFO (Costo: $${finalUnitCost}, Venta: $${newSalePrice})`,
+      );
+    }
+
+    // 9. Persistir cambios en el agregador
     await this.productoRepository.update(producto);
+
+    // 10. Sincronizar nuevo costo y precio sugerido en todos los colores del mismo modelo
+    if (costChanged || isUnderpriced) {
+      await this.fifoService.sincronizarHermanosMismoModelo({
+        modelId: producto.modelId,
+        sourceProductId: realProductId,
+        nuevoCosto: finalUnitCost,
+        userId: command.userId,
+        motivo: `Sincronización automática por nuevo lote ingresado ($${finalUnitCost})`,
+      });
+    }
   }
 }

@@ -57,6 +57,11 @@ function encryptData(text) {
 }
 async function main() {
     console.log('🌱 Iniciando Seed Completo para NEXORA...\n');
+    try {
+        await prisma.$executeRawUnsafe('ALTER TABLE "business_configs" ADD COLUMN IF NOT EXISTS "sriRegimen" TEXT DEFAULT \'RIMPE_POPULAR\';');
+        await prisma.$executeRawUnsafe('ALTER TABLE "business_configs" ADD COLUMN IF NOT EXISTS "sriRazonSocial" TEXT;');
+    }
+    catch (e) { }
     // ══════════════════════════════
     // 1. SUPER ADMINISTRADORES
     // ══════════════════════════════

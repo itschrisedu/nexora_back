@@ -270,4 +270,79 @@ export class FifoInventoryService {
       })),
     };
   }
+
+  /**
+   * Sincroniza el nuevo costo y el precio de venta sugerido (con margen comercial)
+   * en todos los demás colores / variantes del mismo modelo para que las próximas compras,
+   * sugerencias de ingreso y ventas mantengan la coherencia y rentabilidad.
+   */
+  async sincronizarHermanosMismoModelo(params: {
+    modelId?: string | null;
+    sourceProductId: string;
+    nuevoCosto: number;
+    userId?: string;
+    motivo?: string;
+    tx?: any;
+  }) {
+    const { modelId, sourceProductId, nuevoCosto, userId = 'SISTEMA', motivo, tx } = params;
+    if (!modelId || !nuevoCosto || nuevoCosto <= 0) return;
+
+    const db = tx || this.prisma;
+
+    try {
+      const hermanos = await db.product.findMany({
+        where: {
+          modelId,
+          id: { not: sourceProductId },
+          active: true,
+        },
+      });
+
+      for (const h of hermanos) {
+        const hCost = Number(h.costPrice);
+        const hSale = Number(h.salePrice);
+        const costChanged = Math.abs(nuevoCosto - hCost) > 0.001;
+        const isUnderpriced = hSale <= nuevoCosto;
+
+        if (costChanged || isUnderpriced) {
+          let hMargin = 0.25;
+          if (hSale > hCost && hCost > 0) {
+            hMargin = (hSale - hCost) / hSale;
+          }
+          hMargin = Math.max(0.15, Math.min(0.50, hMargin));
+          let hNewSale = Number((nuevoCosto / (1 - hMargin)).toFixed(2));
+          if (hNewSale <= nuevoCosto) {
+            hNewSale = Number((nuevoCosto * 1.25).toFixed(2));
+          }
+
+          await db.priceHistory.create({
+            data: {
+              productId: h.id,
+              previousCostPrice: hCost,
+              previousSalePrice: hSale,
+              newCostPrice: nuevoCosto,
+              newSalePrice: hNewSale,
+              changedById: userId,
+              reason: motivo || `Sincronización automática por nuevo costo del modelo ($${nuevoCosto})`,
+              createdAt: new Date(),
+            },
+          });
+
+          await db.product.update({
+            where: { id: h.id },
+            data: {
+              costPrice: nuevoCosto,
+              salePrice: hNewSale,
+            },
+          });
+
+          this.logger.log(
+            `🎨 Variante sincronizada [Modelo ${modelId}, Color ${h.color}]: Costo $${hCost} -> $${nuevoCosto}, Venta $${hSale} -> $${hNewSale}`,
+          );
+        }
+      }
+    } catch (err: any) {
+      this.logger.error(`Error al sincronizar variantes del modelo ${modelId}: ${err?.message || err}`);
+    }
+  }
 }

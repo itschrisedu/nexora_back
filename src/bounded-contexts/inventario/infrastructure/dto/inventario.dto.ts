@@ -179,6 +179,11 @@ export class MovimientoStockDto {
   @IsString()
   @IsOptional()
   referenceId?: string;
+
+  @IsNumber()
+  @Min(0.01)
+  @IsOptional()
+  precioCosto?: number;
 }
 
 // ── Buscar productos ──
