@@ -44,6 +44,7 @@ export class ConfiguracionController {
   // BUSINESS CONFIG
   // ══════════════════════════════
 
+  
   @Get('negocio')
   @Roles(Rol.ROL_ADMIN, Rol.ROL_SUPER_ADMIN, Rol.ROL_VENDEDOR, Rol.ROL_BODEGUERO)
   async getBusinessConfig(@Req() req: any, @Query('tenantId') queryTenantId?: string) {
