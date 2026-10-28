@@ -148,7 +148,7 @@ export class AumentarStockHandler {
       ? command.precioCosto
       : Number(producto.costPrice.amount);
 
-    await this.fifoService.registrarLoteEntrada({
+    const nuevoLote = await this.fifoService.registrarLoteEntrada({
       productId: realProductId,
       tallaId: targetTallaId,
       cantidad: command.cantidad,
@@ -157,13 +157,24 @@ export class AumentarStockHandler {
       referenceId: command.referenceId ?? command.motivo,
     });
 
-    // 8. Actualizar costo y precio de venta (con margen de ganancia) si el costo cambió o se vende por debajo
+    // 8. Enfoque FIFO (Opción B):
+    // Verificamos si ya existían lotes anteriores con stock disponible para este producto
+    const lotesPreviosConSaldo = await this.prisma.inventoryLot.count({
+      where: {
+        productId: realProductId,
+        remainingQuantity: { gt: 0 },
+        ...(nuevoLote?.id ? { id: { not: nuevoLote.id } } : {}),
+      },
+    });
+
     const currentCost = Number(producto.costPrice.amount);
     const currentSale = Number(producto.salePrice.amount);
     const costChanged = Math.abs(finalUnitCost - currentCost) > 0.001;
     const isUnderpriced = currentSale <= finalUnitCost;
 
-    if (costChanged || isUnderpriced) {
+    // Solo si NO existen lotes previos con saldo (stock 0), se activa de inmediato el nuevo precio de venta.
+    // Si todavía quedan lotes anteriores con saldo, se preserva el precio actual para que se vendan primero.
+    if ((costChanged || isUnderpriced) && lotesPreviosConSaldo === 0) {
       let marginPct = 0.25; // 25% margen comercial estándar (Cevallos)
       if (currentSale > currentCost && currentCost > 0) {
         marginPct = (currentSale - currentCost) / currentSale;
@@ -185,7 +196,7 @@ export class AumentarStockHandler {
     // 9. Persistir cambios en el agregador
     await this.productoRepository.update(producto);
 
-    // 10. Sincronizar nuevo costo y precio sugerido en todos los colores del mismo modelo
+    // 10. Sincronizar nuevo costo sugerido en los demás colores del modelo
     if (costChanged || isUnderpriced) {
       await this.fifoService.sincronizarHermanosMismoModelo({
         modelId: producto.modelId,

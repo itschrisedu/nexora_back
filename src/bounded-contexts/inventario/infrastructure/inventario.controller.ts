@@ -412,12 +412,22 @@ export class InventarioController {
       ? Number(dto.precioCosto)
       : defaultUnitCost;
 
+    // Enfoque FIFO (Opción B):
+    // Verificamos si ya existían lotes anteriores con stock disponible para este producto
+    const lotesPreviosConSaldo = await this.prisma.inventoryLot.count({
+      where: {
+        productId: id,
+        remainingQuantity: { gt: 0 },
+      },
+    });
+
     const currentCost = Number(producto.costPrice.amount);
     const currentSale = Number(producto.salePrice.amount);
     const costChanged = Math.abs(finalUnitCost - currentCost) > 0.001;
     const isUnderpriced = currentSale <= finalUnitCost;
 
-    if (costChanged || isUnderpriced) {
+    // Solo si NO existen lotes previos con saldo (stock 0), se activa de inmediato el nuevo precio de venta.
+    if ((costChanged || isUnderpriced) && lotesPreviosConSaldo === 0) {
       let marginPct = 0.25;
       if (currentSale > currentCost && currentCost > 0) {
         marginPct = (currentSale - currentCost) / currentSale;

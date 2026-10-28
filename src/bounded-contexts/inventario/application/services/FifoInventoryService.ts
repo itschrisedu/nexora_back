@@ -135,6 +135,72 @@ export class FifoInventoryService {
       });
     }
 
+    // 3. FASE FIFO (Opción B): Si el lote anterior se agotó en esta salida,
+    // transicionar automáticamente el precio de venta al siguiente lote FIFO activo.
+    try {
+      const loteActivoVigente = await db.inventoryLot.findFirst({
+        where: {
+          productId: dto.productId,
+          remainingQuantity: { gt: 0 },
+        },
+        orderBy: { entryDate: 'asc' },
+      });
+
+      if (loteActivoVigente) {
+        const nuevoCostoActivo = Number(loteActivoVigente.unitCost);
+        const prod = await db.product.findUnique({
+          where: { id: dto.productId },
+          select: { id: true, costPrice: true, salePrice: true, modelId: true },
+        });
+
+        if (prod && nuevoCostoActivo > 0) {
+          const currentCost = Number(prod.costPrice);
+          const currentSale = Number(prod.salePrice);
+          const costChanged = Math.abs(nuevoCostoActivo - currentCost) > 0.001;
+          const isUnderpriced = currentSale <= nuevoCostoActivo;
+
+          if (costChanged || isUnderpriced) {
+            let marginPct = 0.25;
+            if (currentSale > currentCost && currentCost > 0) {
+              marginPct = (currentSale - currentCost) / currentSale;
+            }
+            marginPct = Math.max(0.15, Math.min(0.50, marginPct));
+            let newSalePrice = Number((nuevoCostoActivo / (1 - marginPct)).toFixed(2));
+            if (newSalePrice <= nuevoCostoActivo) {
+              newSalePrice = Number((nuevoCostoActivo * 1.25).toFixed(2));
+            }
+
+            await db.product.update({
+              where: { id: prod.id },
+              data: {
+                costPrice: nuevoCostoActivo,
+                salePrice: newSalePrice,
+              },
+            });
+
+            await db.priceHistory.create({
+              data: {
+                productId: prod.id,
+                previousCostPrice: prod.costPrice,
+                previousSalePrice: prod.salePrice,
+                newCostPrice: nuevoCostoActivo,
+                newSalePrice: newSalePrice,
+                changedById: 'FIFO_AUTO_TRANSITION',
+                reason: `Transición automática FIFO: Agotado lote anterior ($${currentCost}). Activado lote vigente a costo $${nuevoCostoActivo} con PVP $${newSalePrice}`,
+                createdAt: new Date(),
+              },
+            });
+
+            this.logger.log(
+              `🔄 [Transición FIFO] Producto ${prod.id}: Agotado lote previo ($${currentCost}). Activado nuevo lote -> Costo: $${nuevoCostoActivo}, Nuevo PVP: $${newSalePrice}`,
+            );
+          }
+        }
+      }
+    } catch (err) {
+      this.logger.warn(`Error en transición automática FIFO de precio para producto ${dto.productId}:`, err);
+    }
+
     const totalCosto = consumos.reduce((acc, c) => acc + c.unitCost * c.quantity, 0);
     const costoPromedioPonderado = dto.cantidad > 0 ? Number((totalCosto / dto.cantidad).toFixed(2)) : 0;
 
@@ -299,6 +365,20 @@ export class FifoInventoryService {
       });
 
       for (const h of hermanos) {
+        // En Opción B: Si el hermano tiene lotes anteriores con stock disponible > 0,
+        // no le cambiamos el precio de venta en vitrina todavía. Se esperará a que se agoten sus lotes.
+        const saldoLotesH = await db.inventoryLot.count({
+          where: {
+            productId: h.id,
+            remainingQuantity: { gt: 0 },
+          },
+        });
+
+        if (saldoLotesH > 0) {
+          // Tiene stock disponible de lotes anteriores: no sobreescribir su precio de venta en mostrador
+          continue;
+        }
+
         const hCost = Number(h.costPrice);
         const hSale = Number(h.salePrice);
         const costChanged = Math.abs(nuevoCosto - hCost) > 0.001;
