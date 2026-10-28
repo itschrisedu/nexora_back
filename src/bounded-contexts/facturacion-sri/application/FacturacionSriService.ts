@@ -81,25 +81,34 @@ export class FacturacionSriService {
         direccion: datosVenta.comprador.direccion || '',
         email: datosVenta.comprador.email || '',
       },
-      detalles: datosVenta.detalles.map((d) => ({
-        codigoPrincipal: d.codigoProducto,
-        descripcion: d.descripcion,
-        cantidad: d.cantidad,
-        precioUnitario: d.precioUnitario,
-        descuento: d.descuento || 0,
-        impuestos: [
-          {
-            codigo: '2', // IVA
-            codigoPorcentaje: d.codigoIva || '0', // 0=0%, 2=12%, 4=15%
-            tarifa: d.tarifaIva || 0,
-            baseImponible: d.cantidad * d.precioUnitario - (d.descuento || 0),
-            valor:
-              ((d.cantidad * d.precioUnitario - (d.descuento || 0)) *
-                (d.tarifaIva || 0)) /
-              100,
-          },
-        ],
-      })),
+      detalles: datosVenta.detalles.map((d) => {
+        const tarifaNum = Number(d.tarifaIva ?? 0);
+        let codigoPorcentaje = d.codigoIva || (tarifaNum === 0 ? '0' : '4');
+        if (tarifaNum === 0) {
+          codigoPorcentaje = '0';
+        } else if (tarifaNum === 15) {
+          codigoPorcentaje = '4';
+        } else if (tarifaNum === 12) {
+          codigoPorcentaje = '2';
+        }
+        return {
+          codigoPrincipal: d.codigoProducto,
+          descripcion: d.descripcion,
+          cantidad: d.cantidad,
+          precioUnitario: d.precioUnitario,
+          descuento: d.descuento || 0,
+          impuestos: [
+            {
+              codigo: '2', // IVA
+              codigoPorcentaje,
+              tarifa: tarifaNum,
+              baseImponible: d.cantidad * d.precioUnitario - (d.descuento || 0),
+              valor:
+                ((d.cantidad * d.precioUnitario - (d.descuento || 0)) * tarifaNum) / 100,
+            },
+          ],
+        };
+      }),
       pagos: [
         {
           formaPago: datosVenta.formaPago || '01', // 01=Efectivo
