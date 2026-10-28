@@ -168,21 +168,27 @@ export class FacturacionSriService {
 
       return updated;
     } catch (error: any) {
+      const detalleError =
+        error.response?.data?.error ||
+        error.response?.data?.message ||
+        (typeof error.response?.data === 'string' ? error.response.data : null) ||
+        error.message;
+
       // Registrar el error en la factura
       await this.prisma.facturaElectronica.update({
         where: { id: factura.id },
         data: {
           estadoSri: 'RECHAZADO',
-          errorMensaje: error.response?.data?.message || error.message,
+          errorMensaje: detalleError,
         },
       });
 
       this.logger.error(
-        `Error al emitir factura ${numeroComprobante}: ${error.message}`,
+        `Error al emitir factura ${numeroComprobante}: ${detalleError}`,
       );
 
       throw new InternalServerErrorException(
-        `Error al comunicarse con el servicio SRI: ${error.response?.data?.message || error.message}`,
+        `Error al comunicarse con el servicio SRI: ${detalleError}`,
       );
     }
   }
