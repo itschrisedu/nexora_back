@@ -247,6 +247,16 @@ export class ConfiguracionController {
     );
   }
 
+  /**
+   * DELETE /configuracion/sri/firma-p12
+   * Elimina el archivo y credenciales de la firma electrónica.
+   */
+  @Delete('sri/firma-p12')
+  @Roles(Rol.ROL_ADMIN)
+  async eliminarFirmaP12(@Req() req: any) {
+    return this.configuracionService.eliminarFirmaP12(req.user.tenantId);
+  }
+
   // ══════════════════════════════
   // SUCURSALES (Multi-Sucursal por Empresa)
   // ══════════════════════════════

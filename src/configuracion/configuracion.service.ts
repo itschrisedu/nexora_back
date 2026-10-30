@@ -535,6 +535,37 @@ export class ConfiguracionService {
     return { ...updated, firmaPasswordEnc: undefined, tieneP12: true };
   }
 
+  /**
+   * Elimina el archivo y credenciales de firma electrónica del negocio
+   */
+  async eliminarFirmaP12(tenantId: string) {
+    const config = await this.prisma.businessConfig.findUnique({ where: { tenantId } });
+    if (!config) {
+      throw new NotFoundException('Configuración del negocio no encontrada');
+    }
+
+    if (config.firmaP12Path && !config.firmaP12Path.startsWith('base64:')) {
+      try {
+        if (fs.existsSync(config.firmaP12Path)) {
+          fs.unlinkSync(config.firmaP12Path);
+        }
+      } catch (err: any) {
+        this.logger.warn(`No se pudo eliminar archivo físico de firma: ${err.message}`);
+      }
+    }
+
+    const updated = await this.prisma.businessConfig.update({
+      where: { id: config.id },
+      data: {
+        firmaP12Path: null,
+        firmaPasswordEnc: null,
+      },
+    });
+
+    this.logger.log(`Firma electrónica eliminada para tenant ${tenantId}`);
+    return { success: true, tieneP12: false };
+  }
+
   // ══════════════════════════════
   // SEASONS (Temporadas)
   // ══════════════════════════════
