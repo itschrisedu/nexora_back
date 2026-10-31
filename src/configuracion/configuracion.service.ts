@@ -1,3 +1,16 @@
+function extractFirmaNombre(p12Path?: string | null): string {
+  if (!p12Path) return '';
+  const match = p12Path.match(/name=([^;]+)/);
+  if (match) {
+    try {
+      return decodeURIComponent(match[1]);
+    } catch {
+      return match[1];
+    }
+  }
+  return 'FirmaSegura-1804884664-CHRISTOPHER_ED';
+}
+
 import {
   Injectable,
   Logger,
@@ -98,6 +111,39 @@ export class ConfiguracionService {
       }
     }
 
+    // Herencia tributaria SRI: Si la sucursal no tiene firma propia o RUC, heredar de la Matriz Principal
+    let firmaInheritedPath = config?.firmaP12Path || null;
+    let firmaInheritedPassword = config?.firmaPasswordEnc || null;
+    let rucInherited = config?.ruc || null;
+    let razonSocialInherited = config?.sriRazonSocial || null;
+    let ambienteInherited = config?.sriAmbiente || '1';
+    let regimenInherited = config?.sriRegimen || 'RIMPE_POPULAR';
+
+    if (!firmaInheritedPath) {
+      // Buscar la configuración de la Matriz del admin general
+      const matrizUser = await this.prisma.user.findFirst({
+        where: {
+          OR: [
+            { tenantId: targetTenantId, parentId: { not: null } },
+            { esAdminGeneral: true },
+          ],
+        },
+        include: { parent: { include: { tenant: { include: { businessConfig: true } } } } },
+      });
+      const matrizConfig = matrizUser?.parent?.tenant?.businessConfig || await this.prisma.businessConfig.findFirst({
+        where: { firmaP12Path: { not: null } },
+      });
+
+      if (matrizConfig?.firmaP12Path) {
+        firmaInheritedPath = matrizConfig.firmaP12Path;
+        firmaInheritedPassword = matrizConfig.firmaPasswordEnc;
+        if (!rucInherited) rucInherited = matrizConfig.ruc;
+        if (!razonSocialInherited) razonSocialInherited = matrizConfig.sriRazonSocial;
+        ambienteInherited = matrizConfig.sriAmbiente || ambienteInherited;
+        regimenInherited = matrizConfig.sriRegimen || regimenInherited;
+      }
+    }
+
     const nombreNegocio = config?.nombre || tenant?.name || 'Local Comercial';
 
     if (!config) {
@@ -118,19 +164,25 @@ export class ConfiguracionService {
       };
     }
 
+    const rucFinal = rucInherited ? this.encryption.decrypt(rucInherited) : (config.ruc ? this.encryption.decrypt(config.ruc) : '');
+    const firmaNombreFinal = extractFirmaNombre(firmaInheritedPath);
+
     return {
       ...config,
       tenantId: targetTenantId,
       nombre: nombreNegocio,
-      sriRazonSocial: config.sriRazonSocial || '',
-      ruc: config.ruc ? this.encryption.decrypt(config.ruc) : '',
+      sriRazonSocial: razonSocialInherited || config.sriRazonSocial || '',
+      sriAmbiente: ambienteInherited || config.sriAmbiente || '1',
+      sriRegimen: regimenInherited || config.sriRegimen || 'RIMPE_POPULAR',
+      ruc: rucFinal,
       estrategiaComercialTipo: config.estrategiaComercialTipo || 'ESTANDAR',
       margenMinimoDinamico: Number(config.margenMinimoDinamico ?? 25),
       temporadaComercial: config.temporadaComercial || 'AUTO',
       descuentoTemporadaBaja: Number(config.descuentoTemporadaBaja ?? 10),
       diasRotacionTemporadaBaja: Number(config.diasRotacionTemporadaBaja ?? 30),
-      firmaPasswordEnc: undefined, // Nunca enviar contraseña cifrada al frontend
-      tieneP12: !!config.firmaP12Path, // Indicador booleano para el frontend
+      firmaPasswordEnc: undefined,
+      tieneP12: !!firmaInheritedPath,
+      firmaNombre: firmaNombreFinal,
     };
   }
 
@@ -504,20 +556,29 @@ export class ConfiguracionService {
   /**
    * Guarda la ruta del archivo .p12 (o su contenido en base64 para persistencia en nube) y su contraseña cifrada con AES-256
    */
-  async guardarFirmaP12(tenantId: string, filePath: string, password: string) {
-    const config = await this.prisma.businessConfig.findUnique({ where: { tenantId } });
+  async guardarFirmaP12(tenantId: string, filePath: string, password: string, originalName?: string) {
+    let config = await this.prisma.businessConfig.findUnique({ where: { tenantId } });
     if (!config) {
-      throw new NotFoundException('Configuración del negocio no encontrada. Cree la configuración primero.');
+      const tenant = await this.prisma.tenant.findUnique({ where: { id: tenantId } });
+      config = await this.prisma.businessConfig.create({
+        data: {
+          tenantId,
+          nombre: tenant?.name || 'Local Comercial',
+          direccion: 'Cevallos, Tungurahua',
+          ruc: this.encryption.encrypt('0000000000001'),
+        },
+      });
     }
 
     const encryptedPassword = this.encryption.encrypt(password);
+    const safeName = originalName ? originalName.replace(/[^\w\.\-\_]/g, '_') : 'FirmaSegura-1804884664-CHRISTOPHER_ED.p12';
 
-    // Leer el archivo .p12 y guardarlo como Base64 en la base de datos para persistencia total ante reinicios de contenedor
+    // Leer el archivo .p12 y guardarlo como Base64 con metadato de nombre en la base de datos
     let p12Data = filePath;
     try {
       if (fs.existsSync(filePath)) {
         const buffer = fs.readFileSync(filePath);
-        p12Data = `base64:${buffer.toString('base64')}`;
+        p12Data = `data:name=${encodeURIComponent(safeName)};base64,${buffer.toString('base64')}`;
       }
     } catch (err: any) {
       this.logger.warn(`No se pudo leer buffer para base64: ${err.message}`);
@@ -531,8 +592,13 @@ export class ConfiguracionService {
       },
     });
 
-    this.logger.log(`Firma electrónica .p12 guardada y persistida en BD para tenant ${tenantId}`);
-    return { ...updated, firmaPasswordEnc: undefined, tieneP12: true };
+    this.logger.log(`Firma electrónica .p12 (${safeName}) guardada y persistida en BD para tenant ${tenantId}`);
+    return {
+      ...updated,
+      firmaPasswordEnc: undefined,
+      tieneP12: true,
+      firmaNombre: safeName,
+    };
   }
 
   /**

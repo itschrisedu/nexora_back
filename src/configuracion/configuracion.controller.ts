@@ -232,6 +232,7 @@ export class ConfiguracionController {
     @UploadedFile() file: Express.Multer.File,
     @Body('password') password: string,
     @Req() req: any,
+    @Query('tenantId') queryTenantId?: string,
   ) {
     if (!file) {
       throw new BadRequestException('Debe adjuntar un archivo .p12');
@@ -240,10 +241,13 @@ export class ConfiguracionController {
       throw new BadRequestException('Debe proporcionar la contraseña de la firma');
     }
 
+    const targetTenantId = queryTenantId || req.user.tenantId || req.user.originalTenantId;
+
     return this.configuracionService.guardarFirmaP12(
-      req.user.tenantId,
+      targetTenantId,
       file.path,
       password,
+      file.originalname,
     );
   }
 
@@ -253,8 +257,9 @@ export class ConfiguracionController {
    */
   @Delete('sri/firma-p12')
   @Roles(Rol.ROL_ADMIN)
-  async eliminarFirmaP12(@Req() req: any) {
-    return this.configuracionService.eliminarFirmaP12(req.user.tenantId);
+  async eliminarFirmaP12(@Req() req: any, @Query('tenantId') queryTenantId?: string) {
+    const targetTenantId = queryTenantId || req.user.tenantId || req.user.originalTenantId;
+    return this.configuracionService.eliminarFirmaP12(targetTenantId);
   }
 
   // ══════════════════════════════
