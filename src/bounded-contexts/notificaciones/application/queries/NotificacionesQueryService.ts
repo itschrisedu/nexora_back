@@ -741,7 +741,7 @@ export class NotificacionesQueryService {
       const anioActual = new Date().getFullYear();
       const urlComprobante = detalles?.urlComprobante || '';
       const emisorNombre = detalles?.nombreEmisor || detalles?.sucursalNombre || detalles?.emisor || 'COMPROBANTE OFICIAL';
-      const responsableEmisor = detalles?.responsable || detalles?.sriRazonSocial || detalles?.razonSocialEmisor || 'ICHINA REMACHE HECTOR GONZALO';
+      const responsableEmisor = detalles?.responsable || detalles?.sriRazonSocial || detalles?.razonSocialEmisor || detalles?.nombreEmisor || 'EMISOR AUTORIZADO';
       finalHtml = `
         <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 540px; margin: 0 auto; background: #07080a; color: #eef2f7; border-radius: 20px; padding: 32px 24px; border: 1px solid rgba(255,255,255,0.08);">
           <div style="text-align: center; margin-bottom: 24px;">

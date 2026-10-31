@@ -328,9 +328,36 @@ export class FacturacionSriService {
    * Obtiene y valida la configuración SRI del tenant
    */
   private async obtenerConfigSri(tenantId: string) {
-    const config = await this.prisma.businessConfig.findUnique({
+    let config = await this.prisma.businessConfig.findUnique({
       where: { tenantId },
     });
+
+    // Herencia de Matriz si faltan datos SRI esenciales (firma, ruc, razón social)
+    if (!config?.firmaP12Path || !config?.ruc || !config?.sriRazonSocial?.trim()) {
+      const matrizUser = await this.prisma.user.findFirst({
+        where: {
+          OR: [
+            { tenantId, parentId: { not: null } },
+            { esAdminGeneral: true },
+          ],
+        },
+        include: { parent: { include: { tenant: { include: { businessConfig: true } } } } },
+      });
+      const matrizConfig = matrizUser?.parent?.tenant?.businessConfig || await this.prisma.businessConfig.findFirst({
+        where: { firmaP12Path: { not: null } },
+      });
+
+      if (matrizConfig) {
+        config = {
+          ...matrizConfig,
+          ...(config || {}),
+          firmaP12Path: config?.firmaP12Path || matrizConfig.firmaP12Path,
+          firmaPasswordEnc: config?.firmaPasswordEnc || matrizConfig.firmaPasswordEnc,
+          ruc: config?.ruc || matrizConfig.ruc,
+          sriRazonSocial: config?.sriRazonSocial?.trim() || matrizConfig.sriRazonSocial?.trim() || '',
+        } as any;
+      }
+    }
 
     if (!config) {
       throw new BadRequestException(
