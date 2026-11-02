@@ -1307,10 +1307,8 @@ export class FinancieroQueryService {
       orderBy: { createdAt: 'asc' },
     });
 
-    const saldoAnterior = Math.max(
-      0,
-      cobrosPendientes.reduce((sum, c) => sum + Number(c.saldoPendiente), 0) - Number(client.saldoAFavor || 0),
-    );
+    const cobrosPendientesTotal = cobrosPendientes.reduce((sum, c) => sum + Number(c.saldoPendiente), 0);
+    const saldoAnterior = Math.round(cobrosPendientesTotal * 100) / 100;
 
     const reciboRef = `REC-${Date.now().toString().slice(-6)}`;
     let restante = montoTotal;
@@ -1471,7 +1469,7 @@ export class FinancieroQueryService {
       reciboRef,
       montoTotal,
       saldoAnterior,
-      nuevoSaldo: nuevoCreditoUtilizado,
+      nuevoSaldo: Math.round(deudaFacturadaRestante * 100) / 100,
       saldoAFavor: nuevoSaldoAFavor,
       cobrosAfectados,
       reclasificadoAContado: algunaReclasificada,
