@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { HttpModule } from '@nestjs/axios';
 import { FacturacionSriService } from '../application/FacturacionSriService';
 import { FacturacionSriController } from './facturacion-sri.controller';
+import { ReintentarFacturasPendientes } from './jobs/ReintentarFacturasPendientes.job';
 
 /**
  * FacturacionSriModule — Bounded Context de Facturación Electrónica SRI.
@@ -23,7 +24,7 @@ import { FacturacionSriController } from './facturacion-sri.controller';
     }),
   ],
   controllers: [FacturacionSriController],
-  providers: [FacturacionSriService],
+  providers: [FacturacionSriService, ReintentarFacturasPendientes],
   exports: [FacturacionSriService],
 })
 export class FacturacionSriModule {}
