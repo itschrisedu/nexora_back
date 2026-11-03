@@ -1291,6 +1291,8 @@ export class InventarioController {
             p.serieId === serieConfig.id,
         );
 
+        const customIds = dto.customTallas?.[serieConfig.id];
+
         if (prodExistente) {
           // Ya existía: asegurar que esté activo y actualizar precios
           await this.prisma.product.update({
@@ -1302,8 +1304,30 @@ export class InventarioController {
               ...(targetSupplierId && { supplierId: targetSupplierId }),
             },
           });
+
+          // Si se especificó customTallas en el payload, actualizar las cantidades reales en stock
+          if (Array.isArray(customIds) && customIds.length > 0) {
+            for (const t of serieConfig.tallas || []) {
+              const count = customIds.filter((cid: string) => cid === t.id).length;
+              await this.prisma.stockByTalla.upsert({
+                where: {
+                  productId_tallaId: {
+                    productId: prodExistente.id,
+                    tallaId: t.id,
+                  },
+                },
+                update: { quantity: count },
+                create: {
+                  productId: prodExistente.id,
+                  tallaId: t.id,
+                  quantity: count,
+                  reservedQuantity: 0,
+                },
+              });
+            }
+          }
         } else {
-          // No existía para este color y proveedor: crear variante con stock 0
+          // No existía para este color y proveedor: crear variante con stock según customTallas o 0
           const colorClean = colorName.trim();
           const colorSuffix = colorClean.substring(0, 3).toUpperCase();
           const serieSuffix = serieConfig.nombre.substring(0, 3).toUpperCase();
@@ -1316,12 +1340,15 @@ export class InventarioController {
             counter++;
           }
 
-          const tallasToCreate = (serieConfig.tallas || []).map((t: any) => ({
-            tallaId: t.id,
-            quantity: 0,
-            reservedQuantity: 0,
-            minStock: 0,
-          }));
+          const tallasToCreate = (serieConfig.tallas || []).map((t: any) => {
+            const count = Array.isArray(customIds) ? customIds.filter((cid: string) => cid === t.id).length : 0;
+            return {
+              tallaId: t.id,
+              quantity: count,
+              reservedQuantity: 0,
+              minStock: 0,
+            };
+          });
 
           const nuevoProd = await this.prisma.product.create({
             data: {
