@@ -213,16 +213,6 @@ export class InventarioController {
         }
       }
 
-      // 6. Desactivar variantes cuyas series fueron desmarcadas en este modelo
-      const unselectedProducts = existingProducts.filter(
-        (p) => p.serieId && !dto.serieIds!.includes(p.serieId),
-      );
-      for (const unp of unselectedProducts) {
-        await this.prisma.product.update({
-          where: { id: unp.id },
-          data: { active: false },
-        });
-      }
     }
 
     // Cargar información del proveedor asignado para generar sigla
@@ -237,16 +227,6 @@ export class InventarioController {
         supplierSigla = generarSiglaProveedor(sup.razonSocial);
       }
 
-      // 6. Desactivar variantes cuyas series fueron desmarcadas en este modelo
-      const unselectedProducts = existingProducts.filter(
-        (p) => p.serieId && !dto.serieIds!.includes(p.serieId),
-      );
-      for (const unp of unselectedProducts) {
-        await this.prisma.product.update({
-          where: { id: unp.id },
-          data: { active: false },
-        });
-      }
     }
 
     const createdProductIds: string[] = [];
@@ -514,16 +494,6 @@ export class InventarioController {
         });
       }
 
-      // 6. Desactivar variantes cuyas series fueron desmarcadas en este modelo
-      const unselectedProducts = existingProducts.filter(
-        (p) => p.serieId && !dto.serieIds!.includes(p.serieId),
-      );
-      for (const unp of unselectedProducts) {
-        await this.prisma.product.update({
-          where: { id: unp.id },
-          data: { active: false },
-        });
-      }
     });
 
     return { message: 'Entrada multiformato por serie/lote registrada exitosamente', unitCost: finalUnitCost };
@@ -852,16 +822,6 @@ export class InventarioController {
         );
       }
 
-      // 6. Desactivar variantes cuyas series fueron desmarcadas en este modelo
-      const unselectedProducts = existingProducts.filter(
-        (p) => p.serieId && !dto.serieIds!.includes(p.serieId),
-      );
-      for (const unp of unselectedProducts) {
-        await this.prisma.product.update({
-          where: { id: unp.id },
-          data: { active: false },
-        });
-      }
     }
 
     // Ejecutar transacción atómica
@@ -1342,16 +1302,6 @@ export class InventarioController {
         return !p.supplierId || p.supplierId === model.supplierId;
       }
 
-      // 6. Desactivar variantes cuyas series fueron desmarcadas en este modelo
-      const unselectedProducts = existingProducts.filter(
-        (p) => p.serieId && !dto.serieIds!.includes(p.serieId),
-      );
-      for (const unp of unselectedProducts) {
-        await this.prisma.product.update({
-          where: { id: unp.id },
-          data: { active: false },
-        });
-      }
     });
 
     // Colores únicos que maneja este proveedor en este modelo (o todos los colores del modelo si aún no tenía)
@@ -1364,16 +1314,6 @@ export class InventarioController {
         }
       }
 
-      // 6. Desactivar variantes cuyas series fueron desmarcadas en este modelo
-      const unselectedProducts = existingProducts.filter(
-        (p) => p.serieId && !dto.serieIds!.includes(p.serieId),
-      );
-      for (const unp of unselectedProducts) {
-        await this.prisma.product.update({
-          where: { id: unp.id },
-          data: { active: false },
-        });
-      }
     } else {
       for (const p of model.products) {
         const cClean = p.color.trim();
@@ -1382,16 +1322,6 @@ export class InventarioController {
         }
       }
 
-      // 6. Desactivar variantes cuyas series fueron desmarcadas en este modelo
-      const unselectedProducts = existingProducts.filter(
-        (p) => p.serieId && !dto.serieIds!.includes(p.serieId),
-      );
-      for (const unp of unselectedProducts) {
-        await this.prisma.product.update({
-          where: { id: unp.id },
-          data: { active: false },
-        });
-      }
     }
 
     // Sigla del proveedor para la nomenclatura de códigos
@@ -1405,16 +1335,6 @@ export class InventarioController {
         supplierSigla = generarSiglaProveedor(sup.razonSocial);
       }
 
-      // 6. Desactivar variantes cuyas series fueron desmarcadas en este modelo
-      const unselectedProducts = existingProducts.filter(
-        (p) => p.serieId && !dto.serieIds!.includes(p.serieId),
-      );
-      for (const unp of unselectedProducts) {
-        await this.prisma.product.update({
-          where: { id: unp.id },
-          data: { active: false },
-        });
-      }
     }
 
     const activeSerieIds = dto.serieIds || [];
@@ -1515,16 +1435,6 @@ export class InventarioController {
         }
       }
 
-      // 6. Desactivar variantes cuyas series fueron desmarcadas en este modelo
-      const unselectedProducts = existingProducts.filter(
-        (p) => p.serieId && !dto.serieIds!.includes(p.serieId),
-      );
-      for (const unp of unselectedProducts) {
-        await this.prisma.product.update({
-          where: { id: unp.id },
-          data: { active: false },
-        });
-      }
     }
 
     // 2. DESACTIVAR o ELIMINAR (si tienen 0 stock) las series que se apagaron para este proveedor
@@ -1555,16 +1465,6 @@ export class InventarioController {
         });
       }
 
-      // 6. Desactivar variantes cuyas series fueron desmarcadas en este modelo
-      const unselectedProducts = existingProducts.filter(
-        (p) => p.serieId && !dto.serieIds!.includes(p.serieId),
-      );
-      for (const unp of unselectedProducts) {
-        await this.prisma.product.update({
-          where: { id: unp.id },
-          data: { active: false },
-        });
-      }
     }
 
     return {
@@ -1607,16 +1507,6 @@ export class InventarioController {
         colorMap.set(cClean, { imageUrl: p.imageUrl });
       }
 
-      // 6. Desactivar variantes cuyas series fueron desmarcadas en este modelo
-      const unselectedProducts = existingProducts.filter(
-        (p) => p.serieId && !dto.serieIds!.includes(p.serieId),
-      );
-      for (const unp of unselectedProducts) {
-        await this.prisma.product.update({
-          where: { id: unp.id },
-          data: { active: false },
-        });
-      }
     }
 
     let supplierSigla = '';
@@ -1629,16 +1519,6 @@ export class InventarioController {
         supplierSigla = generarSiglaProveedor(sup.razonSocial);
       }
 
-      // 6. Desactivar variantes cuyas series fueron desmarcadas en este modelo
-      const unselectedProducts = existingProducts.filter(
-        (p) => p.serieId && !dto.serieIds!.includes(p.serieId),
-      );
-      for (const unp of unselectedProducts) {
-        await this.prisma.product.update({
-          where: { id: unp.id },
-          data: { active: false },
-        });
-      }
     }
 
     let nuevosCreados = 0;
@@ -1709,16 +1589,6 @@ export class InventarioController {
         }
       }
 
-      // 6. Desactivar variantes cuyas series fueron desmarcadas en este modelo
-      const unselectedProducts = existingProducts.filter(
-        (p) => p.serieId && !dto.serieIds!.includes(p.serieId),
-      );
-      for (const unp of unselectedProducts) {
-        await this.prisma.product.update({
-          where: { id: unp.id },
-          data: { active: false },
-        });
-      }
     }
 
     return {
@@ -1762,16 +1632,6 @@ export class InventarioController {
         await this.cloudinaryService.deleteImage(oldImageUrl).catch(() => null);
       }
 
-      // 6. Desactivar variantes cuyas series fueron desmarcadas en este modelo
-      const unselectedProducts = existingProducts.filter(
-        (p) => p.serieId && !dto.serieIds!.includes(p.serieId),
-      );
-      for (const unp of unselectedProducts) {
-        await this.prisma.product.update({
-          where: { id: unp.id },
-          data: { active: false },
-        });
-      }
     }
 
     await this.prisma.$transaction(async (tx) => {
@@ -1915,16 +1775,6 @@ export class InventarioController {
         }
       }
 
-      // 6. Desactivar variantes cuyas series fueron desmarcadas en este modelo
-      const unselectedProducts = existingProducts.filter(
-        (p) => p.serieId && !dto.serieIds!.includes(p.serieId),
-      );
-      for (const unp of unselectedProducts) {
-        await this.prisma.product.update({
-          where: { id: unp.id },
-          data: { active: false },
-        });
-      }
     });
 
     return { message: 'Variante de calzado actualizada exitosamente' };
@@ -1979,16 +1829,6 @@ export class InventarioController {
         }
       }
 
-      // 6. Desactivar variantes cuyas series fueron desmarcadas en este modelo
-      const unselectedProducts = existingProducts.filter(
-        (p) => p.serieId && !dto.serieIds!.includes(p.serieId),
-      );
-      for (const unp of unselectedProducts) {
-        await this.prisma.product.update({
-          where: { id: unp.id },
-          data: { active: false },
-        });
-      }
     }
 
     // 2. Buscar o crear el ProductModel en la sucursal destino
@@ -2056,16 +1896,6 @@ export class InventarioController {
         sourceColorImageMap.set(cKey, sp.imageUrl);
       }
 
-      // 6. Desactivar variantes cuyas series fueron desmarcadas en este modelo
-      const unselectedProducts = existingProducts.filter(
-        (p) => p.serieId && !dto.serieIds!.includes(p.serieId),
-      );
-      for (const unp of unselectedProducts) {
-        await this.prisma.product.update({
-          where: { id: unp.id },
-          data: { active: false },
-        });
-      }
     }
 
     // También revisar si en el targetModel ya hay alguna variante con ese color que tenga imagen
@@ -2078,16 +1908,6 @@ export class InventarioController {
         sourceColorImageMap.set(cKey, tp.imageUrl);
       }
 
-      // 6. Desactivar variantes cuyas series fueron desmarcadas en este modelo
-      const unselectedProducts = existingProducts.filter(
-        (p) => p.serieId && !dto.serieIds!.includes(p.serieId),
-      );
-      for (const unp of unselectedProducts) {
-        await this.prisma.product.update({
-          where: { id: unp.id },
-          data: { active: false },
-        });
-      }
     }
 
     let importedCount = 0;
@@ -2206,16 +2026,6 @@ export class InventarioController {
         await this.cloudinaryService.deleteImage(imgUrl).catch(() => null);
       }
 
-      // 6. Desactivar variantes cuyas series fueron desmarcadas en este modelo
-      const unselectedProducts = existingProducts.filter(
-        (p) => p.serieId && !dto.serieIds!.includes(p.serieId),
-      );
-      for (const unp of unselectedProducts) {
-        await this.prisma.product.update({
-          where: { id: unp.id },
-          data: { active: false },
-        });
-      }
     }
 
     // Limpieza automática de proveedores huérfanos en la sucursal
@@ -2248,16 +2058,6 @@ export class InventarioController {
         await this.cloudinaryService.deleteImage(imageUrl).catch(() => null);
       }
 
-      // 6. Desactivar variantes cuyas series fueron desmarcadas en este modelo
-      const unselectedProducts = existingProducts.filter(
-        (p) => p.serieId && !dto.serieIds!.includes(p.serieId),
-      );
-      for (const unp of unselectedProducts) {
-        await this.prisma.product.update({
-          where: { id: unp.id },
-          data: { active: false },
-        });
-      }
     }
 
     // Limpieza automática de proveedor si ya no está ligado a ninguna variante en esta sucursal
@@ -2385,16 +2185,6 @@ export class InventarioController {
         // Ignorar si no se puede eliminar por restricciones de FK
       }
 
-      // 6. Desactivar variantes cuyas series fueron desmarcadas en este modelo
-      const unselectedProducts = existingProducts.filter(
-        (p) => p.serieId && !dto.serieIds!.includes(p.serieId),
-      );
-      for (const unp of unselectedProducts) {
-        await this.prisma.product.update({
-          where: { id: unp.id },
-          data: { active: false },
-        });
-      }
     }
   }
 
@@ -2478,16 +2268,6 @@ export class InventarioController {
         }
       }
 
-      // 6. Desactivar variantes cuyas series fueron desmarcadas en este modelo
-      const unselectedProducts = existingProducts.filter(
-        (p) => p.serieId && !dto.serieIds!.includes(p.serieId),
-      );
-      for (const unp of unselectedProducts) {
-        await this.prisma.product.update({
-          where: { id: unp.id },
-          data: { active: false },
-        });
-      }
     } catch (err: any) {
       this.logger.error(`Error al sincronizar precios en variantes del modelo ${modelId}: ${err?.message || err}`);
     }
