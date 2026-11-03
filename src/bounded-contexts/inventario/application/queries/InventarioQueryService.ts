@@ -464,13 +464,15 @@ export class InventarioQueryService {
     }
 
     let fotoUrl = record.imageUrl || null;
-    if (mdl?.products && Array.isArray(mdl.products)) {
-      const siblingsWithImage = mdl.products.filter(
-        (sp: any) => sp.color?.trim().toUpperCase() === record.color?.trim().toUpperCase() && sp.imageUrl,
+    if (!fotoUrl && mdl?.products && Array.isArray(mdl.products)) {
+      const sameSupplierSibling = mdl.products.find(
+        (sp: any) =>
+          sp.color?.trim().toUpperCase() === record.color?.trim().toUpperCase() &&
+          sp.supplierId === record.supplierId &&
+          sp.imageUrl,
       );
-      if (siblingsWithImage.length > 0) {
-        siblingsWithImage.sort((a: any, b: any) => new Date(b.updatedAt || 0).getTime() - new Date(a.updatedAt || 0).getTime());
-        fotoUrl = siblingsWithImage[0].imageUrl;
+      if (sameSupplierSibling?.imageUrl) {
+        fotoUrl = sameSupplierSibling.imageUrl;
       }
     }
 

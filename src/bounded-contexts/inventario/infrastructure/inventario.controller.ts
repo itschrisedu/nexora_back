@@ -1057,7 +1057,7 @@ export class InventarioController {
       },
     });
 
-    // FASE 2: Propagación de series a TODOS los colores existentes del modelo
+    // FASE 2: Propagación de series a los colores del modelo PARA ESTE PROVEEDOR
     if (dto.serieIds && dto.serieIds.length > 0) {
       // 1. Obtener todas las variantes existentes del modelo (ordenadas por más recientes)
       const existingProducts = await this.prisma.product.findMany({
@@ -1066,9 +1066,19 @@ export class InventarioController {
         orderBy: { updatedAt: 'desc' },
       });
 
-      // 2. Extraer todos los colores únicos registrados en este modelo (priorizando fotos no nulas)
+      // Productos que pertenecen exclusivamente a este proveedor específico en este modelo
+      const prodsDeEsteProveedor = existingProducts.filter((p) => {
+        if (finalSupplierId) {
+          return p.supplierId === finalSupplierId || (!p.supplierId && finalSupplierId === model.supplierId);
+        } else {
+          return !p.supplierId || p.supplierId === model.supplierId;
+        }
+      });
+
+      // 2. Extraer colores únicos para este proveedor (o del modelo si el proveedor aún no tiene variantes)
+      const sourceProdsForColors = prodsDeEsteProveedor.length > 0 ? prodsDeEsteProveedor : existingProducts;
       const colorMap = new Map<string, { imageUrl: string | null }>();
-      for (const p of existingProducts) {
+      for (const p of sourceProdsForColors) {
         const cClean = p.color.trim();
         const existing = colorMap.get(cClean);
         if (!existing || (!existing.imageUrl && p.imageUrl)) {
@@ -1094,12 +1104,12 @@ export class InventarioController {
         }
       }
 
-      // 5. Bucle transaccional: Para CADA color del modelo, asegurar que existan TODAS las series
+      // 5. Bucle transaccional: Para CADA color del modelo, asegurar que existan las series de ESTE proveedor
       for (const [colorName, colorData] of colorMap.entries()) {
         for (const serieConfig of seriesConfigs) {
           const serieVO = Serie.create(serieConfig.nombre);
           const seriePrices = dto.seriesPrices?.[serieConfig.id];
-          const varianteConPrecio = existingProducts.find(
+          const varianteConPrecio = prodsDeEsteProveedor.find(
             (p) => p.serieId === serieConfig.id && Number(p.costPrice) > 0,
           );
           const fallbackCost = varianteConPrecio ? Number(varianteConPrecio.costPrice) : 10;
@@ -1110,32 +1120,26 @@ export class InventarioController {
           const costVal = rawCost > 0 ? rawCost : fallbackCost > 0 ? fallbackCost : 10;
           const saleVal = rawSale > 0 ? rawSale : fallbackSale > 0 ? fallbackSale : 13;
 
-          // Buscar si este color ya tiene variante con esta serie
-          const prodExistente = existingProducts.find(
+          // Buscar si este color ya tiene variante con esta serie PARA ESTE PROVEEDOR
+          const prodExistente = prodsDeEsteProveedor.find(
             (p) =>
               p.color.trim().toLowerCase() === colorName.toLowerCase() &&
               p.serieId === serieConfig.id,
           );
 
           if (prodExistente) {
-            // Actualizar precios y proveedor en la variante existente si corresponde al proveedor principal o sin proveedor
-            const pSupId = prodExistente.supplierId;
-            const isPrimaryOrUnassigned = !pSupId || pSupId === model.supplierId || pSupId === finalSupplierId;
-
-            if (isPrimaryOrUnassigned) {
-              await this.prisma.product.update({
-                where: { id: prodExistente.id },
-                data: {
-                  active: true,
-                  ...(colorData.imageUrl && !prodExistente.imageUrl && { imageUrl: colorData.imageUrl }),
-                  ...(seriePrices && {
-                    costPrice: costVal,
-                    salePrice: saleVal,
-                  }),
-                  ...(finalSupplierId !== undefined && { supplierId: finalSupplierId }),
-                },
-              });
-            }
+            // Actualizar precios y proveedor en la variante existente de este proveedor
+            await this.prisma.product.update({
+              where: { id: prodExistente.id },
+              data: {
+                active: true,
+                ...(seriePrices && {
+                  costPrice: costVal,
+                  salePrice: saleVal,
+                }),
+                ...(finalSupplierId !== undefined && { supplierId: finalSupplierId }),
+              },
+            });
 
             // Sincronizar stockByTalla según customTallas o asegurar que existan todas las tallas de la serie
             const customIds = dto.customTallas?.[serieConfig.id];
@@ -1180,7 +1184,7 @@ export class InventarioController {
               }
             }
           } else {
-            // NO EXISTÍA: Crear la variante para este color y esta serie (garantiza 0 colores huérfanos)
+            // NO EXISTÍA: Crear la variante para este color, esta serie y este proveedor
             const colorClean = colorName.trim();
             const colorSuffix = colorClean.substring(0, 3).toUpperCase();
             const serieSuffix = serieConfig.nombre.substring(0, 3).toUpperCase();
@@ -1240,7 +1244,7 @@ export class InventarioController {
             );
 
             await this.productoRepository.save(nuevoProducto);
-            existingProducts.push({
+            const createdRecord = {
               id: nuevoProductoId,
               color: colorClean,
               serieId: serieConfig.id,
@@ -1250,13 +1254,15 @@ export class InventarioController {
               salePrice: saleVal as any,
               active: true,
               stockByTalla: [],
-            } as any);
+            } as any;
+            existingProducts.push(createdRecord);
+            prodsDeEsteProveedor.push(createdRecord);
           }
         }
       }
 
-      // 6. Desactivar variantes cuyas series fueron desmarcadas en este modelo
-      const unselectedProducts = existingProducts.filter(
+      // 6. Desactivar variantes cuyas series fueron desmarcadas SOLO para este proveedor
+      const unselectedProducts = prodsDeEsteProveedor.filter(
         (p) => p.serieId && !dto.serieIds!.includes(p.serieId),
       );
       for (const unp of unselectedProducts) {
@@ -1709,20 +1715,6 @@ export class InventarioController {
             });
           }
         }
-      }
-
-      // Si se actualizó la imagen, sincronizarla en TODAS las series del mismo modelo y color
-      if (isImageUpdating) {
-        const effectiveColor = newColorName || product.color;
-        await tx.product.updateMany({
-          where: {
-            modelId: product.modelId,
-            color: { equals: effectiveColor, mode: 'insensitive' },
-          },
-          data: {
-            imageUrl: newImageUrl ?? null,
-          },
-        });
       }
 
       // Si se enviaron tallas para actualizar stock y numeración
