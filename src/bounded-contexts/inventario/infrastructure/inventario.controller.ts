@@ -212,6 +212,17 @@ export class InventarioController {
           });
         }
       }
+
+      // 6. Desactivar variantes cuyas series fueron desmarcadas en este modelo
+      const unselectedProducts = existingProducts.filter(
+        (p) => p.serieId && !dto.serieIds!.includes(p.serieId),
+      );
+      for (const unp of unselectedProducts) {
+        await this.prisma.product.update({
+          where: { id: unp.id },
+          data: { active: false },
+        });
+      }
     }
 
     // Cargar información del proveedor asignado para generar sigla
@@ -224,6 +235,17 @@ export class InventarioController {
       });
       if (sup) {
         supplierSigla = generarSiglaProveedor(sup.razonSocial);
+      }
+
+      // 6. Desactivar variantes cuyas series fueron desmarcadas en este modelo
+      const unselectedProducts = existingProducts.filter(
+        (p) => p.serieId && !dto.serieIds!.includes(p.serieId),
+      );
+      for (const unp of unselectedProducts) {
+        await this.prisma.product.update({
+          where: { id: unp.id },
+          data: { active: false },
+        });
       }
     }
 
@@ -489,6 +511,17 @@ export class InventarioController {
           userId: req.user?.sub,
           motivo: dto.motivo || `Sincronización automática por entrada de lote ($${finalUnitCost})`,
           tx,
+        });
+      }
+
+      // 6. Desactivar variantes cuyas series fueron desmarcadas en este modelo
+      const unselectedProducts = existingProducts.filter(
+        (p) => p.serieId && !dto.serieIds!.includes(p.serieId),
+      );
+      for (const unp of unselectedProducts) {
+        await this.prisma.product.update({
+          where: { id: unp.id },
+          data: { active: false },
         });
       }
     });
@@ -818,6 +851,17 @@ export class InventarioController {
           `Stock insuficiente en Talla ${numTalla}. Disponible: ${stockOrigen?.quantity || 0} pares`,
         );
       }
+
+      // 6. Desactivar variantes cuyas series fueron desmarcadas en este modelo
+      const unselectedProducts = existingProducts.filter(
+        (p) => p.serieId && !dto.serieIds!.includes(p.serieId),
+      );
+      for (const unp of unselectedProducts) {
+        await this.prisma.product.update({
+          where: { id: unp.id },
+          data: { active: false },
+        });
+      }
     }
 
     // Ejecutar transacción atómica
@@ -1055,17 +1099,19 @@ export class InventarioController {
 
     // FASE 2: Propagación de series a TODOS los colores existentes del modelo
     if (dto.serieIds && dto.serieIds.length > 0) {
-      // 1. Obtener todas las variantes existentes del modelo
+      // 1. Obtener todas las variantes existentes del modelo (ordenadas por más recientes)
       const existingProducts = await this.prisma.product.findMany({
         where: { modelId: id },
         include: { stockByTalla: true },
+        orderBy: { updatedAt: 'desc' },
       });
 
-      // 2. Extraer todos los colores únicos registrados en este modelo
+      // 2. Extraer todos los colores únicos registrados en este modelo (priorizando fotos no nulas)
       const colorMap = new Map<string, { imageUrl: string | null }>();
       for (const p of existingProducts) {
         const cClean = p.color.trim();
-        if (!colorMap.has(cClean)) {
+        const existing = colorMap.get(cClean);
+        if (!existing || (!existing.imageUrl && p.imageUrl)) {
           colorMap.set(cClean, { imageUrl: p.imageUrl });
         }
       }
@@ -1121,6 +1167,7 @@ export class InventarioController {
                 where: { id: prodExistente.id },
                 data: {
                   active: true,
+                  ...(colorData.imageUrl && !prodExistente.imageUrl && { imageUrl: colorData.imageUrl }),
                   ...(seriePrices && {
                     costPrice: costVal,
                     salePrice: saleVal,
@@ -1128,6 +1175,49 @@ export class InventarioController {
                   ...(finalSupplierId !== undefined && { supplierId: finalSupplierId }),
                 },
               });
+            }
+
+            // Sincronizar stockByTalla según customTallas o asegurar que existan todas las tallas de la serie
+            const customIds = dto.customTallas?.[serieConfig.id];
+            if (Array.isArray(customIds) && customIds.length > 0) {
+              for (const t of serieConfig.tallas || []) {
+                const count = customIds.filter((cid: string) => cid === t.id).length;
+                await this.prisma.stockByTalla.upsert({
+                  where: {
+                    productId_tallaId: {
+                      productId: prodExistente.id,
+                      tallaId: t.id,
+                    },
+                  },
+                  update: { quantity: count },
+                  create: {
+                    productId: prodExistente.id,
+                    tallaId: t.id,
+                    quantity: count,
+                    reservedQuantity: 0,
+                    minStock: 0,
+                  },
+                });
+              }
+            } else {
+              for (const t of serieConfig.tallas || []) {
+                await this.prisma.stockByTalla.upsert({
+                  where: {
+                    productId_tallaId: {
+                      productId: prodExistente.id,
+                      tallaId: t.id,
+                    },
+                  },
+                  update: {},
+                  create: {
+                    productId: prodExistente.id,
+                    tallaId: t.id,
+                    quantity: 0,
+                    reservedQuantity: 0,
+                    minStock: 0,
+                  },
+                });
+              }
             }
           } else {
             // NO EXISTÍA: Crear la variante para este color y esta serie (garantiza 0 colores huérfanos)
@@ -1204,6 +1294,17 @@ export class InventarioController {
           }
         }
       }
+
+      // 6. Desactivar variantes cuyas series fueron desmarcadas en este modelo
+      const unselectedProducts = existingProducts.filter(
+        (p) => p.serieId && !dto.serieIds!.includes(p.serieId),
+      );
+      for (const unp of unselectedProducts) {
+        await this.prisma.product.update({
+          where: { id: unp.id },
+          data: { active: false },
+        });
+      }
     }
 
     return { message: 'Modelo y series sincronizados exitosamente en todos los colores', model: updated };
@@ -1240,6 +1341,17 @@ export class InventarioController {
       } else {
         return !p.supplierId || p.supplierId === model.supplierId;
       }
+
+      // 6. Desactivar variantes cuyas series fueron desmarcadas en este modelo
+      const unselectedProducts = existingProducts.filter(
+        (p) => p.serieId && !dto.serieIds!.includes(p.serieId),
+      );
+      for (const unp of unselectedProducts) {
+        await this.prisma.product.update({
+          where: { id: unp.id },
+          data: { active: false },
+        });
+      }
     });
 
     // Colores únicos que maneja este proveedor en este modelo (o todos los colores del modelo si aún no tenía)
@@ -1251,12 +1363,34 @@ export class InventarioController {
           colorMap.set(cClean, { imageUrl: p.imageUrl });
         }
       }
+
+      // 6. Desactivar variantes cuyas series fueron desmarcadas en este modelo
+      const unselectedProducts = existingProducts.filter(
+        (p) => p.serieId && !dto.serieIds!.includes(p.serieId),
+      );
+      for (const unp of unselectedProducts) {
+        await this.prisma.product.update({
+          where: { id: unp.id },
+          data: { active: false },
+        });
+      }
     } else {
       for (const p of model.products) {
         const cClean = p.color.trim();
         if (!colorMap.has(cClean)) {
           colorMap.set(cClean, { imageUrl: p.imageUrl });
         }
+      }
+
+      // 6. Desactivar variantes cuyas series fueron desmarcadas en este modelo
+      const unselectedProducts = existingProducts.filter(
+        (p) => p.serieId && !dto.serieIds!.includes(p.serieId),
+      );
+      for (const unp of unselectedProducts) {
+        await this.prisma.product.update({
+          where: { id: unp.id },
+          data: { active: false },
+        });
       }
     }
 
@@ -1269,6 +1403,17 @@ export class InventarioController {
       });
       if (sup) {
         supplierSigla = generarSiglaProveedor(sup.razonSocial);
+      }
+
+      // 6. Desactivar variantes cuyas series fueron desmarcadas en este modelo
+      const unselectedProducts = existingProducts.filter(
+        (p) => p.serieId && !dto.serieIds!.includes(p.serieId),
+      );
+      for (const unp of unselectedProducts) {
+        await this.prisma.product.update({
+          where: { id: unp.id },
+          data: { active: false },
+        });
       }
     }
 
@@ -1369,6 +1514,17 @@ export class InventarioController {
           prodsProveedor.push(nuevoProd as any);
         }
       }
+
+      // 6. Desactivar variantes cuyas series fueron desmarcadas en este modelo
+      const unselectedProducts = existingProducts.filter(
+        (p) => p.serieId && !dto.serieIds!.includes(p.serieId),
+      );
+      for (const unp of unselectedProducts) {
+        await this.prisma.product.update({
+          where: { id: unp.id },
+          data: { active: false },
+        });
+      }
     }
 
     // 2. DESACTIVAR o ELIMINAR (si tienen 0 stock) las series que se apagaron para este proveedor
@@ -1395,6 +1551,17 @@ export class InventarioController {
       } else {
         await this.prisma.product.update({
           where: { id: p.id },
+          data: { active: false },
+        });
+      }
+
+      // 6. Desactivar variantes cuyas series fueron desmarcadas en este modelo
+      const unselectedProducts = existingProducts.filter(
+        (p) => p.serieId && !dto.serieIds!.includes(p.serieId),
+      );
+      for (const unp of unselectedProducts) {
+        await this.prisma.product.update({
+          where: { id: unp.id },
           data: { active: false },
         });
       }
@@ -1439,6 +1606,17 @@ export class InventarioController {
       if (!colorMap.has(cClean)) {
         colorMap.set(cClean, { imageUrl: p.imageUrl });
       }
+
+      // 6. Desactivar variantes cuyas series fueron desmarcadas en este modelo
+      const unselectedProducts = existingProducts.filter(
+        (p) => p.serieId && !dto.serieIds!.includes(p.serieId),
+      );
+      for (const unp of unselectedProducts) {
+        await this.prisma.product.update({
+          where: { id: unp.id },
+          data: { active: false },
+        });
+      }
     }
 
     let supplierSigla = '';
@@ -1449,6 +1627,17 @@ export class InventarioController {
       });
       if (sup) {
         supplierSigla = generarSiglaProveedor(sup.razonSocial);
+      }
+
+      // 6. Desactivar variantes cuyas series fueron desmarcadas en este modelo
+      const unselectedProducts = existingProducts.filter(
+        (p) => p.serieId && !dto.serieIds!.includes(p.serieId),
+      );
+      for (const unp of unselectedProducts) {
+        await this.prisma.product.update({
+          where: { id: unp.id },
+          data: { active: false },
+        });
       }
     }
 
@@ -1519,6 +1708,17 @@ export class InventarioController {
           nuevosCreados++;
         }
       }
+
+      // 6. Desactivar variantes cuyas series fueron desmarcadas en este modelo
+      const unselectedProducts = existingProducts.filter(
+        (p) => p.serieId && !dto.serieIds!.includes(p.serieId),
+      );
+      for (const unp of unselectedProducts) {
+        await this.prisma.product.update({
+          where: { id: unp.id },
+          data: { active: false },
+        });
+      }
     }
 
     return {
@@ -1560,6 +1760,17 @@ export class InventarioController {
       });
       if (!otherUsing) {
         await this.cloudinaryService.deleteImage(oldImageUrl).catch(() => null);
+      }
+
+      // 6. Desactivar variantes cuyas series fueron desmarcadas en este modelo
+      const unselectedProducts = existingProducts.filter(
+        (p) => p.serieId && !dto.serieIds!.includes(p.serieId),
+      );
+      for (const unp of unselectedProducts) {
+        await this.prisma.product.update({
+          where: { id: unp.id },
+          data: { active: false },
+        });
       }
     }
 
@@ -1703,6 +1914,17 @@ export class InventarioController {
           });
         }
       }
+
+      // 6. Desactivar variantes cuyas series fueron desmarcadas en este modelo
+      const unselectedProducts = existingProducts.filter(
+        (p) => p.serieId && !dto.serieIds!.includes(p.serieId),
+      );
+      for (const unp of unselectedProducts) {
+        await this.prisma.product.update({
+          where: { id: unp.id },
+          data: { active: false },
+        });
+      }
     });
 
     return { message: 'Variante de calzado actualizada exitosamente' };
@@ -1755,6 +1977,17 @@ export class InventarioController {
         if (mapped && !mappedAlternateSupplierIds.includes(mapped) && mapped !== mappedPrimarySupplierId) {
           mappedAlternateSupplierIds.push(mapped);
         }
+      }
+
+      // 6. Desactivar variantes cuyas series fueron desmarcadas en este modelo
+      const unselectedProducts = existingProducts.filter(
+        (p) => p.serieId && !dto.serieIds!.includes(p.serieId),
+      );
+      for (const unp of unselectedProducts) {
+        await this.prisma.product.update({
+          where: { id: unp.id },
+          data: { active: false },
+        });
       }
     }
 
@@ -1822,6 +2055,17 @@ export class InventarioController {
       if (sp.imageUrl && !sourceColorImageMap.has(cKey)) {
         sourceColorImageMap.set(cKey, sp.imageUrl);
       }
+
+      // 6. Desactivar variantes cuyas series fueron desmarcadas en este modelo
+      const unselectedProducts = existingProducts.filter(
+        (p) => p.serieId && !dto.serieIds!.includes(p.serieId),
+      );
+      for (const unp of unselectedProducts) {
+        await this.prisma.product.update({
+          where: { id: unp.id },
+          data: { active: false },
+        });
+      }
     }
 
     // También revisar si en el targetModel ya hay alguna variante con ese color que tenga imagen
@@ -1832,6 +2076,17 @@ export class InventarioController {
       const cKey = tp.color.trim().toUpperCase();
       if (tp.imageUrl && !sourceColorImageMap.has(cKey)) {
         sourceColorImageMap.set(cKey, tp.imageUrl);
+      }
+
+      // 6. Desactivar variantes cuyas series fueron desmarcadas en este modelo
+      const unselectedProducts = existingProducts.filter(
+        (p) => p.serieId && !dto.serieIds!.includes(p.serieId),
+      );
+      for (const unp of unselectedProducts) {
+        await this.prisma.product.update({
+          where: { id: unp.id },
+          data: { active: false },
+        });
       }
     }
 
@@ -1950,6 +2205,17 @@ export class InventarioController {
       if (!otherUsing) {
         await this.cloudinaryService.deleteImage(imgUrl).catch(() => null);
       }
+
+      // 6. Desactivar variantes cuyas series fueron desmarcadas en este modelo
+      const unselectedProducts = existingProducts.filter(
+        (p) => p.serieId && !dto.serieIds!.includes(p.serieId),
+      );
+      for (const unp of unselectedProducts) {
+        await this.prisma.product.update({
+          where: { id: unp.id },
+          data: { active: false },
+        });
+      }
     }
 
     // Limpieza automática de proveedores huérfanos en la sucursal
@@ -1980,6 +2246,17 @@ export class InventarioController {
       });
       if (!otherUsing) {
         await this.cloudinaryService.deleteImage(imageUrl).catch(() => null);
+      }
+
+      // 6. Desactivar variantes cuyas series fueron desmarcadas en este modelo
+      const unselectedProducts = existingProducts.filter(
+        (p) => p.serieId && !dto.serieIds!.includes(p.serieId),
+      );
+      for (const unp of unselectedProducts) {
+        await this.prisma.product.update({
+          where: { id: unp.id },
+          data: { active: false },
+        });
       }
     }
 
@@ -2107,6 +2384,17 @@ export class InventarioController {
       } catch (err) {
         // Ignorar si no se puede eliminar por restricciones de FK
       }
+
+      // 6. Desactivar variantes cuyas series fueron desmarcadas en este modelo
+      const unselectedProducts = existingProducts.filter(
+        (p) => p.serieId && !dto.serieIds!.includes(p.serieId),
+      );
+      for (const unp of unselectedProducts) {
+        await this.prisma.product.update({
+          where: { id: unp.id },
+          data: { active: false },
+        });
+      }
     }
   }
 
@@ -2188,6 +2476,17 @@ export class InventarioController {
             },
           });
         }
+      }
+
+      // 6. Desactivar variantes cuyas series fueron desmarcadas en este modelo
+      const unselectedProducts = existingProducts.filter(
+        (p) => p.serieId && !dto.serieIds!.includes(p.serieId),
+      );
+      for (const unp of unselectedProducts) {
+        await this.prisma.product.update({
+          where: { id: unp.id },
+          data: { active: false },
+        });
       }
     } catch (err: any) {
       this.logger.error(`Error al sincronizar precios en variantes del modelo ${modelId}: ${err?.message || err}`);
