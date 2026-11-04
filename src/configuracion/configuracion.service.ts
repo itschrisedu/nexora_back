@@ -169,6 +169,24 @@ export class ConfiguracionService {
       }
     }
 
+    // Herencia comercial: si la sucursal no tiene política propia, hereda la de la Matriz
+    let politicaDescuentoInherited = (config as any)?.politicaDescuentoVenta || null;
+    if (!politicaDescuentoInherited) {
+      const matrizUserForPolicy = await this.prisma.user.findFirst({
+        where: {
+          OR: [
+            { tenantId: targetTenantId, parentId: { not: null } },
+            { esAdminGeneral: true },
+          ],
+        },
+        include: { parent: { include: { tenant: { include: { businessConfig: true } } } } },
+      });
+      const matrizPolicyConfig = matrizUserForPolicy?.parent?.tenant?.businessConfig;
+      if ((matrizPolicyConfig as any)?.politicaDescuentoVenta) {
+        politicaDescuentoInherited = (matrizPolicyConfig as any).politicaDescuentoVenta;
+      }
+    }
+
     const nombreNegocio = config?.nombre || tenant?.name || 'Local Comercial';
 
     if (!config) {
@@ -204,7 +222,7 @@ export class ConfiguracionService {
       logoUrl: logoInherited || config.logoUrl || null,
       primaryColor: primaryColorInherited || config.primaryColor || '#0F172A',
       estrategiaComercialTipo: config.estrategiaComercialTipo || 'ESTANDAR',
-      politicaDescuentoVenta: (config as any).politicaDescuentoVenta || 'LIBRE',
+      politicaDescuentoVenta: (config as any)?.politicaDescuentoVenta || politicaDescuentoInherited || 'LIBRE',
       margenMinimoDinamico: Number(config.margenMinimoDinamico ?? 25),
       temporadaComercial: config.temporadaComercial || 'AUTO',
       descuentoTemporadaBaja: Number(config.descuentoTemporadaBaja ?? 10),
