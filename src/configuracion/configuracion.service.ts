@@ -144,6 +144,31 @@ export class ConfiguracionService {
       }
     }
 
+    // Herencia visual de marca (Logo y Color Primario): si la sucursal no tiene logo propio, heredar de la Matriz
+    let logoInherited = config?.logoUrl || null;
+    let primaryColorInherited = config?.primaryColor || null;
+
+    if (!logoInherited) {
+      const matrizUserForBranding = await this.prisma.user.findFirst({
+        where: {
+          OR: [
+            { tenantId: targetTenantId, parentId: { not: null } },
+            { esAdminGeneral: true },
+          ],
+        },
+        include: { parent: { include: { tenant: { include: { businessConfig: true } } } } },
+      });
+      const matrizBrandConfig = matrizUserForBranding?.parent?.tenant?.businessConfig || await this.prisma.businessConfig.findFirst({
+        where: { logoUrl: { not: null } },
+      });
+      if (matrizBrandConfig?.logoUrl) {
+        logoInherited = matrizBrandConfig.logoUrl;
+      }
+      if (!primaryColorInherited && matrizBrandConfig?.primaryColor) {
+        primaryColorInherited = matrizBrandConfig.primaryColor;
+      }
+    }
+
     const nombreNegocio = config?.nombre || tenant?.name || 'Local Comercial';
 
     if (!config) {
@@ -176,6 +201,8 @@ export class ConfiguracionService {
       sriAmbiente: ambienteInherited || config.sriAmbiente || '1',
       sriRegimen: regimenInherited || config.sriRegimen || 'RIMPE_POPULAR',
       ruc: rucFinal,
+      logoUrl: logoInherited || config.logoUrl || null,
+      primaryColor: primaryColorInherited || config.primaryColor || '#0F172A',
       estrategiaComercialTipo: config.estrategiaComercialTipo || 'ESTANDAR',
       politicaDescuentoVenta: (config as any).politicaDescuentoVenta || 'LIBRE',
       margenMinimoDinamico: Number(config.margenMinimoDinamico ?? 25),
