@@ -237,7 +237,7 @@ export class ConfiguracionService {
     if (dto.direccion !== undefined) data.direccion = dto.direccion;
     if (dto.telefono !== undefined) data.telefono = dto.telefono;
     if (dto.email !== undefined) data.email = dto.email;
-    if (dto.logoUrl !== undefined) data.logoUrl = dto.logoUrl;
+    if (dto.logoUrl !== undefined) data.logoUrl = dto.logoUrl ? dto.logoUrl : null;
     if (dto.primaryColor !== undefined) data.primaryColor = dto.primaryColor;
 
     if (dto.horaInicioOperativa !== undefined) data.horaInicioOperativa = dto.horaInicioOperativa;
@@ -285,8 +285,15 @@ export class ConfiguracionService {
     if (dto.diasRotacionTemporadaBaja !== undefined) data.diasRotacionTemporadaBaja = dto.diasRotacionTemporadaBaja;
 
     if (existing) {
-      if (existing.logoUrl && existing.logoUrl !== dto.logoUrl && existing.logoUrl.includes('cloudinary.com')) {
-        await this.cloudinary.deleteImage(existing.logoUrl);
+      if (
+        dto.logoUrl !== undefined &&
+        existing.logoUrl &&
+        existing.logoUrl !== dto.logoUrl &&
+        existing.logoUrl.includes('cloudinary.com')
+      ) {
+        await this.cloudinary.deleteImage(existing.logoUrl).catch((err) => {
+          console.warn('No se pudo eliminar logo anterior de Cloudinary:', err);
+        });
       }
       const updated = await this.prisma.businessConfig.update({
         where: { id: existing.id },
