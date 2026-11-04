@@ -883,6 +883,22 @@ export class InventarioQueryService {
           }
         }
 
+        // Limpieza de tallas alienígenas que no correspondan a la serie de este producto
+        if (p.serie?.tallas && Array.isArray(p.serie.tallas) && p.serie.tallas.length > 0) {
+          const validTallaIds = new Set(p.serie.tallas.map((t: any) => t.id));
+          const alienStocks = (p.stockByTalla || []).filter((s: any) => s.tallaId && !validTallaIds.has(s.tallaId));
+          if (alienStocks.length > 0) {
+            for (const as of alienStocks) {
+              try {
+                await this.prisma.stockByTalla.delete({
+                  where: { id: as.id },
+                });
+              } catch (e) {}
+            }
+            p.stockByTalla = p.stockByTalla.filter((s: any) => validTallaIds.has(s.tallaId));
+          }
+        }
+
         // Auto-saneamiento de sigla de proveedor en el código de variante si quedó desactualizada
         const variantSupplier = (p.supplier && (!p.tenantId || p.supplier.tenantId === p.tenantId))
           ? p.supplier

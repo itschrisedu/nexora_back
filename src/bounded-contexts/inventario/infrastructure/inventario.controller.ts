@@ -1786,6 +1786,22 @@ export class InventarioController {
 
       // Si se enviaron tallas para actualizar stock y numeración
       if (Array.isArray(dto.tallas) && dto.tallas.length > 0) {
+        // Asegurar que no queden tallas de series distintas asociadas a este producto
+        if (targetSerieId) {
+          const alienStocks = await tx.stockByTalla.findMany({
+            where: {
+              productId: id,
+              talla: { serieId: { not: targetSerieId } },
+            },
+            select: { id: true },
+          });
+          if (alienStocks.length > 0) {
+            await tx.stockByTalla.deleteMany({
+              where: { id: { in: alienStocks.map((as: any) => as.id) } },
+            });
+          }
+        }
+
         for (const t of dto.tallas) {
           if (t.cantidad === undefined || t.cantidad < 0) continue;
 
