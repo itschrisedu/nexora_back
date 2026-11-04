@@ -882,6 +882,47 @@ export class InventarioQueryService {
             }
           }
         }
+
+        // Auto-saneamiento de sigla de proveedor en el código de variante si quedó desactualizada
+        const variantSupplier = (p.supplier && (!p.tenantId || p.supplier.tenantId === p.tenantId))
+          ? p.supplier
+          : (m.supplier && (!m.tenantId || m.supplier.tenantId === m.tenantId))
+          ? m.supplier
+          : null;
+
+        if (variantSupplier?.razonSocial && p.code && m.baseCode && p.serie?.nombre) {
+          const expectedSigla = generarSiglaProveedor(variantSupplier.razonSocial);
+          if (expectedSigla) {
+            const colorClean = (p.color || '').trim().replace(/\s*\/\s*/g, ' / ').replace(/\s+/g, ' ');
+            const colorSuffix = colorClean.substring(0, 3).toUpperCase();
+            const serieSuffix = p.serie.nombre.substring(0, 3).toUpperCase();
+            const expectedPrefix = `${m.baseCode}-${colorSuffix}-${serieSuffix}-${expectedSigla}`;
+            const currentPrefix = p.code.replace(/-\d{3}$/, '');
+            if (currentPrefix !== expectedPrefix && currentPrefix.startsWith(`${m.baseCode}-${colorSuffix}-${serieSuffix}-`)) {
+              let candidate = expectedPrefix;
+              const existe = await this.prisma.product.findFirst({
+                where: { code: candidate, id: { not: p.id } },
+              });
+              if (existe) {
+                let counter = 2;
+                candidate = `${expectedPrefix}-${String(counter).padStart(3, '0')}`;
+                while (await this.prisma.product.findFirst({ where: { code: candidate, id: { not: p.id } } })) {
+                  counter++;
+                  candidate = `${expectedPrefix}-${String(counter).padStart(3, '0')}`;
+                }
+              }
+              try {
+                await this.prisma.product.update({
+                  where: { id: p.id },
+                  data: { code: candidate },
+                });
+                p.code = candidate;
+              } catch (e) {
+                // Ignorar si hay concurrencia
+              }
+            }
+          }
+        }
       }
     }
   }

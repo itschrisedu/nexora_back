@@ -1661,9 +1661,11 @@ export class InventarioController {
             reason: dto.motivoCambioPrecio || (newCost !== prevCost ? 'Ajuste de costo de entrega del taller' : 'Ajuste de precio de venta'),
           },
         });
+      }
 
-        // Sincronizar automáticamente en todas las variantes del mismo modelo, misma serie y mismo proveedor
-        const targetSup = dto.supplierId !== undefined ? dto.supplierId : product.supplierId;
+      // Sincronizar automáticamente en todas las variantes del mismo modelo, misma serie y mismo proveedor
+      const targetSup = dto.supplierId !== undefined ? dto.supplierId : product.supplierId;
+      if (priceChanged || dto.costPrice !== undefined || dto.salePrice !== undefined) {
         await this.sincronizarPreciosMismoModeloYProveedor(
           tx,
           id,
@@ -1677,10 +1679,75 @@ export class InventarioController {
         );
       }
 
+      // ── Sincronizar código de variante con el proveedor y serie actuales ──
+      const targetColor = newColorName || product.color;
+      let newVariantCode = product.code;
+
+      let supplierSigla = '';
+      if (targetSup) {
+        const sup = await tx.supplier.findUnique({
+          where: { id: targetSup },
+          select: { razonSocial: true },
+        });
+        if (sup?.razonSocial) {
+          supplierSigla = generarSiglaProveedor(sup.razonSocial);
+        }
+      }
+
+      const parentModel = product.modelId
+        ? await tx.productModel.findUnique({
+            where: { id: product.modelId },
+            select: { baseCode: true, supplierId: true },
+          })
+        : null;
+
+      if (!supplierSigla && parentModel?.supplierId) {
+        const parentSup = await tx.supplier.findUnique({
+          where: { id: parentModel.supplierId },
+          select: { razonSocial: true },
+        });
+        if (parentSup?.razonSocial) {
+          supplierSigla = generarSiglaProveedor(parentSup.razonSocial);
+        }
+      }
+
+      const serieRecord = targetSerieId
+        ? await tx.seriesConfig.findUnique({
+            where: { id: targetSerieId },
+            select: { nombre: true },
+          })
+        : null;
+
+      if (parentModel?.baseCode && targetColor && serieRecord?.nombre) {
+        const colorClean = formatearColorEstandar(targetColor);
+        const colorSuffix = colorClean.substring(0, 3).toUpperCase();
+        const serieSuffix = serieRecord.nombre.substring(0, 3).toUpperCase();
+        const siglaSuffix = supplierSigla ? `-${supplierSigla}` : '';
+        const baseVariantCode = `${parentModel.baseCode}-${colorSuffix}-${serieSuffix}${siglaSuffix}`;
+
+        const currentPrefix = product.code.replace(/-\d{3}$/, '');
+        if (currentPrefix !== baseVariantCode) {
+          let candidate = baseVariantCode;
+          const existe = await tx.product.findFirst({
+            where: { code: candidate, id: { not: id } },
+          });
+          if (existe) {
+            let counter = 2;
+            candidate = `${baseVariantCode}-${String(counter).padStart(3, '0')}`;
+            while (await tx.product.findFirst({ where: { code: candidate, id: { not: id } } })) {
+              counter++;
+              candidate = `${baseVariantCode}-${String(counter).padStart(3, '0')}`;
+            }
+          }
+          newVariantCode = candidate;
+        }
+      }
+
       await tx.product.update({
         where: { id },
         data: {
           ...(newColorName && { color: newColorName }),
+          ...(newVariantCode !== product.code && { code: newVariantCode }),
           ...(dto.imageUrl !== undefined && { imageUrl: dto.imageUrl }),
           ...(dto.serieId && { serieId: dto.serieId }),
           ...(dto.costPrice !== undefined && { costPrice: dto.costPrice }),
