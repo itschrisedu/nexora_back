@@ -32,6 +32,12 @@ export class PrismaService
       await this.$executeRawUnsafe(
         'ALTER TABLE "business_configs" ADD COLUMN IF NOT EXISTS "sriRazonSocial" TEXT;'
       );
+      await this.$executeRawUnsafe(
+        'ALTER TABLE "business_config" ADD COLUMN IF NOT EXISTS "politicaDescuentoVenta" TEXT DEFAULT \'LIBRE\';'
+      );
+      await this.$executeRawUnsafe(
+        'ALTER TABLE "business_configs" ADD COLUMN IF NOT EXISTS "politicaDescuentoVenta" TEXT DEFAULT \'LIBRE\';'
+      );
     } catch (e: any) {
       this.logger.warn(`Error en auto-migración de columnas: ${e.message}`);
     }

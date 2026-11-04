@@ -53,6 +53,12 @@ export class CrearPedidoHandler {
     let totalAcumulado = 0;
     let tieneStockParaTodo = true;
 
+    // Validación de Política de Descuentos: SOLO_CAMPANAS
+    const businessConfig = await this.prisma.businessConfig.findFirst({
+      where: { tenantId: command.tenantId },
+    }) as any;
+    const politicaSoloCampanas = businessConfig?.politicaDescuentoVenta === 'SOLO_CAMPANAS';
+
     for (const lineaInput of command.lineas) {
       const prod = await this.prisma.product.findUnique({
         where: { id: lineaInput.productId },
@@ -131,6 +137,14 @@ export class CrearPedidoHandler {
       const precioUnit = (lineaInput.precioUnitario !== undefined && lineaInput.precioUnitario !== null && Number(lineaInput.precioUnitario) > 0)
         ? Money.create(Number(lineaInput.precioUnitario))
         : Money.create(Number(prod.salePrice));
+
+      // Si la política es SOLO_CAMPANAS, el precio enviado no puede diferir del precio de catálogo
+      if (politicaSoloCampanas && Math.abs(precioUnit.amount - Number(prod.salePrice)) > 0.05) {
+        throw new BadRequestException(
+          `Politica Solo Campanas activa: el precio unitario del producto "${prod.code}" no puede diferir del precio de catalogo ($${Number(prod.salePrice).toFixed(2)}).`,
+        );
+      }
+
       totalAcumulado += precioUnit.amount * lineaInput.cantidad;
 
       lineasProducto.push({

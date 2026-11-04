@@ -194,6 +194,19 @@ export class PosService {
       throw new BadRequestException('Debe incluir al menos un artículo para la venta.');
     }
 
+    // Validación de Política de Descuentos: SOLO_CAMPANAS
+    const businessConfig = await this.prisma.businessConfig.findFirst({ where: { tenantId: tid } }) as any;
+    if (businessConfig?.politicaDescuentoVenta === 'SOLO_CAMPANAS') {
+      for (const linea of dto.lineas) {
+        const producto = await this.prisma.product.findUnique({ where: { id: linea.productId } });
+        if (producto && Math.abs(linea.precioUnitario - Number(producto.salePrice)) > 0.05) {
+          throw new BadRequestException(
+            'Politica Solo Campanas activa: no se permite alterar el precio de venta fuera de una campana comercial autorizada.',
+          );
+        }
+      }
+    }
+
     // 1. Obtener o asignar Cliente según Tipo de Comprobante (Factura o Consumidor Final)
     let clienteId: string = dto.clienteId || '';
 

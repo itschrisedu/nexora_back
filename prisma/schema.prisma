@@ -255,6 +255,7 @@ model BusinessConfig {
 
   // Estrategia Comercial (Fase 9: Estándar vs Dinámico)
   estrategiaComercialTipo   String   @default("ESTANDAR") // "ESTANDAR" | "DINAMICO"
+  politicaDescuentoVenta    String   @default("LIBRE") // "LIBRE" | "SOLO_CAMPANAS"
   margenMinimoDinamico      Decimal  @default(25.00) @db.Decimal(5, 2)
   temporadaComercial        String   @default("AUTO") // "AUTO" | "ALTA" | "REGULAR" | "BAJA"
   descuentoTemporadaBaja    Decimal  @default(10.00) @db.Decimal(5, 2)

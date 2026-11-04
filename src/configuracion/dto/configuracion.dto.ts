@@ -202,6 +202,10 @@ export class UpdateBusinessConfigDto {
   @IsOptional()
   estrategiaComercialTipo?: string; // "ESTANDAR" | "DINAMICO"
 
+  @IsString()
+  @IsOptional()
+  politicaDescuentoVenta?: string; // "LIBRE" | "SOLO_CAMPANAS"
+
   @IsOptional()
   margenMinimoDinamico?: number;
 

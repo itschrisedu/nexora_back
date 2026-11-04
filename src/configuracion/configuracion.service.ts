@@ -157,6 +157,7 @@ export class ConfiguracionService {
         autoWhatsAppHabilitado: true,
         autoEmailHabilitado: true,
         estrategiaComercialTipo: 'ESTANDAR',
+        politicaDescuentoVenta: 'LIBRE',
         margenMinimoDinamico: 25,
         temporadaComercial: 'AUTO',
         descuentoTemporadaBaja: 10,
@@ -176,6 +177,7 @@ export class ConfiguracionService {
       sriRegimen: regimenInherited || config.sriRegimen || 'RIMPE_POPULAR',
       ruc: rucFinal,
       estrategiaComercialTipo: config.estrategiaComercialTipo || 'ESTANDAR',
+      politicaDescuentoVenta: (config as any).politicaDescuentoVenta || 'LIBRE',
       margenMinimoDinamico: Number(config.margenMinimoDinamico ?? 25),
       temporadaComercial: config.temporadaComercial || 'AUTO',
       descuentoTemporadaBaja: Number(config.descuentoTemporadaBaja ?? 10),
@@ -276,6 +278,7 @@ export class ConfiguracionService {
 
     // Estrategia Comercial (Fase 9: Estándar vs Dinámico)
     if (dto.estrategiaComercialTipo !== undefined) data.estrategiaComercialTipo = dto.estrategiaComercialTipo;
+    if (dto.politicaDescuentoVenta !== undefined) (data as any).politicaDescuentoVenta = dto.politicaDescuentoVenta;
     if (dto.margenMinimoDinamico !== undefined) data.margenMinimoDinamico = dto.margenMinimoDinamico;
     if (dto.temporadaComercial !== undefined) data.temporadaComercial = dto.temporadaComercial;
     if (dto.descuentoTemporadaBaja !== undefined) data.descuentoTemporadaBaja = dto.descuentoTemporadaBaja;
@@ -458,6 +461,7 @@ export class ConfiguracionService {
 
     return {
       estrategiaComercialTipo: tipo,
+      politicaDescuentoVenta: (config as any)?.politicaDescuentoVenta || 'LIBRE',
       temporadaConfigurada: temporadaConfig,
       temporadaEfectiva,
       motivoTemporada,
@@ -467,6 +471,7 @@ export class ConfiguracionService {
       reglas: {
         validarMargenMinimo: tipo === 'DINAMICO' && (temporadaEfectiva === 'ALTA' || temporadaEfectiva === 'REGULAR'),
         habilitarPromocionesBaja: tipo === 'DINAMICO' && temporadaEfectiva === 'BAJA',
+        permitirDescuentoManual: ((config as any)?.politicaDescuentoVenta || 'LIBRE') === 'LIBRE',
       },
     };
   }
