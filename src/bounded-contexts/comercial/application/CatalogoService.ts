@@ -189,6 +189,7 @@ export class CatalogoService {
         name: m.name,
         brand: m.brand,
         material: m.material || '100% Cuero Vacuno',
+        createdAt: m.createdAt,
         sucursalNombre: m.tenant?.name || 'Matriz',
         precioMin,
         precioMax,
@@ -248,6 +249,7 @@ export class CatalogoService {
             color: p.color,
             imageUrl: p.imageUrl,
             salePrice: Number(p.salePrice),
+            serieId: p.serieId,
             serieNombre: p.serie?.nombre || '',
             totalStock,
             tallas: listaTallasFinal,
@@ -335,6 +337,7 @@ export class CatalogoService {
       name: m.name,
       brand: m.brand,
       material: m.material,
+      createdAt: m.createdAt,
       variantes: m.products.map((p) => {
         // Stock por talla existente en bodega
         const stockMap = new Map<string, { quantity: number; reserved: number; numero: number; tallaId: string }>();
