@@ -1062,7 +1062,7 @@ export class InventarioController {
       // 1. Obtener todas las variantes existentes del modelo (ordenadas por más recientes)
       const existingProducts = await this.prisma.product.findMany({
         where: { modelId: id },
-        include: { stockByTalla: true },
+        include: { stockByTalla: true, serie: true },
         orderBy: { updatedAt: 'desc' },
       });
 
@@ -1121,11 +1121,30 @@ export class InventarioController {
           const saleVal = rawSale > 0 ? rawSale : fallbackSale > 0 ? fallbackSale : 13;
 
           // Buscar si este color ya tiene variante con esta serie PARA ESTE PROVEEDOR
-          const prodExistente = prodsDeEsteProveedor.find(
+          const candidatos = prodsDeEsteProveedor.filter(
             (p) =>
               p.color.trim().toLowerCase() === colorName.toLowerCase() &&
-              p.serieId === serieConfig.id,
+              (p.serieId === serieConfig.id || (p.serie && p.serie.nombre === serieConfig.nombre)),
           );
+          candidatos.sort((a, b) => {
+            const sA = (a.stockByTalla || []).reduce((acc: number, s: any) => acc + (s.quantity || 0), 0);
+            const sB = (b.stockByTalla || []).reduce((acc: number, s: any) => acc + (s.quantity || 0), 0);
+            return sB - sA;
+          });
+          const prodExistente = candidatos[0];
+
+          // Limpiar duplicados vacíos si existieran
+          if (candidatos.length > 1) {
+            for (const dup of candidatos.slice(1)) {
+              const dStk = (dup.stockByTalla || []).reduce((acc: number, s: any) => acc + (s.quantity || 0), 0);
+              if (dStk === 0) {
+                try {
+                  await this.prisma.stockByTalla.deleteMany({ where: { productId: dup.id } });
+                  await this.prisma.product.delete({ where: { id: dup.id } });
+                } catch (_) {}
+              }
+            }
+          }
 
           if (prodExistente) {
             // Actualizar precios y proveedor en la variante existente de este proveedor
