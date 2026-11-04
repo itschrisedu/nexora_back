@@ -1277,14 +1277,28 @@ export class InventarioController {
 
     const targetSupplierId = dto.supplierId || null;
 
+    // Sigla del proveedor para la nomenclatura de códigos
+    let supplierSigla = '';
+    if (targetSupplierId) {
+      const sup = await this.prisma.supplier.findUnique({
+        where: { id: targetSupplierId },
+        select: { razonSocial: true },
+      });
+      if (sup) {
+        supplierSigla = generarSiglaProveedor(sup.razonSocial);
+      }
+    }
+
     // Productos que pertenecen a este proveedor específico en este modelo
     const prodsProveedor = model.products.filter(p => {
       if (targetSupplierId) {
-        return p.supplierId === targetSupplierId || (!p.supplierId && targetSupplierId === model.supplierId);
+        if (p.supplierId === targetSupplierId) return true;
+        if (p.supplierId && p.supplierId !== targetSupplierId) return false;
+        if (supplierSigla && p.code.includes(`-${supplierSigla}`)) return true;
+        return !p.supplierId && targetSupplierId === model.supplierId;
       } else {
         return !p.supplierId || p.supplierId === model.supplierId;
       }
-
     });
 
     // Colores únicos que maneja este proveedor en este modelo (o todos los colores del modelo si aún no tenía)
@@ -1296,7 +1310,6 @@ export class InventarioController {
           colorMap.set(cClean, { imageUrl: p.imageUrl });
         }
       }
-
     } else {
       for (const p of model.products) {
         const cClean = p.color.trim();
@@ -1304,20 +1317,6 @@ export class InventarioController {
           colorMap.set(cClean, { imageUrl: p.imageUrl });
         }
       }
-
-    }
-
-    // Sigla del proveedor para la nomenclatura de códigos
-    let supplierSigla = '';
-    if (targetSupplierId) {
-      const sup = await this.prisma.supplier.findUnique({
-        where: { id: targetSupplierId },
-        select: { razonSocial: true },
-      });
-      if (sup) {
-        supplierSigla = generarSiglaProveedor(sup.razonSocial);
-      }
-
     }
 
     const activeSerieIds = dto.serieIds || [];

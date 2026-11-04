@@ -418,26 +418,29 @@ export class InventarioQueryService {
       });
     }
 
-    (record.stockByTalla || []).forEach((s: any) => {
-      if (!seenTallaIds.has(s.tallaId) && (!s.talla?.numero || !seenTallaIds.has(String(s.talla.numero)))) {
-        const qty = s.quantity ?? 0;
-        const resQty = s.reservedQuantity ?? 0;
-        const minStk = s.minStock ?? 0;
-        allTallas.push({
-          id: s.tallaId,
-          tallaId: s.tallaId,
-          numero: s.talla?.numero ?? s.tallaId,
-          cantidad: qty,
-          stock: qty,
-          ratio: 1,
-          cantidadSerie: 1,
-          cantidadReservada: resQty,
-          disponible: qty - resQty,
-          stockMinimo: minStk,
-          bajoPorMinimo: minStk > 0 && qty - resQty < minStk,
-        });
-      }
-    });
+    // Solo si el producto no tiene una serie con tallas definidas, usar stockByTalla como fallback
+    if (!record.serie?.tallas || !Array.isArray(record.serie.tallas) || record.serie.tallas.length === 0) {
+      (record.stockByTalla || []).forEach((s: any) => {
+        if (!seenTallaIds.has(s.tallaId) && (!s.talla?.numero || !seenTallaIds.has(String(s.talla.numero)))) {
+          const qty = s.quantity ?? 0;
+          const resQty = s.reservedQuantity ?? 0;
+          const minStk = s.minStock ?? 0;
+          allTallas.push({
+            id: s.tallaId,
+            tallaId: s.tallaId,
+            numero: s.talla?.numero ?? s.tallaId,
+            cantidad: qty,
+            stock: qty,
+            ratio: 1,
+            cantidadSerie: 1,
+            cantidadReservada: resQty,
+            disponible: qty - resQty,
+            stockMinimo: minStk,
+            bajoPorMinimo: minStk > 0 && qty - resQty < minStk,
+          });
+        }
+      });
+    }
 
     allTallas.sort((a, b) => (Number(a.numero) || 0) - (Number(b.numero) || 0));
 
