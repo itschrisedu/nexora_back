@@ -55,7 +55,7 @@ import { FifoInventoryService } from '../application/services/FifoInventoryServi
 import { PrismaService } from '../../../shared/infrastructure/prisma/prisma.service';
 import { CloudinaryService } from '../../../shared/infrastructure/cloudinary/cloudinary.service';
 import { EncryptionService } from '../../../shared/infrastructure/encryption/encryption.service';
-import { generarSiglaProveedor } from '../../../shared/utils/text-formatters';
+import { generarSiglaProveedor, formatearColorEstandar } from '../../../shared/utils/text-formatters';
 
 /**
  * Controlador REST para la gestión integral del inventario de calzado.
@@ -159,7 +159,7 @@ export class InventarioController {
       dto.costPrice,
       dto.salePrice,
       dto.colors.map(c => ({
-        color: c.color,
+        color: formatearColorEstandar(c.color),
         imageUrl: c.imageUrl ?? null,
         supplierId: c.supplierId ?? null,
       })),
@@ -235,7 +235,7 @@ export class InventarioController {
     for (const serieConfig of seriesConfigs) {
       const serieVO = Serie.create(serieConfig.nombre);
 
-      const colorClean = dto.color.trim();
+      const colorClean = formatearColorEstandar(dto.color);
       const colorSuffix = colorClean.substring(0, 3).toUpperCase();
       const serieSuffix = serieConfig.nombre.substring(0, 3).toUpperCase();
       const siglaSuffix = supplierSigla ? `-${supplierSigla}` : '';

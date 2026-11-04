@@ -235,3 +235,25 @@ export function generarCodigoBaseModelo(nombreCalzado: string, codigosExistentes
   return `${prefijo}-${sufijo}`;
 }
 
+/**
+ * Estandariza el nombre de un color al formato canónico:
+ * - Siempre espacio antes y después de '/': " / "
+ * - Mayúscula inicial en cada palabra o componente: "Negro / Blanco", "Negro Planta Goma"
+ * - Espacios limpios simples sin dobles espacios
+ */
+export function formatearColorEstandar(color: string): string {
+  if (!color) return '';
+  return color
+    .trim()
+    .replace(/\s*\/\s*/g, ' / ')
+    .replace(/\s+/g, ' ')
+    .split(' / ')
+    .map((part) =>
+      part
+        .split(' ')
+        .map((w) => (w ? w.charAt(0).toUpperCase() + w.slice(1).toLowerCase() : ''))
+        .join(' '),
+    )
+    .join(' / ');
+}
+
