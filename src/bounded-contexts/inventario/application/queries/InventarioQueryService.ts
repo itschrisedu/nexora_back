@@ -861,6 +861,46 @@ export class InventarioQueryService {
     for (const m of modelos) {
       if (!m.products || m.products.length === 0) continue;
 
+      // FASE 2.0: Auto-saneamiento de variantes duplicadas accidentales (misma serie, color y taller)
+      const groups = new Map<string, any[]>();
+      for (const p of m.products) {
+        const supId = p.supplierId || m.supplierId || 'default';
+        const cClean = (p.color || '').trim().toLowerCase();
+        const sId = p.serieId || p.serie?.id;
+        const key = `${cClean}_${sId}_${supId}`;
+        if (!groups.has(key)) groups.set(key, []);
+        groups.get(key)!.push(p);
+      }
+
+      for (const prods of groups.values()) {
+        if (prods.length > 1) {
+          // Ordenar: primero los que tienen stock físico real > 0, luego los creados antes
+          prods.sort((a, b) => {
+            const stockA = (a.stockByTalla || []).reduce((acc: number, s: any) => acc + (s.quantity || 0), 0);
+            const stockB = (b.stockByTalla || []).reduce((acc: number, s: any) => acc + (s.quantity || 0), 0);
+            if (stockB !== stockA) return stockB - stockA;
+            return (a.createdAt ? new Date(a.createdAt).getTime() : 0) - (b.createdAt ? new Date(b.createdAt).getTime() : 0);
+          });
+
+          const duplicates = prods.slice(1);
+          for (const dup of duplicates) {
+            const dupStock = (dup.stockByTalla || []).reduce((acc: number, s: any) => acc + (s.quantity || 0), 0);
+            if (dupStock === 0) {
+              try {
+                await this.prisma.stockByTalla.deleteMany({ where: { productId: dup.id } });
+                await this.prisma.product.delete({ where: { id: dup.id } });
+                m.products = m.products.filter((prod: any) => prod.id !== dup.id);
+              } catch (_) {
+                try {
+                  await this.prisma.product.update({ where: { id: dup.id }, data: { active: false } });
+                  m.products = m.products.filter((prod: any) => prod.id !== dup.id);
+                } catch (_) {}
+              }
+            }
+          }
+        }
+      }
+
       for (const p of m.products) {
         if (!p.serie || !p.serie.tallas || p.serie.tallas.length === 0) continue;
         const existingTallaIds = new Set((p.stockByTalla || []).map((s: any) => s.tallaId));

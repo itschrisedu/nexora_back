@@ -1269,7 +1269,7 @@ export class InventarioController {
       where: { id: modelId },
       include: {
         products: {
-          include: { stockByTalla: true },
+          include: { stockByTalla: true, serie: true },
         },
       },
     });
@@ -1332,11 +1332,31 @@ export class InventarioController {
         const costVal = seriePrices?.costPrice && seriePrices.costPrice > 0 ? seriePrices.costPrice : 10;
         const saleVal = seriePrices?.salePrice && seriePrices.salePrice > 0 ? seriePrices.salePrice : 13;
 
-        const prodExistente = prodsProveedor.find(
+        const candidatos = prodsProveedor.filter(
           p =>
             p.color.trim().toLowerCase() === colorName.toLowerCase() &&
-            p.serieId === serieConfig.id,
+            (p.serieId === serieConfig.id || (p.serie && p.serie.nombre === serieConfig.nombre)),
         );
+        // Si hay varios candidatos por sincronizaciones anteriores, preferir el que tenga stock físico real
+        candidatos.sort((a, b) => {
+          const sA = (a.stockByTalla || []).reduce((acc: number, s: any) => acc + (s.quantity || 0), 0);
+          const sB = (b.stockByTalla || []).reduce((acc: number, s: any) => acc + (s.quantity || 0), 0);
+          return sB - sA;
+        });
+        const prodExistente = candidatos[0];
+
+        // Limpiar duplicados vacíos si existieran
+        if (candidatos.length > 1) {
+          for (const dup of candidatos.slice(1)) {
+            const dStk = (dup.stockByTalla || []).reduce((acc: number, s: any) => acc + (s.quantity || 0), 0);
+            if (dStk === 0) {
+              try {
+                await this.prisma.stockByTalla.deleteMany({ where: { productId: dup.id } });
+                await this.prisma.product.delete({ where: { id: dup.id } });
+              } catch (_) {}
+            }
+          }
+        }
 
         const customIds = dto.customTallas?.[serieConfig.id];
 
