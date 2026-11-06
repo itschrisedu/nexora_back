@@ -715,7 +715,93 @@ export class ReportesService {
       // fallback
     }
 
-    // 3. Curva de tallas con stock bajo (37 a 42)
+    // 3. Curva de tallas dinámica por Serie de calzado (todas las series configuradas)
+    let seriesConfigList: any[] = [];
+    try {
+      seriesConfigList = await this.prisma.seriesConfig.findMany({
+        where: { activa: true },
+        include: {
+          tallas: { orderBy: { numero: 'asc' } },
+        },
+      });
+    } catch (e) {
+      // fallback si tabla no accesible
+    }
+
+    const curvaTallasPorSerie: {
+      [serieNombre: string]: {
+        serieId: string;
+        serieNombre: string;
+        totalModelos: number;
+        totalPares: number;
+        tallas: {
+          tallaId?: string;
+          numero: number;
+          paresTotal: number;
+          modelosBajos: number;
+        }[];
+      };
+    } = {};
+
+    seriesConfigList.forEach((sc) => {
+      curvaTallasPorSerie[sc.nombre] = {
+        serieId: sc.id,
+        serieNombre: sc.nombre,
+        totalModelos: 0,
+        totalPares: 0,
+        tallas: sc.tallas.map((t: any) => ({
+          tallaId: t.id,
+          numero: t.numero,
+          paresTotal: 0,
+          modelosBajos: 0,
+        })),
+      };
+    });
+
+    products.forEach((p) => {
+      const sNombre = p.serie?.nombre;
+      if (!sNombre) return;
+
+      if (!curvaTallasPorSerie[sNombre]) {
+        curvaTallasPorSerie[sNombre] = {
+          serieId: p.serieId,
+          serieNombre: sNombre,
+          totalModelos: 0,
+          totalPares: 0,
+          tallas: [],
+        };
+      }
+
+      const serieData = curvaTallasPorSerie[sNombre];
+      serieData.totalModelos += 1;
+
+      p.stockByTalla.forEach((st: any) => {
+        const num = st.talla?.numero;
+        const qty = st.quantity || 0;
+        serieData.totalPares += qty;
+
+        let tallaItem = serieData.tallas.find((t) => t.numero === num);
+        if (!tallaItem && num) {
+          tallaItem = {
+            tallaId: st.tallaId,
+            numero: num,
+            paresTotal: 0,
+            modelosBajos: 0,
+          };
+          serieData.tallas.push(tallaItem);
+          serieData.tallas.sort((a, b) => a.numero - b.numero);
+        }
+
+        if (tallaItem) {
+          tallaItem.paresTotal += qty;
+          if (qty <= 2) {
+            tallaItem.modelosBajos += 1;
+          }
+        }
+      });
+    });
+
+    // Curva de tallas con stock bajo (37 a 42 legacy para compatibilidad)
     const tallasBajasMap: { [key: number]: number } = { 37: 0, 38: 0, 39: 0, 40: 0, 41: 0, 42: 0 };
     products.forEach((p) => {
       p.stockByTalla.forEach((s: any) => {
@@ -732,6 +818,7 @@ export class ReportesService {
     return {
       distribucionEstadosPedidos: estadosPedidosMap,
       scoringClientes: scoringMap,
+      curvaTallasPorSerie,
       tallasBajas37_42: tallasBajasMap,
       filtrosAplicados: {
         periodo: filtros.periodo || 'MENSUAL',
