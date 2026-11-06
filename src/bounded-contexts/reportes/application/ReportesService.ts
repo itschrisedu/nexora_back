@@ -677,10 +677,16 @@ export class ReportesService {
     try {
       const clientsList = await this.prisma.client.findMany({
         where: { tenantId: tenantFilter },
-        select: { scoringCrediticio: true },
+        select: { nivelCredito: true },
       });
       clientsList.forEach((c) => {
-        const sc = (c.scoringCrediticio as string) || 'B';
+        let sc = 'SIN_CREDITO';
+        if (c.nivelCredito === 'NIVEL_4') sc = 'A';
+        else if (c.nivelCredito === 'NIVEL_3') sc = 'B';
+        else if (c.nivelCredito === 'NIVEL_2') sc = 'C';
+        else if (c.nivelCredito === 'NIVEL_1') sc = 'D';
+        else sc = 'SIN_CREDITO';
+
         if (sc in scoringMap) {
           scoringMap[sc]++;
         } else {
@@ -2296,10 +2302,12 @@ export class ReportesService {
         where: { id: { in: clientIds } },
         select: {
           id: true,
-          nombreCompleto: true,
+          nombre: true,
+          apellido: true,
           telefono: true,
-          identificacion: true,
-          scoringCrediticio: true,
+          cedula: true,
+          ruc: true,
+          nivelCredito: true,
         },
       }),
       this.prisma.product.findMany({
@@ -2388,10 +2396,35 @@ export class ReportesService {
         tipoEntrega: order.tipoEntrega,
         cliente: {
           id: order.clientId,
-          nombre: client?.nombreCompleto || 'Cliente Mostrador',
+          nombre: client ? `${client.nombre} ${client.apellido}`.trim() : 'Cliente Mostrador',
           telefono: client?.telefono || '',
-          identificacion: client?.identificacion || '',
-          scoring: (client as any)?.scoringCrediticio || 'B',
+          identificacion: client?.cedula
+            ? (() => {
+                try {
+                  return this.encryptionService.decrypt(client.cedula);
+                } catch {
+                  return client.cedula;
+                }
+              })()
+            : client?.ruc
+            ? (() => {
+                try {
+                  return this.encryptionService.decrypt(client.ruc);
+                } catch {
+                  return client.ruc;
+                }
+              })()
+            : '',
+          scoring:
+            client?.nivelCredito === 'NIVEL_4'
+              ? 'A'
+              : client?.nivelCredito === 'NIVEL_3'
+              ? 'B'
+              : client?.nivelCredito === 'NIVEL_2'
+              ? 'C'
+              : client?.nivelCredito === 'NIVEL_1'
+              ? 'D'
+              : 'SIN_CREDITO',
         },
         calzadoResumen,
         totalPares,
