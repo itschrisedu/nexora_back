@@ -805,6 +805,13 @@ export class ReportesService {
       });
     });
 
+    // Eliminar series que no tienen ningun modelo/producto en el negocio
+    Object.keys(curvaTallasPorSerie).forEach((key) => {
+      if (curvaTallasPorSerie[key].totalModelos === 0) {
+        delete curvaTallasPorSerie[key];
+      }
+    });
+
     // Curva de tallas con stock bajo (37 a 42 legacy para compatibilidad)
     const tallasBajasMap: { [key: number]: number } = { 37: 0, 38: 0, 39: 0, 40: 0, 41: 0, 42: 0 };
     products.forEach((p) => {
