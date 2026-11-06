@@ -350,10 +350,20 @@ export class ReportesService {
 
     const cobrosPendientes = await this.prisma.cobro.findMany({
       where: whereSaldoCartera,
-      select: { clientId: true },
-      distinct: ['clientId'],
+      select: { clientId: true, fechaVencimiento: true, saldoPendiente: true },
     });
-    const clientesConDeudaCount = cobrosPendientes.length;
+    const clientesConDeudaCount = new Set(cobrosPendientes.map((c) => c.clientId)).size;
+
+    const hoyMora = new Date();
+    let saldoCarteraVencida = 0;
+    cobrosPendientes.forEach((c) => {
+      if (c.fechaVencimiento && new Date(c.fechaVencimiento) < hoyMora) {
+        saldoCarteraVencida += Number(c.saldoPendiente || 0);
+      }
+    });
+    const saldoCarteraVigente = Math.max(0, saldoCarteraTotal - saldoCarteraVencida);
+    const tasaMorosidadReal = saldoCarteraTotal > 0 ? (saldoCarteraVencida / saldoCarteraTotal) * 100 : 0;
+    const porcentajeCarteraVigente = saldoCarteraTotal > 0 ? (saldoCarteraVigente / saldoCarteraTotal) * 100 : 100;
 
     // Desglose analítico de abonos por canal y por trabajador
     const orderMap = new Map<string, any>();
@@ -672,30 +682,37 @@ export class ReportesService {
       }
     });
 
-    // 2. Anillo de scoring crediticio de clientes
-    const scoringMap: { [key: string]: number } = { A: 0, B: 0, C: 0, D: 0, SIN_CREDITO: 0 };
+    // 2. Anillo de scoring crediticio de clientes (Nivel 1 a 4 y Sin Crédito)
+    const scoringMap: { [key: string]: number } = {
+      SIN_CREDITO: 0,
+      NIVEL_1: 0,
+      NIVEL_2: 0,
+      NIVEL_3: 0,
+      NIVEL_4: 0,
+      A: 0,
+      B: 0,
+      C: 0,
+      D: 0,
+    };
     try {
       const clientsList = await this.prisma.client.findMany({
         where: { tenantId: tenantFilter },
         select: { nivelCredito: true },
       });
       clientsList.forEach((c) => {
-        let sc = 'SIN_CREDITO';
-        if (c.nivelCredito === 'NIVEL_4') sc = 'A';
-        else if (c.nivelCredito === 'NIVEL_3') sc = 'B';
-        else if (c.nivelCredito === 'NIVEL_2') sc = 'C';
-        else if (c.nivelCredito === 'NIVEL_1') sc = 'D';
-        else sc = 'SIN_CREDITO';
-
-        if (sc in scoringMap) {
-          scoringMap[sc]++;
+        const nivel = (c.nivelCredito as string) || 'SIN_CREDITO';
+        if (nivel in scoringMap) {
+          scoringMap[nivel]++;
         } else {
           scoringMap.SIN_CREDITO++;
         }
+        if (nivel === 'NIVEL_4') scoringMap.A++;
+        else if (nivel === 'NIVEL_3') scoringMap.B++;
+        else if (nivel === 'NIVEL_2') scoringMap.C++;
+        else if (nivel === 'NIVEL_1') scoringMap.D++;
       });
     } catch (e) {
-      scoringMap.B = 10;
-      scoringMap.A = 5;
+      // fallback
     }
 
     // 3. Curva de tallas con stock bajo (37 a 42)
@@ -733,6 +750,10 @@ export class ReportesService {
         margenPorcentaje,
         totalRecaudadoCobros,
         saldoCarteraTotal,
+        saldoCarteraVencida: Math.round(saldoCarteraVencida * 100) / 100,
+        saldoCarteraVigente: Math.round(saldoCarteraVigente * 100) / 100,
+        tasaMorosidadReal: Math.round(tasaMorosidadReal * 10) / 10,
+        porcentajeCarteraVigente: Math.round(porcentajeCarteraVigente * 10) / 10,
         clientesConDeudaCount,
         saldoCajaManual,
         totalParesEnStock,
