@@ -121,7 +121,7 @@ export class ConfiguracionService {
 
     if (!firmaInheritedPath) {
       // Buscar la configuración de la Matriz del admin general
-      const matrizUser = await this.prisma.user.findFirst({
+      const matrizUser = await this.prisma.user?.findFirst?.({
         where: {
           OR: [
             { tenantId: targetTenantId, parentId: { not: null } },
@@ -130,7 +130,7 @@ export class ConfiguracionService {
         },
         include: { parent: { include: { tenant: { include: { businessConfig: true } } } } },
       });
-      const matrizConfig = matrizUser?.parent?.tenant?.businessConfig || await this.prisma.businessConfig.findFirst({
+      const matrizConfig = matrizUser?.parent?.tenant?.businessConfig || await this.prisma.businessConfig?.findFirst?.({
         where: { firmaP12Path: { not: null } },
       });
 

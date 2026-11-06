@@ -52,6 +52,9 @@ describe('Integración — Facturación Electrónica SRI y Acceso Público a Com
         ),
         findFirst: jest.fn(),
       },
+      user: {
+        findFirst: jest.fn().mockResolvedValue(null),
+      },
       publicComprobanteToken: {
         create: jest.fn().mockImplementation((args) =>
           Promise.resolve({

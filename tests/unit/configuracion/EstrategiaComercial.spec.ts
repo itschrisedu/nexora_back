@@ -20,6 +20,9 @@ describe('ConfiguracionService - Estrategia Comercial Estándar vs Dinámico (Fa
         findUnique: jest.fn().mockResolvedValue({ id: 'tenant-01', name: 'Matriz' }),
         findFirst: jest.fn().mockResolvedValue({ id: 'tenant-01', name: 'Matriz' }),
       },
+      user: {
+        findFirst: jest.fn().mockResolvedValue(null),
+      },
     };
 
     mockEncryption = {

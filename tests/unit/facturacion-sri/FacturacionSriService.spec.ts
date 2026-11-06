@@ -21,7 +21,11 @@ describe('FacturacionSriService (Pruebas Unitarias)', () => {
   const mockPrisma = {
     businessConfig: {
       findUnique: jest.fn(),
+      findFirst: jest.fn(),
       update: jest.fn(),
+    },
+    user: {
+      findFirst: jest.fn().mockResolvedValue(null),
     },
     facturaElectronica: {
       create: jest.fn(),
