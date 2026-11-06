@@ -350,14 +350,18 @@ export class ReportesService {
 
     const cobrosPendientes = await this.prisma.cobro.findMany({
       where: whereSaldoCartera,
-      select: { clientId: true, fechaVencimiento: true, saldoPendiente: true },
+      select: { clientId: true, fechaVencimiento: true, saldoPendiente: true, createdAt: true },
     });
     const clientesConDeudaCount = new Set(cobrosPendientes.map((c) => c.clientId)).size;
 
     const hoyMora = new Date();
     let saldoCarteraVencida = 0;
     cobrosPendientes.forEach((c) => {
-      if (c.fechaVencimiento && new Date(c.fechaVencimiento) < hoyMora) {
+      // Si tiene fechaVencimiento, se usa directamente; si no, se calcula como createdAt + 30 dias
+      const fechaLimite = c.fechaVencimiento
+        ? new Date(c.fechaVencimiento)
+        : new Date(new Date(c.createdAt).getTime() + 30 * 24 * 60 * 60 * 1000);
+      if (fechaLimite < hoyMora) {
         saldoCarteraVencida += Number(c.saldoPendiente || 0);
       }
     });
