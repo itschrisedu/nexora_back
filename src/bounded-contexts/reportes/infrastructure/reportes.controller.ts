@@ -244,6 +244,50 @@ export class ReportesController {
   }
 
   /**
+   * GET /reportes/inventario-fifo
+   * Reporte analítico de existencias físicas valoradas bajo el método FIFO
+   */
+  @Get('inventario-fifo')
+  @Roles(Rol.ROL_ADMIN, Rol.ROL_SUPER_ADMIN, Rol.ROL_VENDEDOR, Rol.ROL_BODEGUERO)
+  async obtenerReporteInventarioFifo(
+    @Req() req: any,
+    @Query('sucursalId') sucursalId?: string,
+    @Query('serie') serie?: string,
+    @Query('proveedorId') proveedorId?: string,
+    @Query('rotacion') rotacion?: string,
+    @Query('orden') orden?: string,
+    @Query('busqueda') busqueda?: string,
+  ) {
+    const tenantIds = await this.determinarTenantIds(req, sucursalId);
+    return this.reportesService.obtenerReporteInventarioFifo(tenantIds, {
+      serie,
+      proveedorId,
+      rotacion,
+      orden,
+      busqueda,
+    });
+  }
+
+  /**
+   * GET /reportes/entregas-pedidos
+   * Reporte analítico de órdenes comerciales y entregas pendientes por cliente y curva de tallas
+   */
+  @Get('entregas-pedidos')
+  @Roles(Rol.ROL_ADMIN, Rol.ROL_SUPER_ADMIN, Rol.ROL_VENDEDOR, Rol.ROL_BODEGUERO)
+  async obtenerReporteEntregasPendientes(
+    @Req() req: any,
+    @Query('sucursalId') sucursalId?: string,
+    @Query('clienteBusqueda') clienteBusqueda?: string,
+    @Query('estadoVista') estadoVista?: 'PENDIENTES' | 'ENTREGADOS' | 'TODOS',
+  ) {
+    const tenantIds = await this.determinarTenantIds(req, sucursalId);
+    return this.reportesService.obtenerReporteEntregasPendientes(tenantIds, {
+      clienteBusqueda,
+      estadoVista,
+    });
+  }
+
+  /**
    * Determina los tenantIds permitidos según el rol del usuario autenticado:
    * - Super Administrador: intacto (mantiene su lógica original).
    * - Vendedor o Admin de Sucursal: forzado a su propio local (tenantId).

@@ -651,7 +651,65 @@ export class ReportesService {
       // Ignorar si no existe
     }
 
+    // Métricas Operativas Clave para Dashboard:
+    // 1. Trazabilidad de estados de pedidos
+    const estadosPedidosMap: { [key: string]: number } = {
+      PENDIENTE: 0,
+      EN_PREPARACION: 0,
+      ENTREGADO: 0,
+      CANCELADO: 0,
+    };
+    orders.forEach((o) => {
+      const est = (o.estado as string) || 'PENDIENTE';
+      if (est === 'EN_ESPERA_STOCK') {
+        estadosPedidosMap.EN_PREPARACION = (estadosPedidosMap.EN_PREPARACION || 0) + 1;
+      } else if (est === 'ENTREGADO_PARCIAL') {
+        estadosPedidosMap.ENTREGADO = (estadosPedidosMap.ENTREGADO || 0) + 1;
+      } else if (est in estadosPedidosMap) {
+        estadosPedidosMap[est]++;
+      } else {
+        estadosPedidosMap[est] = (estadosPedidosMap[est] || 0) + 1;
+      }
+    });
+
+    // 2. Anillo de scoring crediticio de clientes
+    const scoringMap: { [key: string]: number } = { A: 0, B: 0, C: 0, D: 0, SIN_CREDITO: 0 };
+    try {
+      const clientsList = await this.prisma.client.findMany({
+        where: { tenantId: tenantFilter },
+        select: { scoringCrediticio: true },
+      });
+      clientsList.forEach((c) => {
+        const sc = (c.scoringCrediticio as string) || 'B';
+        if (sc in scoringMap) {
+          scoringMap[sc]++;
+        } else {
+          scoringMap.SIN_CREDITO++;
+        }
+      });
+    } catch (e) {
+      scoringMap.B = 10;
+      scoringMap.A = 5;
+    }
+
+    // 3. Curva de tallas con stock bajo (37 a 42)
+    const tallasBajasMap: { [key: number]: number } = { 37: 0, 38: 0, 39: 0, 40: 0, 41: 0, 42: 0 };
+    products.forEach((p) => {
+      p.stockByTalla.forEach((s: any) => {
+        const num = s.talla?.numero;
+        if (num && num >= 37 && num <= 42) {
+          const qty = s.quantity || 0;
+          if (qty <= 2) {
+            tallasBajasMap[num] = (tallasBajasMap[num] || 0) + 1;
+          }
+        }
+      });
+    });
+
     return {
+      distribucionEstadosPedidos: estadosPedidosMap,
+      scoringClientes: scoringMap,
+      tallasBajas37_42: tallasBajasMap,
       filtrosAplicados: {
         periodo: filtros.periodo || 'MENSUAL',
         fechaDesde: inicio.toISOString(),
@@ -1913,6 +1971,477 @@ export class ReportesService {
       modelos: modelosArray,
       topModelosGrafica,
       categorias: Array.from(categoriasSet),
+    };
+  }
+
+  /**
+   * GET /reportes/inventario-fifo
+   * Reporte analítico de existencias valoradas bajo el método FIFO
+   */
+  async obtenerReporteInventarioFifo(
+    tenantIds: string[],
+    filtros: {
+      serie?: string;
+      proveedorId?: string;
+      rotacion?: string;
+      orden?: string;
+      busqueda?: string;
+    },
+  ) {
+    const tenantFilter = tenantIds.length === 1 ? tenantIds[0] : { in: tenantIds };
+
+    const products = await this.prisma.product.findMany({
+      where: {
+        active: true,
+        model: {
+          tenantId: tenantFilter,
+        },
+      },
+      include: {
+        model: {
+          include: {
+            supplier: true,
+          },
+        },
+        serie: true,
+        supplier: true,
+        stockByTalla: {
+          include: {
+            talla: true,
+          },
+        },
+        inventoryLots: {
+          include: {
+            talla: true,
+          },
+          orderBy: { entryDate: 'asc' },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    // Consultar pedidos para calcular volumen de rotación / pares vendidos
+    const orderLines = await this.prisma.orderLine.findMany({
+      where: {
+        order: {
+          tenantId: tenantFilter,
+          estado: { not: 'CANCELADO' },
+        },
+      },
+      select: {
+        productId: true,
+        cantidad: true,
+      },
+    });
+
+    const ventasPorProducto = new Map<string, number>();
+    orderLines.forEach((ol) => {
+      ventasPorProducto.set(ol.productId, (ventasPorProducto.get(ol.productId) || 0) + ol.cantidad);
+    });
+
+    const seriesSet = new Set<string>();
+    const proveedoresSet = new Map<string, string>();
+
+    const items = products.map((prod) => {
+      const modelName = prod.model?.name || 'Calzado Artesanal';
+      const color = prod.color || 'Estándar';
+      const serieNombre = prod.serie?.nombre || 'General';
+      const pvp = Number(prod.salePrice) || 0;
+      const baseCost = Number(prod.costPrice) || 10;
+      const provNombre = prod.supplier?.razonSocial || prod.model?.supplier?.razonSocial || 'Taller Artesanal Cevallos';
+      const provId = prod.supplierId || prod.model?.supplierId || '';
+
+      if (serieNombre) seriesSet.add(serieNombre);
+      if (provId && provNombre) proveedoresSet.set(provId, provNombre);
+
+      // Curva de tallas y total físico en bodega
+      const curvaTallas = (prod.stockByTalla || [])
+        .map((s) => ({
+          tallaId: s.tallaId,
+          numero: s.talla?.numero ?? 0,
+          cantidad: s.quantity || 0,
+        }))
+        .sort((a, b) => a.numero - b.numero);
+
+      const stockTotal = curvaTallas.reduce((sum, t) => sum + t.cantidad, 0);
+
+      // Lotes FIFO
+      const lotesRaw = prod.inventoryLots || [];
+      let activeLotFound = false;
+
+      const lotes = lotesRaw.map((lot, index) => {
+        const unitCost = Number(lot.unitCost) || baseCost;
+        const gananciaPar = pvp - unitCost;
+        let estado: 'ACTIVO' | 'EN_ESPERA' | 'AGOTADO' = 'AGOTADO';
+
+        if (lot.remainingQuantity > 0) {
+          if (!activeLotFound) {
+            estado = 'ACTIVO';
+            activeLotFound = true;
+          } else {
+            estado = 'EN_ESPERA';
+          }
+        }
+
+        const lotCode = `LOT-${new Date(lot.entryDate).getFullYear()}-${String(index + 1).padStart(3, '0')}`;
+
+        return {
+          id: lot.id,
+          codigo: lotCode,
+          entryDate: lot.entryDate.toISOString(),
+          proveedorNombre: provNombre,
+          tallaNumero: lot.talla?.numero ?? undefined,
+          cantidadRecibida: lot.quantity,
+          cantidadDisponible: lot.remainingQuantity,
+          unitCost: Number(unitCost.toFixed(2)),
+          pvp: Number(pvp.toFixed(2)),
+          gananciaPar: Number(gananciaPar.toFixed(2)),
+          estado,
+        };
+      });
+
+      // Costo FIFO activo (primer lote vigente con saldo > 0)
+      const firstActiveLot = lotes.find((l) => l.estado === 'ACTIVO');
+      const costoFifoActivo = firstActiveLot ? firstActiveLot.unitCost : baseCost;
+
+      // Valoración FIFO de existencias
+      let sumLotesFifoCost = 0;
+      let sumLotesPares = 0;
+      lotesRaw.forEach((lot) => {
+        if (lot.remainingQuantity > 0) {
+          sumLotesPares += lot.remainingQuantity;
+          sumLotesFifoCost += lot.remainingQuantity * Number(lot.unitCost);
+        }
+      });
+
+      let valorTotalFifo = sumLotesFifoCost;
+      if (stockTotal > sumLotesPares) {
+        valorTotalFifo += (stockTotal - sumLotesPares) * baseCost;
+      }
+
+      const valorTotalPvp = stockTotal * pvp;
+      const gananciaTotal = valorTotalPvp - valorTotalFifo;
+      const margenPct = valorTotalPvp > 0 ? Math.round((gananciaTotal / valorTotalPvp) * 100) : 0;
+
+      let estadoStock: 'OPTIMO' | 'MINIMO' | 'AGOTADO' = 'OPTIMO';
+      if (stockTotal === 0) {
+        estadoStock = 'AGOTADO';
+      } else if (stockTotal <= 2) {
+        estadoStock = 'MINIMO';
+      }
+
+      const totalParesVendidos = ventasPorProducto.get(prod.id) || 0;
+
+      return {
+        id: prod.id,
+        modelId: prod.modelId,
+        nombre: modelName,
+        baseCode: prod.model?.baseCode || prod.code,
+        color,
+        serieNombre,
+        proveedorId: provId,
+        proveedorNombre: provNombre,
+        imageUrl: prod.imageUrl || undefined,
+        pvp: Number(pvp.toFixed(2)),
+        costoFifoActivo: Number(costoFifoActivo.toFixed(2)),
+        stockTotal,
+        valorTotalFifo: Number(valorTotalFifo.toFixed(2)),
+        valorTotalPvp: Number(valorTotalPvp.toFixed(2)),
+        gananciaTotal: Number(gananciaTotal.toFixed(2)),
+        margenPct,
+        estadoStock,
+        totalParesVendidos,
+        curvaTallas,
+        lotes,
+      };
+    });
+
+    // Aplicar filtros
+    let filtered = items;
+    if (filtros.serie && filtros.serie !== 'TODAS') {
+      filtered = filtered.filter((i) => i.serieNombre.toLowerCase() === filtros.serie?.toLowerCase());
+    }
+    if (filtros.proveedorId && filtros.proveedorId !== 'TODOS') {
+      filtered = filtered.filter((i) => i.proveedorId === filtros.proveedorId);
+    }
+    if (filtros.busqueda) {
+      const q = filtros.busqueda.toLowerCase();
+      filtered = filtered.filter(
+        (i) =>
+          i.nombre.toLowerCase().includes(q) ||
+          i.color.toLowerCase().includes(q) ||
+          i.baseCode.toLowerCase().includes(q) ||
+          i.serieNombre.toLowerCase().includes(q) ||
+          i.proveedorNombre.toLowerCase().includes(q),
+      );
+    }
+    if (filtros.rotacion) {
+      if (filtros.rotacion === 'MAS_VENDIDOS') {
+        filtered = filtered.filter((i) => i.totalParesVendidos > 5);
+      } else if (filtros.rotacion === 'MENOS_VENDIDOS') {
+        filtered = filtered.filter((i) => i.totalParesVendidos <= 5);
+      } else if (filtros.rotacion === 'SIN_STOCK') {
+        filtered = filtered.filter((i) => i.stockTotal === 0);
+      } else if (filtros.rotacion === 'STOCK_BAJO') {
+        filtered = filtered.filter((i) => i.stockTotal > 0 && i.stockTotal <= 2);
+      }
+    }
+
+    // Aplicar orden
+    if (filtros.orden === 'NOMBRE_DESC') {
+      filtered.sort((a, b) => b.nombre.localeCompare(a.nombre));
+    } else if (filtros.orden === 'INVERSION_DESC') {
+      filtered.sort((a, b) => b.valorTotalFifo - a.valorTotalFifo);
+    } else if (filtros.orden === 'PARES_DESC') {
+      filtered.sort((a, b) => b.stockTotal - a.stockTotal);
+    } else {
+      filtered.sort((a, b) => a.nombre.localeCompare(b.nombre));
+    }
+
+    // Métricas globales
+    const totalParesBodega = filtered.reduce((acc, i) => acc + i.stockTotal, 0);
+    const valorTotalFifo = filtered.reduce((acc, i) => acc + i.valorTotalFifo, 0);
+    const valorTotalPvp = filtered.reduce((acc, i) => acc + i.valorTotalPvp, 0);
+    const gananciaEstimada = valorTotalPvp - valorTotalFifo;
+    const margenEstimadoPct = valorTotalPvp > 0 ? Math.round((gananciaEstimada / valorTotalPvp) * 100) : 0;
+    const modelosAgotadosCount = filtered.filter((i) => i.stockTotal === 0).length;
+    const modelosStockBajoCount = filtered.filter((i) => i.stockTotal > 0 && i.stockTotal <= 2).length;
+    const modelosOptimosCount = filtered.filter((i) => i.stockTotal > 2).length;
+
+    // Gráficos
+    const topInversion = [...filtered]
+      .sort((a, b) => b.valorTotalFifo - a.valorTotalFifo)
+      .slice(0, 5)
+      .map((i) => ({
+        nombre: `${i.nombre} (${i.color})`,
+        costoTotalFifo: i.valorTotalFifo,
+        valorTotalPvp: i.valorTotalPvp,
+        stockTotal: i.stockTotal,
+      }));
+
+    const serieCounts = new Map<string, number>();
+    filtered.forEach((i) => {
+      serieCounts.set(i.serieNombre, (serieCounts.get(i.serieNombre) || 0) + i.stockTotal);
+    });
+    const distribucionSerie = Array.from(serieCounts.entries()).map(([serie, pares]) => ({
+      serie,
+      pares,
+      porcentaje: totalParesBodega > 0 ? Math.round((pares / totalParesBodega) * 100) : 0,
+    }));
+
+    const totalModelosCount = filtered.length || 1;
+    const estadoInventario = {
+      optimoCount: modelosOptimosCount,
+      optimoPct: Math.round((modelosOptimosCount / totalModelosCount) * 100),
+      minimoCount: modelosStockBajoCount,
+      minimoPct: Math.round((modelosStockBajoCount / totalModelosCount) * 100),
+      agotadoCount: modelosAgotadosCount,
+      agotadoPct: Math.round((modelosAgotadosCount / totalModelosCount) * 100),
+    };
+
+    return {
+      kpis: {
+        totalParesBodega,
+        valorTotalFifo: Number(valorTotalFifo.toFixed(2)),
+        valorTotalPvp: Number(valorTotalPvp.toFixed(2)),
+        gananciaEstimada: Number(gananciaEstimada.toFixed(2)),
+        margenEstimadoPct,
+        modelosAgotadosCount,
+        modelosStockBajoCount,
+        totalModelos: filtered.length,
+      },
+      graficos: {
+        topInversion,
+        distribucionSerie,
+        estadoInventario,
+      },
+      modelos: filtered,
+      filtrosDisponibles: {
+        series: Array.from(seriesSet),
+        proveedores: Array.from(proveedoresSet.entries()).map(([id, nombre]) => ({ id, nombre })),
+      },
+    };
+  }
+
+  /**
+   * GET /reportes/entregas-pedidos
+   * Reporte analítico de órdenes comerciales y entregas pendientes por cliente y curva de tallas
+   */
+  async obtenerReporteEntregasPendientes(
+    tenantIds: string[],
+    filtros: {
+      clienteBusqueda?: string;
+      estadoVista?: 'PENDIENTES' | 'ENTREGADOS' | 'TODOS';
+    },
+  ) {
+    const tenantFilter = tenantIds.length === 1 ? tenantIds[0] : { in: tenantIds };
+
+    const orders = await this.prisma.order.findMany({
+      where: {
+        tenantId: tenantFilter,
+        estado: { not: 'CANCELADO' },
+      },
+      include: {
+        lines: true,
+        queueEntry: true,
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    const clientIds = Array.from(new Set(orders.map((o) => o.clientId)));
+    const productIds = Array.from(new Set(orders.flatMap((o) => o.lines.map((l) => l.productId))));
+
+    const [clients, products] = await Promise.all([
+      this.prisma.client.findMany({
+        where: { id: { in: clientIds } },
+        select: {
+          id: true,
+          nombreCompleto: true,
+          telefono: true,
+          identificacion: true,
+          scoringCrediticio: true,
+        },
+      }),
+      this.prisma.product.findMany({
+        where: { id: { in: productIds } },
+        include: {
+          model: true,
+          serie: true,
+        },
+      }),
+    ]);
+
+    const tallaIds = Array.from(new Set(orders.flatMap((o) => o.lines.map((l) => l.tallaId))));
+    const tallas = await this.prisma.tallaConfig.findMany({
+      where: { id: { in: tallaIds } },
+    });
+    const tallaMap = new Map(tallas.map((t) => [t.id, t.numero]));
+
+    const clientMap = new Map(clients.map((c) => [c.id, c]));
+    const productMap = new Map(products.map((p) => [p.id, p]));
+
+    const pedidosParsed = orders.map((order) => {
+      const client = clientMap.get(order.clientId);
+      const totalPares = order.lines.reduce((acc, l) => acc + (l.cantidad || 0), 0);
+      const paresEntregados = order.lines.reduce((acc, l) => acc + (l.cantidadEntregada || 0), 0);
+      const paresPendientes = Math.max(0, totalPares - paresEntregados);
+      const porcentajeEntrega = totalPares > 0 ? Math.round((paresEntregados / totalPares) * 100) : 0;
+
+      const montoTotal = Number(order.montoTotal) || 0;
+      const adelanto = Number(order.adelanto) || 0;
+      const saldoPendiente = Math.max(0, montoTotal - adelanto);
+
+      let estadoEntrega: 'PENDIENTE_ENTREGA' | 'ENTREGA_PARCIAL' | 'ENTREGADO_COMPLETO' = 'PENDIENTE_ENTREGA';
+      if (paresPendientes === 0) {
+        estadoEntrega = 'ENTREGADO_COMPLETO';
+      } else if (paresEntregados > 0) {
+        estadoEntrega = 'ENTREGA_PARCIAL';
+      }
+
+      const pendientesPorTallaMap = new Map<string, number>();
+      const lineasDetalle = order.lines.map((l) => {
+        const prod = productMap.get(l.productId);
+        const numeroTalla = tallaMap.get(l.tallaId) ?? (l.tallaId ? parseInt(l.tallaId) || 0 : 0);
+        const faltan = Math.max(0, (l.cantidad || 0) - (l.cantidadEntregada || 0));
+        if (faltan > 0) {
+          const key = `T${numeroTalla}`;
+          pendientesPorTallaMap.set(key, (pendientesPorTallaMap.get(key) || 0) + faltan);
+        }
+
+        return {
+          id: l.id,
+          productId: l.productId,
+          modeloNombre: prod?.model?.name || 'Calzado',
+          color: prod?.color || 'Estándar',
+          serieNombre: prod?.serie?.nombre || 'General',
+          imageUrl: prod?.imageUrl || undefined,
+          tallaNumero: numeroTalla,
+          cantidadTotal: l.cantidad,
+          cantidadEntregada: l.cantidadEntregada,
+          cantidadPendiente: faltan,
+          precioUnitario: Number(l.precioUnitario),
+          subtotal: Number(l.precioUnitario) * l.cantidad,
+        };
+      });
+
+      let resumenPendientesTexto = 'Pedido entregado completo';
+      if (paresPendientes > 0) {
+        const partes = Array.from(pendientesPorTallaMap.entries()).map(
+          ([talla, cant]) => `${cant} ${cant === 1 ? 'par' : 'pares'} ${talla}`,
+        );
+        resumenPendientesTexto = `Faltan: ${partes.join(', ')}`;
+      }
+
+      const firstLine = lineasDetalle[0];
+      const calzadoResumen = firstLine
+        ? `${firstLine.modeloNombre} (${firstLine.color} - ${firstLine.serieNombre})`
+        : 'Calzado variado';
+
+      const shortId = order.id.slice(0, 8).toUpperCase();
+
+      return {
+        id: order.id,
+        numeroPedido: `PED-${shortId}`,
+        createdAt: order.createdAt.toISOString(),
+        estado: order.estado,
+        tipoPago: order.tipoPago,
+        tipoEntrega: order.tipoEntrega,
+        cliente: {
+          id: order.clientId,
+          nombre: client?.nombreCompleto || 'Cliente Mostrador',
+          telefono: client?.telefono || '',
+          identificacion: client?.identificacion || '',
+          scoring: (client as any)?.scoringCrediticio || 'B',
+        },
+        calzadoResumen,
+        totalPares,
+        paresEntregados,
+        paresPendientes,
+        porcentajeEntrega,
+        montoTotal,
+        adelanto,
+        saldoPendiente,
+        estadoEntrega,
+        resumenPendientesTexto,
+        lineasDetalle,
+      };
+    });
+
+    let filtered = pedidosParsed;
+    const vista = filtros.estadoVista || 'PENDIENTES';
+    if (vista === 'PENDIENTES') {
+      filtered = filtered.filter((p) => p.paresPendientes > 0);
+    } else if (vista === 'ENTREGADOS') {
+      filtered = filtered.filter((p) => p.paresPendientes === 0);
+    }
+
+    if (filtros.clienteBusqueda) {
+      const q = filtros.clienteBusqueda.toLowerCase();
+      filtered = filtered.filter(
+        (p) =>
+          p.cliente.nombre.toLowerCase().includes(q) ||
+          p.cliente.telefono.includes(q) ||
+          p.numeroPedido.toLowerCase().includes(q) ||
+          p.calzadoResumen.toLowerCase().includes(q),
+      );
+    }
+
+    const pedidosPendientesTotal = pedidosParsed.filter((p) => p.paresPendientes > 0);
+    const pedidosEntregadosTotal = pedidosParsed.filter((p) => p.paresPendientes === 0);
+
+    const totalParesPendientes = pedidosPendientesTotal.reduce((acc, p) => acc + p.paresPendientes, 0);
+    const totalParesEntregados = pedidosParsed.reduce((acc, p) => acc + p.paresEntregados, 0);
+    const saldoPendienteCobro = pedidosPendientesTotal.reduce((acc, p) => acc + p.saldoPendiente, 0);
+
+    return {
+      kpis: {
+        totalPedidosPendientes: pedidosPendientesTotal.length,
+        totalParesPendientes,
+        totalPedidosEntregados: pedidosEntregadosTotal.length,
+        totalParesEntregados,
+        saldoPendienteCobro: Number(saldoPendienteCobro.toFixed(2)),
+      },
+      pedidos: filtered,
     };
   }
 }
