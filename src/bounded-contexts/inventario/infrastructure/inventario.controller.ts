@@ -1146,6 +1146,12 @@ export class InventarioController {
             }
           }
 
+          const customTallaIds = dto.customTallas?.[serieConfig.id];
+          const tallasValidas = (customTallaIds && customTallaIds.length > 0)
+            ? (serieConfig.tallas || []).filter(t => customTallaIds.includes(t.id))
+            : (serieConfig.tallas || []);
+          const validTallaIds = new Set(tallasValidas.map(t => t.id));
+
           if (prodExistente) {
             // Actualizar precios y proveedor en la variante existente de este proveedor
             await this.prisma.product.update({
@@ -1160,8 +1166,8 @@ export class InventarioController {
               },
             });
 
-            // Asegurar que existan todas las tallas de la serie, PRESERVANDO el stock físico real existente
-            for (const t of serieConfig.tallas || []) {
+            // Asegurar que existan las tallas válidas de la serie, PRESERVANDO el stock físico real existente
+            for (const t of tallasValidas) {
               await this.prisma.stockByTalla.upsert({
                 where: {
                   productId_tallaId: {
@@ -1178,6 +1184,20 @@ export class InventarioController {
                   minStock: 0,
                 },
               });
+            }
+
+            // Si se personalizaron tallas, remover las que NO fueron seleccionadas (si tienen 0 stock)
+            if (customTallaIds && customTallaIds.length > 0 && validTallaIds.size > 0) {
+              try {
+                await this.prisma.stockByTalla.deleteMany({
+                  where: {
+                    productId: prodExistente.id,
+                    tallaId: { notIn: Array.from(validTallaIds) },
+                    quantity: 0,
+                    reservedQuantity: 0,
+                  },
+                });
+              } catch (_) {}
             }
           } else {
             // NO EXISTÍA: Crear la variante para este color, esta serie y este proveedor
@@ -1201,7 +1221,6 @@ export class InventarioController {
 
             // Estructurar tallas de la serie
             const stockPorTallaList: StockPorTalla[] = [];
-            const customTallaIds = dto.customTallas?.[serieConfig.id];
 
             if (customTallaIds !== undefined && customTallaIds !== null) {
               const tallaCountMap = new Map<string, number>();
@@ -1378,6 +1397,10 @@ export class InventarioController {
         }
 
         const customIds = dto.customTallas?.[serieConfig.id];
+        const tallasValidas = (customIds && customIds.length > 0)
+          ? (serieConfig.tallas || []).filter(t => customIds.includes(t.id))
+          : (serieConfig.tallas || []);
+        const validTallaIds = new Set(tallasValidas.map(t => t.id));
 
         if (prodExistente) {
           // Ya existía: asegurar que esté activo y actualizar precios
@@ -1391,8 +1414,8 @@ export class InventarioController {
             },
           });
 
-          // Asegurar que existan todas las tallas de la serie, PRESERVANDO el stock físico real existente
-          for (const t of serieConfig.tallas || []) {
+          // Asegurar que existan las tallas válidas de la serie, PRESERVANDO el stock físico real existente
+          for (const t of tallasValidas) {
             await this.prisma.stockByTalla.upsert({
               where: {
                 productId_tallaId: {
@@ -1410,6 +1433,20 @@ export class InventarioController {
               },
             });
           }
+
+          // Si se personalizaron tallas, remover las que NO fueron seleccionadas (si tienen 0 stock)
+          if (customIds && customIds.length > 0 && validTallaIds.size > 0) {
+            try {
+              await this.prisma.stockByTalla.deleteMany({
+                where: {
+                  productId: prodExistente.id,
+                  tallaId: { notIn: Array.from(validTallaIds) },
+                  quantity: 0,
+                  reservedQuantity: 0,
+                },
+              });
+            } catch (_) {}
+          }
         } else {
           // No existía para este color y proveedor: crear variante con stock inicial en 0
           const colorClean = colorName.trim();
@@ -1424,7 +1461,7 @@ export class InventarioController {
             counter++;
           }
 
-          const tallasToCreate = (serieConfig.tallas || []).map((t: any) => ({
+          const tallasToCreate = tallasValidas.map((t: any) => ({
             tallaId: t.id,
             quantity: 0,
             reservedQuantity: 0,

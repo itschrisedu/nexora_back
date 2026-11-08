@@ -206,7 +206,13 @@ export class CatalogoService {
             }
           });
 
-          const isAdultoEstandar = (p.serie?.nombre || '').toUpperCase().includes('ADULTO') && !(p.serie?.nombre || '').toUpperCase().includes('GRANDE');
+          const isAdultoEstandar =
+            ((p.serie?.nombre || '').toUpperCase().includes('ADULTO') ||
+             (p.serie?.nombre || '').toUpperCase().includes('CABALLERO') ||
+             (p.serie?.nombre || '').toUpperCase().includes('HOMBRE')) &&
+            !(p.serie?.nombre || '').toUpperCase().includes('GRANDE') &&
+            !(p.serie?.nombre || '').toUpperCase().includes('43');
+
           const tallasSerieOficiales = (p.serie?.tallas || [])
             .filter((t) => !(isAdultoEstandar && t.numero === 43 && (stockMap.get(t.id)?.quantity || 0) === 0))
             .slice()
@@ -220,7 +226,14 @@ export class CatalogoService {
           }> = [];
 
           if (tallasSerieOficiales.length > 0) {
-            listaTallasFinal = tallasSerieOficiales.map((tOficial) => {
+            const tieneStockRegistrado = p.stockByTalla && p.stockByTalla.length > 0;
+            const tallasFiltradas = tieneStockRegistrado
+              ? tallasSerieOficiales.filter((tOficial) => stockMap.has(tOficial.id))
+              : tallasSerieOficiales;
+
+            const baseTallas = tallasFiltradas.length > 0 ? tallasFiltradas : tallasSerieOficiales;
+
+            listaTallasFinal = baseTallas.map((tOficial) => {
               const stockItem = stockMap.get(tOficial.id);
               const stockQty = stockItem ? stockItem.quantity : 0;
               const reservedQty = stockItem ? stockItem.reserved : 0;
@@ -353,7 +366,12 @@ export class CatalogoService {
         });
 
         // Tallas oficiales de la serie asignada
-        const isAdultoEstandar = (p.serie?.nombre || '').toUpperCase().includes('ADULTO') && !(p.serie?.nombre || '').toUpperCase().includes('GRANDE');
+        const isAdultoEstandar =
+          ((p.serie?.nombre || '').toUpperCase().includes('ADULTO') ||
+           (p.serie?.nombre || '').toUpperCase().includes('CABALLERO') ||
+           (p.serie?.nombre || '').toUpperCase().includes('HOMBRE')) &&
+          !(p.serie?.nombre || '').toUpperCase().includes('GRANDE') &&
+          !(p.serie?.nombre || '').toUpperCase().includes('43');
         const tallasSerieOficiales = (p.serie?.tallas || [])
           .filter((t) => !(isAdultoEstandar && t.numero === 43 && (stockMap.get(t.id)?.quantity || 0) === 0))
           .slice()
