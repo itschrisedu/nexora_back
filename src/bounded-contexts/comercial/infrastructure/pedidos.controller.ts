@@ -125,6 +125,7 @@ export class PedidosController {
     @Query('productId') productId?: string,
     @Query('modelId') modelId?: string,
     @Query('modelName') modelName?: string,
+    @Query('serieId') serieId?: string,
   ) {
     if (!clientId) {
       return { precioAnterior: null };
@@ -132,15 +133,21 @@ export class PedidosController {
 
     let targetModelName = modelName ? modelName.trim() : '';
     let targetBaseCode = '';
+    let targetSerieId = serieId ? serieId.trim() : '';
 
-    if (productId && !targetModelName) {
+    if (productId) {
       const prod = await this.prisma.product.findUnique({
         where: { id: productId },
-        include: { model: true },
+        include: { model: true, serie: true },
       });
       if (prod?.model) {
-        targetModelName = prod.model.name;
-        targetBaseCode = prod.model.baseCode;
+        if (!targetModelName) {
+          targetModelName = prod.model.name;
+          targetBaseCode = prod.model.baseCode;
+        }
+      }
+      if (!targetSerieId && prod?.serieId) {
+        targetSerieId = prod.serieId;
       }
     } else if (modelId && !targetModelName) {
       const model = await this.prisma.productModel.findUnique({
@@ -149,6 +156,22 @@ export class PedidosController {
       if (model) {
         targetModelName = model.name;
         targetBaseCode = model.baseCode;
+      }
+    }
+
+    let serieConfigNombre = '';
+    if (targetSerieId) {
+      const sConf = await this.prisma.seriesConfig.findFirst({
+        where: {
+          OR: [
+            { id: targetSerieId },
+            { nombre: { equals: targetSerieId, mode: 'insensitive' } },
+          ],
+        },
+      });
+      if (sConf) {
+        targetSerieId = sConf.id;
+        serieConfigNombre = sConf.nombre;
       }
     }
 
@@ -184,28 +207,33 @@ export class PedidosController {
       productFilters.push({ id: productId });
     }
 
-    let matchingProductIds: string[] = [];
+    let allModelProductIds: string[] = [];
     if (productFilters.length > 0) {
       const prods = await this.prisma.product.findMany({
         where: { OR: productFilters },
-        select: { id: true },
+        select: { id: true, serieId: true },
       });
-      matchingProductIds = prods.map((p) => p.id);
+      allModelProductIds = prods.map((p) => p.id);
     }
 
-    if (matchingProductIds.length === 0) {
+    if (allModelProductIds.length === 0) {
       return { precioAnterior: null };
     }
 
-    // 3. Buscar la última venta en OrderLine (en cualquier sucursal de la empresa)
-    const ultimaOrderLine = await this.prisma.orderLine.findFirst({
-      where: {
-        productId: { in: matchingProductIds },
-        order: {
-          clientId,
-          estado: { not: 'CANCELADO' },
-        },
+    // 3. Buscar la última venta en OrderLine (filtrando por la serie específica si se proporcionó)
+    const orderLineWhere: any = {
+      productId: { in: allModelProductIds },
+      order: {
+        clientId,
+        estado: { not: 'CANCELADO' },
       },
+    };
+    if (targetSerieId) {
+      orderLineWhere.serieId = targetSerieId;
+    }
+
+    const ultimaOrderLine = await this.prisma.orderLine.findFirst({
+      where: orderLineWhere,
       orderBy: { order: { createdAt: 'desc' } },
       select: {
         precioUnitario: true,
@@ -218,14 +246,19 @@ export class PedidosController {
       },
     });
 
-    // 4. Buscar también en SaleNoteLine (ventas directas y notas de entrega)
-    const ultimaSaleNoteLine: any = await this.prisma.saleNoteLine.findFirst({
-      where: {
-        productId: { in: matchingProductIds },
-        saleNote: {
-          clientId,
-        },
+    // 4. Buscar también en SaleNoteLine (filtrando por nombre de serie si se conoce)
+    const saleNoteLineWhere: any = {
+      productId: { in: allModelProductIds },
+      saleNote: {
+        clientId,
       },
+    };
+    if (serieConfigNombre) {
+      saleNoteLineWhere.serie = { equals: serieConfigNombre, mode: 'insensitive' };
+    }
+
+    const ultimaSaleNoteLine: any = await this.prisma.saleNoteLine.findFirst({
+      where: saleNoteLineWhere,
       orderBy: { saleNote: { createdAt: 'desc' } },
       select: {
         precioUnitario: true,
@@ -263,6 +296,8 @@ export class PedidosController {
       fechaUltimaVenta,
       sucursalNombre,
       sucursalId,
+      serieId: targetSerieId || null,
+      serieNombre: serieConfigNombre || null,
     };
   }
 
