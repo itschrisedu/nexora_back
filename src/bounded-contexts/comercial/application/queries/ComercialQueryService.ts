@@ -280,6 +280,46 @@ export class ComercialQueryService {
         })
       : [];
 
+    // Cargar Notas de Entrega (SaleNote) asociadas a cada pedido para desacoplamiento de despachos
+    const saleNotes = orderIds.length > 0
+      ? await this.prisma.saleNote.findMany({
+          where: { orderId: { in: orderIds } },
+          select: {
+            id: true,
+            numero: true,
+            orderId: true,
+            total: true,
+            pdfUrl: true,
+            createdAt: true,
+            cobro: {
+              select: {
+                id: true,
+                estado: true,
+                saldoPendiente: true,
+                tipo: true,
+              },
+            },
+          },
+          orderBy: { createdAt: 'asc' },
+        })
+      : [];
+
+    const saleNotesByOrder = new Map<string, any[]>();
+    saleNotes.forEach((sn) => {
+      const list = saleNotesByOrder.get(sn.orderId) || [];
+      list.push({
+        id: sn.id,
+        numero: sn.numero,
+        total: Number(sn.total),
+        pdfUrl: sn.pdfUrl,
+        fechaDespacho: sn.createdAt,
+        cobroEstado: sn.cobro?.estado || null,
+        cobroSaldoPendiente: sn.cobro ? Number(sn.cobro.saldoPendiente) : null,
+        cobroTipo: sn.cobro?.tipo || null,
+      });
+      saleNotesByOrder.set(sn.orderId, list);
+    });
+
     const devolucionesByOrder = new Map<string, any[]>();
     devoluciones.forEach((d) => {
       if (!d.orderId) return;
@@ -304,6 +344,9 @@ export class ComercialQueryService {
       const creadoPorSucursalNombre = tenantNameMap.get(creadoPorSucursalId) || o.tenant?.name || '';
       const sucursalNombre = o.tenant?.name || tenantNameMap.get(o.tenantId) || 'Sucursal';
 
+      // Notas de Entrega parciales/totales asociadas a este pedido
+      const notasEntrega = saleNotesByOrder.get(o.id) || [];
+
       return {
         ...formatted,
         tenantId: o.tenantId,
@@ -313,6 +356,7 @@ export class ComercialQueryService {
         clienteNombre: clientMap.get(o.clientId) || 'Consumidor Final',
         vendedorNombre: userMap.get(o.userId) || 'Vendedor',
         sucursalNombre,
+        notasEntrega,
       };
     });
   }

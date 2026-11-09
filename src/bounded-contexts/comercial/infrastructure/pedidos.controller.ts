@@ -1138,7 +1138,7 @@ export class PedidosController {
 
     // 4. Emitir PedidoEntregado para generar Nota de Entrega y Cobro/Deuda en Cartera por el lote entregado
     try {
-      this.eventEmitter.emit('PedidoEntregado', {
+      await this.eventEmitter.emitAsync('PedidoEntregado', {
         pedidoId: pedido.id,
         clientId: pedido.clientId,
         montoFinal: montoEntregadoEnEstaTransaccion,
