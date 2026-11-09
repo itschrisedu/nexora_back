@@ -374,7 +374,7 @@ export class PedidosController {
     // 3. Determinar la curva alterna
     const curvaAlterna: 'MEDIA_A' | 'MEDIA_B' = ultimaCurvaUsada === 'MEDIA_A' ? 'MEDIA_B' : 'MEDIA_A';
 
-    // 4. Evaluar el stock disponible en bodega para ambas curvas
+    // 4. Evaluar el stock disponible en bodega para ambas curvas de forma dinámica
     let stockA = 999;
     let stockB = 999;
     const targetProdId = productId || (targetProductIds.length > 0 ? targetProductIds[0] : null);
@@ -388,16 +388,32 @@ export class PedidosController {
       });
 
       if (prod && prod.stockByTalla && prod.stockByTalla.length > 0) {
-        for (const s of prod.stockByTalla) {
-          const num = s.talla?.numero;
-          const disp = Math.max(0, s.quantity - s.reservedQuantity);
-          if (num === 39) {
-            stockA = Math.min(stockA, Math.floor(disp / 2));
-            stockB = Math.min(stockB, disp);
-          } else if (num === 40) {
-            stockA = Math.min(stockA, disp);
-            stockB = Math.min(stockB, Math.floor(disp / 2));
-          } else if (num !== undefined) {
+        const sortedStockTallas = [...prod.stockByTalla]
+          .filter((s) => s.talla?.numero !== undefined && s.talla?.numero !== null)
+          .sort((a, b) => Number(a.talla.numero) - Number(b.talla.numero));
+
+        if (sortedStockTallas.length === 5) {
+          // Curva estándar de 5 tallas (ej. 38 al 42: n1=39, n2=40; 35 al 39: n1=36, n2=37)
+          const n1 = sortedStockTallas[1].talla.numero; // segunda talla (duplicada en Serie A)
+          const n2 = sortedStockTallas[2].talla.numero; // tercera talla (duplicada en Serie B)
+
+          for (const s of sortedStockTallas) {
+            const num = s.talla?.numero;
+            const disp = Math.max(0, s.quantity - s.reservedQuantity);
+            if (num === n1) {
+              stockA = Math.min(stockA, Math.floor(disp / 2));
+              stockB = Math.min(stockB, disp);
+            } else if (num === n2) {
+              stockA = Math.min(stockA, disp);
+              stockB = Math.min(stockB, Math.floor(disp / 2));
+            } else {
+              stockA = Math.min(stockA, disp);
+              stockB = Math.min(stockB, disp);
+            }
+          }
+        } else {
+          for (const s of sortedStockTallas) {
+            const disp = Math.max(0, s.quantity - s.reservedQuantity);
             stockA = Math.min(stockA, disp);
             stockB = Math.min(stockB, disp);
           }
@@ -405,24 +421,29 @@ export class PedidosController {
       }
     }
 
-    const tieneStockA = stockA > 0 && stockA !== 999;
-    const tieneStockB = stockB > 0 && stockB !== 999;
+    const finalStockA = stockA === 999 ? 0 : Math.max(0, stockA);
+    const finalStockB = stockB === 999 ? 0 : Math.max(0, stockB);
 
     let curvaSugerida: 'MEDIA_A' | 'MEDIA_B' = curvaAlterna;
     let razon = 'ALTERNANCIA';
     let alternada = Boolean(ultimaCurvaUsada);
 
-    if (curvaAlterna === 'MEDIA_A' && !tieneStockA && tieneStockB) {
+    // Prioridad inteligente: recomendar la serie con mayor stock físico disponible en bodega
+    if (finalStockB > finalStockA) {
       curvaSugerida = 'MEDIA_B';
-      razon = 'STOCK_DISPONIBLE';
+      razon = finalStockA === 0 ? 'STOCK_DISPONIBLE' : 'MAYOR_STOCK_B';
       alternada = false;
-    } else if (curvaAlterna === 'MEDIA_B' && !tieneStockB && tieneStockA) {
+    } else if (finalStockA > finalStockB) {
       curvaSugerida = 'MEDIA_A';
-      razon = 'STOCK_DISPONIBLE';
+      razon = finalStockB === 0 ? 'STOCK_DISPONIBLE' : 'MAYOR_STOCK_A';
       alternada = false;
-    } else if (!tieneStockA && !tieneStockB) {
+    } else if (finalStockA === 0 && finalStockB === 0) {
       curvaSugerida = curvaAlterna;
       razon = 'SIN_STOCK';
+      alternada = Boolean(ultimaCurvaUsada);
+    } else {
+      curvaSugerida = curvaAlterna;
+      razon = 'ALTERNANCIA';
       alternada = Boolean(ultimaCurvaUsada);
     }
 
@@ -431,8 +452,8 @@ export class PedidosController {
       ultimaCurvaUsada,
       razon,
       alternada,
-      stockMediasA: stockA === 999 ? 0 : stockA,
-      stockMediasB: stockB === 999 ? 0 : stockB,
+      stockMediasA: finalStockA,
+      stockMediasB: finalStockB,
     };
   }
 
