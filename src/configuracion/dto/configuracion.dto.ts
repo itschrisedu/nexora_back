@@ -221,6 +221,9 @@ export class UpdateBusinessConfigDto {
   diasRotacionTemporadaBaja?: number;
 
   @IsOptional()
+  recargoParPos?: number;
+
+  @IsOptional()
   tenantId?: string;
 }
 

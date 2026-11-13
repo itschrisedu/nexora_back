@@ -260,6 +260,7 @@ model BusinessConfig {
   temporadaComercial        String   @default("AUTO") // "AUTO" | "ALTA" | "REGULAR" | "BAJA"
   descuentoTemporadaBaja    Decimal  @default(10.00) @db.Decimal(5, 2)
   diasRotacionTemporadaBaja Int      @default(30)
+  recargoParPos             Decimal  @default(0.00) @db.Decimal(10, 2)
 
   updatedAt             DateTime @updatedAt
   tenant                Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)

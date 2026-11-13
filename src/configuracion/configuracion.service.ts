@@ -187,6 +187,27 @@ export class ConfiguracionService {
       }
     }
 
+    // Herencia comercial de recargo de venta por par en POS
+    let recargoParPosInherited = (config as any)?.recargoParPos !== undefined && (config as any)?.recargoParPos !== null
+      ? Number((config as any).recargoParPos)
+      : null;
+
+    if (recargoParPosInherited === null) {
+      const matrizUserForRecargo = await this.prisma.user.findFirst({
+        where: {
+          OR: [
+            { tenantId: targetTenantId, parentId: { not: null } },
+            { esAdminGeneral: true },
+          ],
+        },
+        include: { parent: { include: { tenant: { include: { businessConfig: true } } } } },
+      });
+      const matrizRecargoConfig = matrizUserForRecargo?.parent?.tenant?.businessConfig;
+      if ((matrizRecargoConfig as any)?.recargoParPos !== undefined && (matrizRecargoConfig as any)?.recargoParPos !== null) {
+        recargoParPosInherited = Number((matrizRecargoConfig as any).recargoParPos);
+      }
+    }
+
     const nombreNegocio = config?.nombre || tenant?.name || 'Local Comercial';
 
     if (!config) {
@@ -205,6 +226,7 @@ export class ConfiguracionService {
         temporadaComercial: 'AUTO',
         descuentoTemporadaBaja: 10,
         diasRotacionTemporadaBaja: 30,
+        recargoParPos: 0,
       };
     }
 
@@ -227,6 +249,7 @@ export class ConfiguracionService {
       temporadaComercial: config.temporadaComercial || 'AUTO',
       descuentoTemporadaBaja: Number(config.descuentoTemporadaBaja ?? 10),
       diasRotacionTemporadaBaja: Number(config.diasRotacionTemporadaBaja ?? 30),
+      recargoParPos: Number((config as any)?.recargoParPos ?? recargoParPosInherited ?? 0),
       firmaPasswordEnc: undefined,
       tieneP12: !!firmaInheritedPath,
       firmaNombre: firmaNombreFinal,
@@ -328,6 +351,7 @@ export class ConfiguracionService {
     if (dto.temporadaComercial !== undefined) data.temporadaComercial = dto.temporadaComercial;
     if (dto.descuentoTemporadaBaja !== undefined) data.descuentoTemporadaBaja = dto.descuentoTemporadaBaja;
     if (dto.diasRotacionTemporadaBaja !== undefined) data.diasRotacionTemporadaBaja = dto.diasRotacionTemporadaBaja;
+    if (dto.recargoParPos !== undefined) (data as any).recargoParPos = dto.recargoParPos;
 
     if (existing) {
       if (
@@ -520,6 +544,7 @@ export class ConfiguracionService {
       margenMinimoDinamico: margenMinimo,
       descuentoTemporadaBaja: descuentoBaja,
       diasRotacionTemporadaBaja: diasRotacion,
+      recargoParPos: Number((config as any)?.recargoParPos ?? 0),
       reglas: {
         validarMargenMinimo: tipo === 'DINAMICO' && (temporadaEfectiva === 'ALTA' || temporadaEfectiva === 'REGULAR'),
         habilitarPromocionesBaja: tipo === 'DINAMICO' && temporadaEfectiva === 'BAJA',

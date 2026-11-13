@@ -88,6 +88,20 @@ export class PosService {
    */
   async obtenerProductosDisponibles(tenantId: string | null | undefined) {
     const tid = await this.resolveTenantId(tenantId);
+    let config = await this.prisma.businessConfig.findUnique({
+      where: { tenantId: tid },
+    });
+    if (!config) {
+      const userInBranch = await this.prisma.user.findFirst({
+        where: { tenantId: tid, parentId: { not: null } },
+        include: { parent: { include: { tenant: { include: { businessConfig: true } } } } },
+      });
+      if (userInBranch?.parent?.tenant?.businessConfig) {
+        config = userInBranch.parent.tenant.businessConfig;
+      }
+    }
+    const recargoParPos = Number((config as any)?.recargoParPos || 0);
+
     const productos = await this.prisma.product.findMany({
       where: {
         active: true,
@@ -115,13 +129,18 @@ export class PosService {
         cantidad: stockMap.get(t.id) || 0,
       }));
 
+      const baseSalePrice = Number(p.salePrice || 0);
+      const salePricePos = Number((baseSalePrice + recargoParPos).toFixed(2));
+
       return {
         id: p.id,
         baseCode: p.model?.baseCode || p.code,
         modelName: p.model?.name || 'Calzado',
         color: p.color || 'Estándar',
         costPrice: Number(p.costPrice || 0),
-        salePrice: Number(p.salePrice || 0),
+        salePrice: baseSalePrice,
+        recargoParPos,
+        salePricePos,
         serieNombre: p.serie?.nombre || 'General',
         serieId: p.serieId,
         imageUrl: p.imageUrl || undefined,
@@ -196,13 +215,19 @@ export class PosService {
 
     // Validación de Política de Descuentos: SOLO_CAMPANAS
     const businessConfig = await this.prisma.businessConfig.findFirst({ where: { tenantId: tid } }) as any;
+    const recargoPar = Number(businessConfig?.recargoParPos || 0);
     if (businessConfig?.politicaDescuentoVenta === 'SOLO_CAMPANAS') {
       for (const linea of dto.lineas) {
         const producto = await this.prisma.product.findUnique({ where: { id: linea.productId } });
-        if (producto && Math.abs(linea.precioUnitario - Number(producto.salePrice)) > 0.05) {
-          throw new BadRequestException(
-            'Politica Solo Campanas activa: no se permite alterar el precio de venta fuera de una campana comercial autorizada.',
-          );
+        if (producto) {
+          const precioBase = Number(producto.salePrice || 0);
+          const precioConRecargo = Number((precioBase + recargoPar).toFixed(2));
+          const coincide = Math.abs(linea.precioUnitario - precioConRecargo) <= 0.05 || Math.abs(linea.precioUnitario - precioBase) <= 0.05;
+          if (!coincide) {
+            throw new BadRequestException(
+              'Politica Solo Campanas activa: no se permite alterar el precio de venta fuera de una campana comercial autorizada o del recargo por par oficial.',
+            );
+          }
         }
       }
     }
