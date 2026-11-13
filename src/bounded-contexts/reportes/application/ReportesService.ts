@@ -2596,4 +2596,434 @@ export class ReportesService {
       pedidos: filtered,
     };
   }
+
+  // ══════════════════════════════════════════════════════════════
+  // 13. REPORTE AVANZADO DE VENTAS: POR CLIENTE Y POR PRODUCTO CON FOTOS
+  // ══════════════════════════════════════════════════════════════
+  async obtenerReporteVentasDetalladas(
+    tenantIds: string[],
+    filtros: {
+      periodo?: string;
+      fechaDesde?: string;
+      fechaHasta?: string;
+      canal?: 'TODOS' | 'POS' | 'PEDIDOS';
+      sucursalId?: string;
+      vendedorId?: string;
+      clienteId?: string;
+      busqueda?: string;
+    },
+  ) {
+    const { inicio, fin } = this.calcularRangoFechas(filtros);
+    const tenantFilter = tenantIds.length === 1 ? tenantIds[0] : { in: tenantIds };
+
+    const whereOrder: any = {
+      tenantId: tenantFilter,
+      estado: { not: 'CANCELADO' },
+      createdAt: { gte: inicio, lte: fin },
+    };
+
+    if (filtros.vendedorId && filtros.vendedorId !== 'TODOS') {
+      whereOrder.userId = filtros.vendedorId;
+    }
+    if (filtros.clienteId && filtros.clienteId !== 'TODOS') {
+      whereOrder.clientId = filtros.clienteId;
+    }
+
+    const orders = await this.prisma.order.findMany({
+      where: whereOrder,
+      include: {
+        lines: true,
+        queueEntry: true,
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    const orderIds = orders.map((o) => o.id);
+    const clientIds = Array.from(new Set(orders.map((o) => o.clientId)));
+    const productIds = Array.from(
+      new Set(orders.flatMap((o) => o.lines.map((l) => l.productId))),
+    );
+    const tallaIds = Array.from(
+      new Set(orders.flatMap((o) => o.lines.map((l) => l.tallaId))),
+    );
+
+    const [saleNotes, clients, products, tallas, tenants] = await Promise.all([
+      this.prisma.saleNote.findMany({
+        where: { orderId: { in: orderIds } },
+        select: { id: true, numero: true, orderId: true },
+      }),
+      this.prisma.client.findMany({
+        where: { id: { in: clientIds } },
+        select: {
+          id: true,
+          nombre: true,
+          apellido: true,
+          cedula: true,
+          ruc: true,
+          telefono: true,
+          nivelCredito: true,
+        },
+      }),
+      this.prisma.product.findMany({
+        where: { id: { in: productIds } },
+        include: {
+          model: true,
+          serie: true,
+        },
+      }),
+      this.prisma.tallaConfig.findMany({
+        where: { id: { in: tallaIds } },
+        select: { id: true, numero: true },
+      }),
+      this.prisma.tenant.findMany({
+        where: { id: { in: tenantIds } },
+        select: { id: true, name: true },
+      }),
+    ]);
+
+    const saleNotesByOrderId = new Map<string, any>();
+    saleNotes.forEach((sn) => {
+      if (sn.orderId) saleNotesByOrderId.set(sn.orderId, sn);
+    });
+
+    const clientMap = new Map<string, any>();
+    clients.forEach((c) => {
+      let cedula = c.cedula || '';
+      let telefono = c.telefono || '';
+      try {
+        if (c.cedula) cedula = this.encryptionService.decrypt(c.cedula);
+      } catch {}
+      try {
+        if (c.telefono) telefono = this.encryptionService.decrypt(c.telefono);
+      } catch {}
+
+      const nombreCompleto = [c.nombre, c.apellido].filter(Boolean).join(' ').trim() || 'Cliente';
+      clientMap.set(c.id, {
+        id: c.id,
+        nombre: nombreCompleto,
+        identificacion: cedula || c.ruc || 'S/N',
+        telefono: telefono || 'S/N',
+        nivelCredito: c.nivelCredito || 'GENERAL',
+      });
+    });
+
+    const productMap = new Map<string, any>();
+    products.forEach((p) => productMap.set(p.id, p));
+
+    const tallasMap = new Map<string, number>();
+    tallas.forEach((t) => tallasMap.set(t.id, t.numero));
+
+    const tenantMap = new Map<string, string>();
+    tenants.forEach((t) => tenantMap.set(t.id, t.name));
+
+    // Determinar canal para cada orden:
+    // POS: notas con cobro directo / mostrador, o sin queueEntry y entregado presencial
+    // PEDIDOS: pedidos con queueEntry o despacho por mayor
+    const canalFiltro = filtros.canal || 'TODOS';
+
+    const ordenesClasificadas = orders.map((order) => {
+      const notas = (order.notas || '').toLowerCase();
+      const esPos =
+        notas.includes('cobro directo') ||
+        notas.includes('venta directa') ||
+        notas.includes('mostrador') ||
+        (!order.queueEntry &&
+          order.tipoEntrega === 'PRESENCIAL' &&
+          order.estado === 'ENTREGADO' &&
+          order.tipoPago === 'CONTADO' &&
+          (notas.includes('transferencia [') || notas.includes('tarjeta [') || notas.includes('efectivo')));
+
+      const canalOrigen: 'POS' | 'PEDIDO' = esPos ? 'POS' : 'PEDIDO';
+      return { order, canalOrigen };
+    });
+
+    const ordenesFiltradas = ordenesClasificadas.filter(({ canalOrigen }) => {
+      if (canalFiltro === 'POS' && canalOrigen !== 'POS') return false;
+      if (canalFiltro === 'PEDIDOS' && canalOrigen !== 'PEDIDO') return false;
+      return true;
+    });
+
+    // Helper formato docenas
+    const formatearDocenas = (pares: number): string => {
+      if (pares === 0) return '0 pares';
+      if (pares === 6) return '½ Docena (6 pares)';
+      if (pares === 12) return '1 Docena (12 pares)';
+      if (pares % 12 === 0) return `${pares / 12} Docenas (${pares} pares)`;
+      if (pares % 12 === 6) {
+        const doc = Math.floor(pares / 12);
+        return doc > 0 ? `${doc}½ Docenas (${pares} pares)` : `½ Docena (${pares} pares)`;
+      }
+      return `${pares} pares`;
+    };
+
+    // ─────────────────────────────────────────────────────────────
+    // 1. REPORTE A: DETALLADO POR CLIENTE / TRANSACCIÓN
+    // ─────────────────────────────────────────────────────────────
+    const clientesVentasMap = new Map<string, {
+      clienteId: string;
+      clienteNombre: string;
+      clienteIdentificacion: string;
+      clienteTelefono: string;
+      nivelCredito: string;
+      totalParesCliente: number;
+      totalDolaresCliente: number;
+      transacciones: any[];
+    }>();
+
+    ordenesFiltradas.forEach(({ order, canalOrigen }) => {
+      const cliente = clientMap.get(order.clientId) || {
+        id: order.clientId,
+        nombre: 'Consumidor Final',
+        identificacion: '9999999999999',
+        telefono: 'S/N',
+        nivelCredito: 'GENERAL',
+      };
+
+      if (!clientesVentasMap.has(cliente.id)) {
+        clientesVentasMap.set(cliente.id, {
+          clienteId: cliente.id,
+          clienteNombre: cliente.nombre,
+          clienteIdentificacion: cliente.identificacion,
+          clienteTelefono: cliente.telefono,
+          nivelCredito: cliente.nivelCredito,
+          totalParesCliente: 0,
+          totalDolaresCliente: 0,
+          transacciones: [],
+        });
+      }
+
+      const clientEntry = clientesVentasMap.get(cliente.id)!;
+      const saleNote = saleNotesByOrderId.get(order.id);
+      const numeroComprobante = saleNote
+        ? `#${String(saleNote.numero).padStart(6, '0')}`
+        : `#PED-${order.id.slice(0, 8).toUpperCase()}`;
+
+      // Modelos agrupados en esta orden
+      const modelosEnOrdenMap = new Map<string, {
+        productoId: string;
+        modeloNombre: string;
+        color: string;
+        serieNombre: string;
+        imageUrl: string | null;
+        totalPares: number;
+        subtotal: number;
+        precioUnitario: number;
+        curvaTallas: { [talla: number]: number };
+      }>();
+
+      let paresOrden = 0;
+      let totalOrdenDolares = 0;
+
+      order.lines.forEach((l) => {
+        const prod = productMap.get(l.productId);
+        const tallaNumero = tallasMap.get(l.tallaId) || 0;
+        const cantidad = Number(l.cantidad) || 0;
+        const precioUnitario = Number(l.precioUnitario) || 0;
+        const subtotalLinea = cantidad * precioUnitario;
+
+        paresOrden += cantidad;
+        totalOrdenDolares += subtotalLinea;
+
+        if (!modelosEnOrdenMap.has(l.productId)) {
+          modelosEnOrdenMap.set(l.productId, {
+            productoId: l.productId,
+            modeloNombre: prod?.model?.name || 'Modelo Calzado',
+            color: prod?.color || 'Estándar',
+            serieNombre: prod?.serie?.name || 'General',
+            imageUrl: prod?.imageUrl || null,
+            totalPares: 0,
+            subtotal: 0,
+            precioUnitario,
+            curvaTallas: {},
+          });
+        }
+
+        const modItem = modelosEnOrdenMap.get(l.productId)!;
+        modItem.totalPares += cantidad;
+        modItem.subtotal = Number((modItem.subtotal + subtotalLinea).toFixed(2));
+        modItem.curvaTallas[tallaNumero] = (modItem.curvaTallas[tallaNumero] || 0) + cantidad;
+      });
+
+      const modelosResumen = Array.from(modelosEnOrdenMap.values()).map((m) => {
+        const curvaArray = Object.entries(m.curvaTallas)
+          .map(([talla, cant]) => ({ tallaNumero: Number(talla), cantidad: cant }))
+          .sort((a, b) => a.tallaNumero - b.tallaNumero);
+        return {
+          ...m,
+          curvaTallasArray: curvaArray,
+          curvaTexto: curvaArray.map((c) => `T${c.tallaNumero}: ${c.cantidad}`).join(' | '),
+        };
+      });
+
+      clientEntry.totalParesCliente += paresOrden;
+      clientEntry.totalDolaresCliente = Number(
+        (clientEntry.totalDolaresCliente + (Number(order.montoTotal) || totalOrdenDolares)).toFixed(2),
+      );
+
+      clientEntry.transacciones.push({
+        orderId: order.id,
+        numeroComprobante,
+        fecha: order.createdAt.toISOString(),
+        origenCanal: canalOrigen,
+        canalLabel: canalOrigen === 'POS' ? 'Mostrador (POS)' : 'Pedido Mayorista',
+        tipoPago: order.tipoPago,
+        estado: order.estado,
+        sucursalNombre: tenantMap.get(order.tenantId) || 'Local Principal',
+        totalPares: paresOrden,
+        montoTotal: Number(order.montoTotal) || Number(totalOrdenDolares.toFixed(2)),
+        modelos: modelosResumen,
+      });
+    });
+
+    let ventasPorCliente = Array.from(clientesVentasMap.values()).sort(
+      (a, b) => b.totalDolaresCliente - a.totalDolaresCliente,
+    );
+
+    // ─────────────────────────────────────────────────────────────
+    // 2. REPORTE B: CONSOLIDADO POR PRODUCTO / MODELO (CON FOTOS)
+    // ─────────────────────────────────────────────────────────────
+    const productosConsolidadosMap = new Map<string, {
+      productoId: string;
+      modeloNombre: string;
+      color: string;
+      serieNombre: string;
+      imageUrl: string | null;
+      curvaTallas: { [talla: number]: number };
+      totalParesVendidos: number;
+      subtotalRecaudado: number;
+      clientesIds: Set<string>;
+    }>();
+
+    ordenesFiltradas.forEach(({ order }) => {
+      order.lines.forEach((l) => {
+        const prod = productMap.get(l.productId);
+        const tallaNumero = tallasMap.get(l.tallaId) || 0;
+        const cantidad = Number(l.cantidad) || 0;
+        const precioUnitario = Number(l.precioUnitario) || 0;
+        const subtotalLinea = cantidad * precioUnitario;
+
+        if (!productosConsolidadosMap.has(l.productId)) {
+          productosConsolidadosMap.set(l.productId, {
+            productoId: l.productId,
+            modeloNombre: prod?.model?.name || 'Modelo Calzado',
+            color: prod?.color || 'Estándar',
+            serieNombre: prod?.serie?.name || 'General',
+            imageUrl: prod?.imageUrl || null,
+            curvaTallas: {},
+            totalParesVendidos: 0,
+            subtotalRecaudado: 0,
+            clientesIds: new Set<string>(),
+          });
+        }
+
+        const prodItem = productosConsolidadosMap.get(l.productId)!;
+        prodItem.totalParesVendidos += cantidad;
+        prodItem.subtotalRecaudado = Number((prodItem.subtotalRecaudado + subtotalLinea).toFixed(2));
+        prodItem.curvaTallas[tallaNumero] = (prodItem.curvaTallas[tallaNumero] || 0) + cantidad;
+        prodItem.clientesIds.add(order.clientId);
+      });
+    });
+
+    let modelosConsolidados = Array.from(productosConsolidadosMap.values())
+      .map((item) => {
+        const curvaArray = Object.entries(item.curvaTallas)
+          .map(([talla, cant]) => ({ tallaNumero: Number(talla), cantidad: cant }))
+          .sort((a, b) => a.tallaNumero - b.tallaNumero);
+
+        const precioPromedio =
+          item.totalParesVendidos > 0
+            ? Number((item.subtotalRecaudado / item.totalParesVendidos).toFixed(2))
+            : 0;
+
+        return {
+          productoId: item.productoId,
+          modeloNombre: item.modeloNombre,
+          color: item.color,
+          serieNombre: item.serieNombre,
+          imageUrl: item.imageUrl,
+          curvaTallasVendidas: curvaArray,
+          curvaTexto: curvaArray.map((c) => `T${c.tallaNumero}: ${c.cantidad}`).join(' | '),
+          totalParesVendidos: item.totalParesVendidos,
+          totalDocenasEquivalentes: formatearDocenas(item.totalParesVendidos),
+          subtotalRecaudado: item.subtotalRecaudado,
+          precioPromedioUnitario: precioPromedio,
+          clientesCompradoresCount: item.clientesIds.size,
+        };
+      })
+      .sort((a, b) => b.totalParesVendidos - a.totalParesVendidos);
+
+    // Filtro por búsqueda textual si se envía
+    if (filtros.busqueda) {
+      const q = filtros.busqueda.toLowerCase().trim();
+      ventasPorCliente = ventasPorCliente.filter(
+        (c) =>
+          c.clienteNombre.toLowerCase().includes(q) ||
+          c.clienteIdentificacion.toLowerCase().includes(q) ||
+          c.transacciones.some((t: any) =>
+            t.numeroComprobante.toLowerCase().includes(q) ||
+            t.modelos.some((m: any) =>
+              m.modeloNombre.toLowerCase().includes(q) || m.color.toLowerCase().includes(q),
+            ),
+          ),
+      );
+
+      modelosConsolidados = modelosConsolidados.filter(
+        (m) =>
+          m.modeloNombre.toLowerCase().includes(q) ||
+          m.color.toLowerCase().includes(q) ||
+          m.serieNombre.toLowerCase().includes(q),
+      );
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // 3. KPIs GLOBALES
+    // ─────────────────────────────────────────────────────────────
+    let totalVentasDolares = 0;
+    let totalParesVendidos = 0;
+    let totalVentasPos = 0;
+    let totalVentasPedidos = 0;
+    let paresPos = 0;
+    let paresPedidos = 0;
+
+    ordenesFiltradas.forEach(({ order, canalOrigen }) => {
+      const monto = Number(order.montoTotal) || 0;
+      const pares = order.lines.reduce((acc, l) => acc + (Number(l.cantidad) || 0), 0);
+
+      totalVentasDolares += monto;
+      totalParesVendidos += pares;
+
+      if (canalOrigen === 'POS') {
+        totalVentasPos += monto;
+        paresPos += pares;
+      } else {
+        totalVentasPedidos += monto;
+        paresPedidos += pares;
+      }
+    });
+
+    return {
+      filtrosAplicados: {
+        periodo: filtros.periodo || 'PERSONALIZADO',
+        fechaDesde: inicio.toISOString(),
+        fechaHasta: fin.toISOString(),
+        fechaDesdeLocal: inicio.toLocaleDateString('es-EC'),
+        fechaHastaLocal: fin.toLocaleDateString('es-EC'),
+        canal: canalFiltro,
+        sucursalId: filtros.sucursalId || 'TODAS',
+      },
+      kpis: {
+        totalVentasDolares: Number(totalVentasDolares.toFixed(2)),
+        totalParesVendidos,
+        totalTransacciones: ordenesFiltradas.length,
+        totalClientesAtendidos: clientesVentasMap.size,
+        totalModelosDistintos: productosConsolidadosMap.size,
+        totalVentasPos: Number(totalVentasPos.toFixed(2)),
+        totalVentasPedidos: Number(totalVentasPedidos.toFixed(2)),
+        paresPos,
+        paresPedidos,
+      },
+      ventasPorCliente,
+      modelosConsolidados,
+    };
+  }
 }

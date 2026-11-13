@@ -288,6 +288,41 @@ export class ReportesController {
   }
 
   /**
+   * GET /reportes/ventas-detalladas
+   * Reporte analítico avanzado de ventas con discriminación por canal (POS vs. Pedidos),
+   * rango personalizado de fechas, agrupación por cliente y consolidado de productos con foto.
+   */
+  @Get('ventas-detalladas')
+  @Roles(Rol.ROL_ADMIN, Rol.ROL_SUPER_ADMIN, Rol.ROL_VENDEDOR, Rol.ROL_BODEGUERO)
+  async obtenerReporteVentasDetalladas(
+    @Req() req: any,
+    @Query('periodo') periodo?: 'HOY' | 'SEMANAL' | 'MENSUAL' | 'TRIMESTRAL' | 'SEMESTRAL' | 'ANUAL' | 'PERSONALIZADO',
+    @Query('fechaDesde') fechaDesde?: string,
+    @Query('fechaHasta') fechaHasta?: string,
+    @Query('canal') canal?: 'TODOS' | 'POS' | 'PEDIDOS',
+    @Query('sucursalId') sucursalId?: string,
+    @Query('vendedorId') vendedorId?: string,
+    @Query('clienteId') clienteId?: string,
+    @Query('busqueda') busqueda?: string,
+  ) {
+    const userRole = req.user?.rol || req.user?.role;
+    const isVendedor = userRole === Rol.ROL_VENDEDOR;
+    const effectiveVendedorId = isVendedor ? (req.user.sub || req.user.id) : vendedorId;
+
+    const tenantIds = await this.determinarTenantIds(req, sucursalId);
+    return this.reportesService.obtenerReporteVentasDetalladas(tenantIds, {
+      periodo,
+      fechaDesde,
+      fechaHasta,
+      canal,
+      sucursalId,
+      vendedorId: effectiveVendedorId,
+      clienteId,
+      busqueda,
+    });
+  }
+
+  /**
    * Determina los tenantIds permitidos según el rol del usuario autenticado:
    * - Super Administrador: intacto (mantiene su lógica original).
    * - Vendedor o Admin de Sucursal: forzado a su propio local (tenantId).
