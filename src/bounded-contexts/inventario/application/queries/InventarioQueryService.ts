@@ -468,14 +468,24 @@ export class InventarioQueryService {
 
     let fotoUrl = record.imageUrl || null;
     if (!fotoUrl && mdl?.products && Array.isArray(mdl.products)) {
-      const sameSupplierSibling = mdl.products.find(
+      // Regla: si una serie de un color tiene foto, las demás series del mismo color Y MISMO PROVEEDOR la heredan por defecto
+      const targetSup = record.supplierId || mdl.supplierId || null;
+      let sibling = mdl.products.find(
         (sp: any) =>
           sp.color?.trim().toUpperCase() === record.color?.trim().toUpperCase() &&
-          sp.supplierId === record.supplierId &&
+          (sp.supplierId || mdl.supplierId || null) === targetSup &&
           sp.imageUrl,
       );
-      if (sameSupplierSibling?.imageUrl) {
-        fotoUrl = sameSupplierSibling.imageUrl;
+      // Fallback secundario si no hay foto explícita para ese proveedor específico
+      if (!sibling) {
+        sibling = mdl.products.find(
+          (sp: any) =>
+            sp.color?.trim().toUpperCase() === record.color?.trim().toUpperCase() &&
+            sp.imageUrl,
+        );
+      }
+      if (sibling?.imageUrl) {
+        fotoUrl = sibling.imageUrl;
       }
     }
 
@@ -490,6 +500,7 @@ export class InventarioQueryService {
       material: mdl?.material ?? null,
       color: record.color,
       fotoUrl,
+      imageUrl: fotoUrl,
       precioCosto: fifoData?.costosActivos?.get(record.id) ?? Number(record.costPrice),
       ultimoCostoLote: fifoData?.ultimosCostos?.get(record.id) ?? Number(record.costPrice),
       precioVenta: Number(record.salePrice),

@@ -1817,6 +1817,37 @@ export class InventarioController {
         });
       }
 
+      // Regla: si una serie de un color tiene foto, todas las demás series del mismo color Y MISMO PROVEEDOR la heredan por defecto
+      if (dto.imageUrl) {
+        const effectiveSup = targetSup || parentModel?.supplierId || null;
+        const supCondition: any = effectiveSup
+          ? (parentModel?.supplierId && effectiveSup === parentModel.supplierId
+              ? { OR: [{ supplierId: effectiveSup }, { supplierId: null }] }
+              : { supplierId: effectiveSup })
+          : { supplierId: null };
+
+        await tx.product.updateMany({
+          where: {
+            modelId: product.modelId,
+            color: { equals: targetColor, mode: 'insensitive' },
+            id: { not: id },
+            AND: [
+              supCondition,
+              {
+                OR: [
+                  { imageUrl: null },
+                  { imageUrl: '' },
+                  ...(oldImageUrl ? [{ imageUrl: oldImageUrl }] : []),
+                ],
+              },
+            ],
+          },
+          data: {
+            imageUrl: dto.imageUrl,
+          },
+        });
+      }
+
       // Si se asignó un taller o proveedor específico a la variante, agregarlo a los alternos del modelo si no está
       if (dto.supplierId && product.modelId) {
         const parentModel = await tx.productModel.findUnique({ where: { id: product.modelId } });

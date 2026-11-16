@@ -193,8 +193,29 @@ export class CatalogoService {
         sucursalNombre: m.tenant?.name || 'Matriz',
         precioMin,
         precioMax,
-        variantes: m.products.map((p) => {
-          const stockMap = new Map<string, { quantity: number; reserved: number; numero: number; tallaId: string }>();
+        variantes: (() => {
+          // Regla: si una serie de un color tiene foto, las demás series del mismo color Y MISMO PROVEEDOR la heredan por defecto
+          const fotoPorColorYProveedor = new Map<string, string>();
+          const fotoPorColorFallback = new Map<string, string>();
+          m.products.forEach((p) => {
+            const colClean = (p.color || '').trim().toUpperCase();
+            const supClean = p.supplierId || m.supplierId || 'DEFAULT';
+            const key = `${colClean}__${supClean}`;
+            if (p.imageUrl) {
+              if (!fotoPorColorYProveedor.has(key)) {
+                fotoPorColorYProveedor.set(key, p.imageUrl);
+              }
+              if (!fotoPorColorFallback.has(colClean)) {
+                fotoPorColorFallback.set(colClean, p.imageUrl);
+              }
+            }
+          });
+
+          return m.products.map((p) => {
+            const colClean = (p.color || '').trim().toUpperCase();
+            const supClean = p.supplierId || m.supplierId || 'DEFAULT';
+            const inheritedImageUrl = p.imageUrl || fotoPorColorYProveedor.get(`${colClean}__${supClean}`) || fotoPorColorFallback.get(colClean) || null;
+            const stockMap = new Map<string, { quantity: number; reserved: number; numero: number; tallaId: string }>();
           (p.stockByTalla || []).forEach((st) => {
             if (st.tallaId) {
               stockMap.set(st.tallaId, {
@@ -260,15 +281,16 @@ export class CatalogoService {
             id: p.id,
             code: p.code,
             color: p.color,
-            imageUrl: p.imageUrl,
+            imageUrl: inheritedImageUrl,
             salePrice: Number(p.salePrice),
             serieId: p.serieId,
             serieNombre: p.serie?.nombre || '',
             totalStock,
             tallas: listaTallasFinal,
           };
-        }),
-      };
+        });
+      })(),
+    };
     });
 
     return {
@@ -344,15 +366,36 @@ export class CatalogoService {
       orderBy: { name: 'asc' },
     });
 
-    const formattedModelos = modelos.map((m) => ({
-      id: m.id,
-      baseCode: m.baseCode,
-      name: m.name,
-      brand: m.brand,
-      material: m.material,
-      createdAt: m.createdAt,
-      variantes: m.products.map((p) => {
-        // Stock por talla existente en bodega
+    const formattedModelos = modelos.map((m) => {
+      // Regla: si una serie de un color tiene foto, las demás series del mismo color Y MISMO PROVEEDOR la heredan por defecto
+      const fotoPorColorYProveedor = new Map<string, string>();
+      const fotoPorColorFallback = new Map<string, string>();
+      m.products.forEach((p) => {
+        const colClean = (p.color || '').trim().toUpperCase();
+        const supClean = p.supplierId || m.supplierId || 'DEFAULT';
+        const key = `${colClean}__${supClean}`;
+        if (p.imageUrl) {
+          if (!fotoPorColorYProveedor.has(key)) {
+            fotoPorColorYProveedor.set(key, p.imageUrl);
+          }
+          if (!fotoPorColorFallback.has(colClean)) {
+            fotoPorColorFallback.set(colClean, p.imageUrl);
+          }
+        }
+      });
+
+      return {
+        id: m.id,
+        baseCode: m.baseCode,
+        name: m.name,
+        brand: m.brand,
+        material: m.material,
+        createdAt: m.createdAt,
+        variantes: m.products.map((p) => {
+          const colClean = (p.color || '').trim().toUpperCase();
+          const supClean = p.supplierId || m.supplierId || 'DEFAULT';
+          const inheritedImageUrl = p.imageUrl || fotoPorColorYProveedor.get(`${colClean}__${supClean}`) || fotoPorColorFallback.get(colClean) || null;
+          // Stock por talla existente en bodega
         const stockMap = new Map<string, { quantity: number; reserved: number; numero: number; tallaId: string }>();
         (p.stockByTalla || []).forEach((st) => {
           if (st.tallaId) {
@@ -430,11 +473,12 @@ export class CatalogoService {
           id: p.id,
           code: p.code,
           color: p.color,
-          imageUrl: p.imageUrl,
+          imageUrl: inheritedImageUrl,
           costPrice: Number(p.costPrice),
           salePrice: Number(p.salePrice),
           serieNombre: p.serie?.nombre || '',
           serieId: p.serie?.id || p.serieId,
+          supplierId: p.supplierId || m.supplierId || null,
           totalStock,
           tallas: listaTallasFinal,
         };
