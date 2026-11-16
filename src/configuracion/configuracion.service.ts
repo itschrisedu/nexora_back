@@ -25,6 +25,7 @@ import { CloudinaryService } from '../shared/infrastructure/cloudinary/cloudinar
 import { NivelCredito, Rol } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
 import * as fs from 'fs';
+import * as crypto from 'crypto';
 import { ActiveSessionStore } from '../auth/active-session.store';
 import {
   CreateSeasonDto,
@@ -816,9 +817,9 @@ export class ConfiguracionService {
     });
 
     // Generar tallas del rango
-    const tallasData: { numero: number; serieId: string }[] = [];
+    const tallasData: { id: string; numero: number; serieId: string }[] = [];
     for (let n = dto.tallasDesde; n <= dto.tallasHasta; n++) {
-      tallasData.push({ numero: n, serieId: series.id });
+      tallasData.push({ id: crypto.randomUUID(), numero: n, serieId: series.id });
     }
 
     await this.prisma.tallaConfig.createMany({ data: tallasData });
@@ -890,10 +891,10 @@ export class ConfiguracionService {
       }
 
       // Tallas a agregar: las que son nuevas
-      const tallasParaAgregar: { numero: number; serieId: string }[] = [];
+      const tallasParaAgregar: { id: string; numero: number; serieId: string }[] = [];
       for (const num of nuevosNumeros) {
         if (!numerosExistentes.has(num)) {
-          tallasParaAgregar.push({ numero: num, serieId: id });
+          tallasParaAgregar.push({ id: crypto.randomUUID(), numero: num, serieId: id });
         }
       }
 

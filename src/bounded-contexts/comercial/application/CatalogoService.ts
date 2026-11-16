@@ -238,7 +238,7 @@ export class CatalogoService {
           const tallasSerieOficiales = (p.serie?.tallas || [])
             .filter((t) => {
               if (isAdultoEstandar && t.numero === 43 && (stockMap.get(t.id)?.quantity || 0) === 0) return false;
-              if (isJuvenil && t.numero > 38) return false;
+              if (isJuvenil && t.numero >= 39 && (stockMap.get(t.id)?.quantity || 0) === 0) return false;
               return true;
             })
             .slice()
@@ -425,7 +425,7 @@ export class CatalogoService {
         const tallasSerieOficiales = (p.serie?.tallas || [])
           .filter((t) => {
             if (isAdultoEstandar && t.numero === 43 && (stockMap.get(t.id)?.quantity || 0) === 0) return false;
-            if (isJuvenil && t.numero > 38) return false;
+            if (isJuvenil && t.numero >= 39 && (stockMap.get(t.id)?.quantity || 0) === 0) return false;
             return true;
           })
           .slice()

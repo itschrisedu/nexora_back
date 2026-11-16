@@ -395,23 +395,7 @@ export class InventarioQueryService {
     const seenTallaIds = new Set<string>();
 
     if (record.serie?.tallas && Array.isArray(record.serie.tallas)) {
-      const isAdulto =
-        ((record.serie?.nombre || '').toUpperCase().includes('ADULTO') ||
-         (record.serie?.nombre || '').toUpperCase().includes('CABALLERO') ||
-         (record.serie?.nombre || '').toUpperCase().includes('HOMBRE')) &&
-        !(record.serie?.nombre || '').toUpperCase().includes('GRANDE');
-      const isJuv = (record.serie?.nombre || '').toUpperCase().includes('JUVENIL');
-
       record.serie.tallas
-        .filter((t: any) => {
-          const stockEntry = existingStockMap.get(t.id) || existingStockMap.get(String(t.numero));
-          const qty = stockEntry?.quantity ?? 0;
-          // T43 en Adulto solo aparece si este proveedor/producto realmente tiene stock físico > 0
-          if (isAdulto && t.numero === 43 && qty === 0) return false;
-          // T39 en Juvenil solo aparece si este proveedor/producto realmente tiene stock físico > 0
-          if (isJuv && t.numero >= 39 && qty === 0) return false;
-          return true;
-        })
         .forEach((t: any) => {
         seenTallaIds.add(t.id);
         seenTallaIds.add(String(t.numero));
@@ -931,17 +915,7 @@ export class InventarioQueryService {
 
       for (const p of m.products) {
         if (!p.serie || !p.serie.tallas || p.serie.tallas.length === 0) continue;
-        const isAdulto =
-          ((p.serie?.nombre || '').toUpperCase().includes('ADULTO') ||
-           (p.serie?.nombre || '').toUpperCase().includes('CABALLERO') ||
-           (p.serie?.nombre || '').toUpperCase().includes('HOMBRE')) &&
-          !(p.serie?.nombre || '').toUpperCase().includes('GRANDE');
-        const isJuv = (p.serie?.nombre || '').toUpperCase().includes('JUVENIL');
-        const validSerieTallas = p.serie.tallas.filter((t: any) => {
-          if (isAdulto && t.numero === 43) return false;
-          if (isJuv && t.numero >= 39) return false;
-          return true;
-        });
+        const validSerieTallas = p.serie.tallas;
         const existingTallaIds = new Set((p.stockByTalla || []).map((s: any) => s.tallaId));
         const missingTallas = validSerieTallas.filter((t: any) => !existingTallaIds.has(t.id));
 
@@ -966,9 +940,9 @@ export class InventarioQueryService {
         }
 
         // Limpieza de tallas alienígenas que no correspondan a la serie de este producto
-        if (validSerieTallas.length > 0) {
-          const validTallaIds = new Set(validSerieTallas.map((t: any) => t.id));
-          const alienStocks = (p.stockByTalla || []).filter((s: any) => s.tallaId && !validTallaIds.has(s.tallaId));
+        if (p.serie.tallas.length > 0) {
+          const allSerieTallaIds = new Set(p.serie.tallas.map((t: any) => t.id));
+          const alienStocks = (p.stockByTalla || []).filter((s: any) => s.tallaId && !allSerieTallaIds.has(s.tallaId));
           if (alienStocks.length > 0) {
             for (const as of alienStocks) {
               try {
@@ -977,7 +951,7 @@ export class InventarioQueryService {
                 });
               } catch (e) {}
             }
-            p.stockByTalla = p.stockByTalla.filter((s: any) => validTallaIds.has(s.tallaId));
+            p.stockByTalla = p.stockByTalla.filter((s: any) => allSerieTallaIds.has(s.tallaId));
           }
         }
 
