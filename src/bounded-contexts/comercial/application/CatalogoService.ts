@@ -233,9 +233,14 @@ export class CatalogoService {
              (p.serie?.nombre || '').toUpperCase().includes('HOMBRE')) &&
             !(p.serie?.nombre || '').toUpperCase().includes('GRANDE') &&
             !(p.serie?.nombre || '').toUpperCase().includes('43');
+          const isJuvenil = (p.serie?.nombre || '').toUpperCase().includes('JUVENIL');
 
           const tallasSerieOficiales = (p.serie?.tallas || [])
-            .filter((t) => !(isAdultoEstandar && t.numero === 43 && (stockMap.get(t.id)?.quantity || 0) === 0))
+            .filter((t) => {
+              if (isAdultoEstandar && t.numero === 43 && (stockMap.get(t.id)?.quantity || 0) === 0) return false;
+              if (isJuvenil && t.numero > 38) return false;
+              return true;
+            })
             .slice()
             .sort((a, b) => a.numero - b.numero);
 
@@ -415,8 +420,14 @@ export class CatalogoService {
            (p.serie?.nombre || '').toUpperCase().includes('HOMBRE')) &&
           !(p.serie?.nombre || '').toUpperCase().includes('GRANDE') &&
           !(p.serie?.nombre || '').toUpperCase().includes('43');
+        const isJuvenil = (p.serie?.nombre || '').toUpperCase().includes('JUVENIL');
+
         const tallasSerieOficiales = (p.serie?.tallas || [])
-          .filter((t) => !(isAdultoEstandar && t.numero === 43 && (stockMap.get(t.id)?.quantity || 0) === 0))
+          .filter((t) => {
+            if (isAdultoEstandar && t.numero === 43 && (stockMap.get(t.id)?.quantity || 0) === 0) return false;
+            if (isJuvenil && t.numero > 38) return false;
+            return true;
+          })
           .slice()
           .sort((a, b) => a.numero - b.numero);
 

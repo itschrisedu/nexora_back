@@ -395,7 +395,10 @@ export class InventarioQueryService {
     const seenTallaIds = new Set<string>();
 
     if (record.serie?.tallas && Array.isArray(record.serie.tallas)) {
-      record.serie.tallas.forEach((t: any) => {
+      const isJuv = (record.serie?.nombre || '').toUpperCase().includes('JUVENIL');
+      record.serie.tallas
+        .filter((t: any) => isJuv ? t.numero <= 38 : true)
+        .forEach((t: any) => {
         seenTallaIds.add(t.id);
         seenTallaIds.add(String(t.numero));
         const stockEntry = existingStockMap.get(t.id) || existingStockMap.get(String(t.numero));
@@ -914,8 +917,10 @@ export class InventarioQueryService {
 
       for (const p of m.products) {
         if (!p.serie || !p.serie.tallas || p.serie.tallas.length === 0) continue;
+        const isJuv = (p.serie?.nombre || '').toUpperCase().includes('JUVENIL');
+        const validSerieTallas = p.serie.tallas.filter((t: any) => isJuv ? t.numero <= 38 : true);
         const existingTallaIds = new Set((p.stockByTalla || []).map((s: any) => s.tallaId));
-        const missingTallas = p.serie.tallas.filter((t: any) => !existingTallaIds.has(t.id));
+        const missingTallas = validSerieTallas.filter((t: any) => !existingTallaIds.has(t.id));
 
         if (missingTallas.length > 0) {
           for (const mt of missingTallas) {
@@ -938,8 +943,8 @@ export class InventarioQueryService {
         }
 
         // Limpieza de tallas alienígenas que no correspondan a la serie de este producto
-        if (p.serie?.tallas && Array.isArray(p.serie.tallas) && p.serie.tallas.length > 0) {
-          const validTallaIds = new Set(p.serie.tallas.map((t: any) => t.id));
+        if (validSerieTallas.length > 0) {
+          const validTallaIds = new Set(validSerieTallas.map((t: any) => t.id));
           const alienStocks = (p.stockByTalla || []).filter((s: any) => s.tallaId && !validTallaIds.has(s.tallaId));
           if (alienStocks.length > 0) {
             for (const as of alienStocks) {
