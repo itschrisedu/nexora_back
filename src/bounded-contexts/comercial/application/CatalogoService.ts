@@ -483,7 +483,8 @@ export class CatalogoService {
           tallas: listaTallasFinal,
         };
       }),
-    }));
+    };
+  });
 
     return {
       sucursalActual: {
