@@ -31,7 +31,7 @@ export class ReportesService {
   // 1. OBTENER RESUMEN EJECUTIVO & BUSINESS INTELLIGENCE
   // ══════════════════════════════════════════════════════════════
   async obtenerReporteEjecutivo(tenantIds: string[], filtros: FiltrosReporteDto) {
-    const { inicio, fin } = this.calcularRangoFechas(filtros);
+    const { inicio, fin } = this.calcularRangoFechas(filtros as FiltrosReporteDto);
 
     const tenantFilter = tenantIds.length === 1 ? tenantIds[0] : { in: tenantIds };
 
@@ -922,7 +922,7 @@ export class ReportesService {
   // 4. REPORTE DE COBRANZAS — CLIENTES QUE DEBEN
   // ══════════════════════════════════════════════════════════════
   async obtenerReporteCobranzas(tenantIds: string[], filtros: FiltrosReporteDto) {
-    const { inicio, fin } = this.calcularRangoFechas(filtros);
+    const { inicio, fin } = this.calcularRangoFechas(filtros as FiltrosReporteDto);
     const tenantFilter = tenantIds.length === 1 ? tenantIds[0] : { in: tenantIds };
 
     // 1. Obtener todos los cobros con saldo pendiente > 0
@@ -1137,7 +1137,7 @@ export class ReportesService {
   // 6. REPORTE DEL PUNTO DE VENTA (POS / MOSTRADOR) MULTI-SUCURSAL
   // ══════════════════════════════════════════════════════════════
   async obtenerReportePos(tenantIds: string[], filtros: any) {
-    const { inicio, fin } = this.calcularRangoFechas(filtros);
+    const { inicio, fin } = this.calcularRangoFechas(filtros as FiltrosReporteDto);
     const tenantFilter = tenantIds.length === 1 ? tenantIds[0] : { in: tenantIds };
 
     const whereOrder: any = {
@@ -1456,7 +1456,7 @@ export class ReportesService {
     targetSucursalId: string | undefined,
     filtros: any,
   ) {
-    const { inicio, fin } = this.calcularRangoFechas(filtros);
+    const { inicio, fin } = this.calcularRangoFechas(filtros as FiltrosReporteDto);
 
     const sucursales = await this.prisma.tenant.findMany({
       where: { id: { in: allTenantIds }, active: true },
@@ -1763,7 +1763,7 @@ export class ReportesService {
   // 7. REPORTE ANALÍTICO DE ABASTECIMIENTO & PROVEEDORES
   // ══════════════════════════════════════════════════════════════
   async obtenerReporteAbastecimientoProveedores(tenantIds: string[], filtros: any) {
-    const { inicio, fin } = this.calcularRangoFechas(filtros);
+    const { inicio, fin } = this.calcularRangoFechas(filtros as FiltrosReporteDto);
     const tenantFilter = tenantIds.length === 1 ? tenantIds[0] : { in: tenantIds };
 
     const whereSupplier: any = { tenantId: tenantFilter };
@@ -2613,7 +2613,7 @@ export class ReportesService {
       busqueda?: string;
     },
   ) {
-    const { inicio, fin } = this.calcularRangoFechas(filtros);
+    const { inicio, fin } = this.calcularRangoFechas(filtros as FiltrosReporteDto);
     const tenantFilter = tenantIds.length === 1 ? tenantIds[0] : { in: tenantIds };
 
     const whereOrder: any = {
