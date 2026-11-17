@@ -1408,6 +1408,7 @@ export class InventarioController {
             where: { id: prodExistente.id },
             data: {
               active: true,
+              serieId: serieConfig.id,
               costPrice: costVal,
               salePrice: saleVal,
               ...(targetSupplierId && { supplierId: targetSupplierId }),

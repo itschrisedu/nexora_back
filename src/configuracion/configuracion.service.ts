@@ -805,8 +805,9 @@ export class ConfiguracionService {
 
     const exists = await this.prisma.seriesConfig.findUnique({
       where: { nombre: nombreUpper },
+      include: { tallas: { orderBy: { numero: 'asc' } } },
     });
-    if (exists) throw new ConflictException(`La serie "${nombreUpper}" ya existe`);
+    if (exists) return exists;
 
     if (dto.tallasHasta < dto.tallasDesde) {
       throw new ConflictException('El rango de tallas es inválido: "tallasHasta" debe ser >= "tallasDesde"');
