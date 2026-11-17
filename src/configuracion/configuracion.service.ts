@@ -900,6 +900,33 @@ export class ConfiguracionService {
 
       if (tallasParaAgregar.length > 0) {
         await this.prisma.tallaConfig.createMany({ data: tallasParaAgregar });
+
+        // Auto-crear registros de stockByTalla en 0 para todos los productos existentes que usan esta serie
+        const productosConEstaSerie = await this.prisma.product.findMany({
+          where: { serieId: id },
+          select: { id: true },
+        });
+
+        if (productosConEstaSerie.length > 0) {
+          const nuevosStocks: { id: string; productId: string; tallaId: string; quantity: number; reservedQuantity: number; minStock: number }[] = [];
+          for (const prod of productosConEstaSerie) {
+            for (const tAgregada of tallasParaAgregar) {
+              nuevosStocks.push({
+                id: crypto.randomUUID(),
+                productId: prod.id,
+                tallaId: tAgregada.id,
+                quantity: 0,
+                reservedQuantity: 0,
+                minStock: 0,
+              });
+            }
+          }
+          await this.prisma.stockByTalla.createMany({
+            data: nuevosStocks,
+            skipDuplicates: true,
+          });
+          this.logger.log(`Creados ${nuevosStocks.length} registros de StockByTalla para la serie ${existing.nombre}`);
+        }
       }
 
       this.logger.log(`Serie "${existing.nombre}" reconfigurada: tallas ${dto.tallasDesde}-${dto.tallasHasta}`);

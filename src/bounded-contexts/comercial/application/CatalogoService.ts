@@ -238,7 +238,6 @@ export class CatalogoService {
           const tallasSerieOficiales = (p.serie?.tallas || [])
             .filter((t) => {
               if (isAdultoEstandar && t.numero === 43 && (stockMap.get(t.id)?.quantity || 0) === 0) return false;
-              if (isJuvenil && t.numero >= 39 && (stockMap.get(t.id)?.quantity || 0) === 0) return false;
               return true;
             })
             .slice()
@@ -255,12 +254,7 @@ export class CatalogoService {
           }> = [];
 
           if (tallasSerieOficiales.length > 0) {
-            const tieneStockRegistrado = p.stockByTalla && p.stockByTalla.length > 0;
-            const tallasFiltradas = tieneStockRegistrado
-              ? tallasSerieOficiales.filter((tOficial) => stockMap.has(tOficial.id))
-              : tallasSerieOficiales;
-
-            const baseTallas = tallasFiltradas.length > 0 ? tallasFiltradas : tallasSerieOficiales;
+            const baseTallas = tallasSerieOficiales;
 
             listaTallasFinal = baseTallas.map((tOficial) => {
               const stockItem = stockMap.get(tOficial.id);
@@ -438,7 +432,6 @@ export class CatalogoService {
         const tallasSerieOficiales = (p.serie?.tallas || [])
           .filter((t) => {
             if (isAdultoEstandar && t.numero === 43 && (stockMap.get(t.id)?.quantity || 0) === 0) return false;
-            if (isJuvenil && t.numero >= 39 && (stockMap.get(t.id)?.quantity || 0) === 0) return false;
             return true;
           })
           .slice()
@@ -458,12 +451,7 @@ export class CatalogoService {
         }> = [];
 
         if (tallasSerieOficiales.length > 0) {
-          const tieneStockRegistrado = p.stockByTalla && p.stockByTalla.length > 0;
-          const tallasFiltradas = tieneStockRegistrado
-            ? tallasSerieOficiales.filter((tOficial) => stockMap.has(tOficial.id))
-            : tallasSerieOficiales;
-
-          const baseTallas = tallasFiltradas.length > 0 ? tallasFiltradas : tallasSerieOficiales;
+          const baseTallas = tallasSerieOficiales;
 
           listaTallasFinal = baseTallas.map((tOficial) => {
             const stockItem = stockMap.get(tOficial.id);
