@@ -522,7 +522,7 @@ export class FinancieroQueryService {
       }),
       this.prisma.cobro.findMany({
         where: { clientId, ...whereTenant },
-        include: { abonos: { orderBy: { createdAt: 'desc' } }, saleNote: true },
+        include: { abonos: { orderBy: { createdAt: 'desc' } }, saleNote: { include: { lines: true } } },
         orderBy: { createdAt: 'desc' },
       }),
       this.prisma.clienteDevolucion.findMany({
@@ -575,7 +575,13 @@ export class FinancieroQueryService {
       .map((p: any) => p.dispatchOrder?.confirmadoPorId)
       .filter(Boolean);
     const devUserIds = movsDevolucion.map((m: any) => m.userId).filter(Boolean);
-    const histUserIds = [...new Set([...pedidoUserIds, ...abonoUserIds, ...dispatchUserIds, ...devUserIds])];
+    const manualUserIds = cobros
+      .map((c) => {
+        const m = c.saleNote?.orderId?.match(/^MANUAL:([^:]+):/);
+        return m ? m[1] : null;
+      })
+      .filter((id): id is string => Boolean(id && id !== 'SISTEMA'));
+    const histUserIds = [...new Set([...pedidoUserIds, ...abonoUserIds, ...dispatchUserIds, ...devUserIds, ...manualUserIds])];
     const histUsers = histUserIds.length > 0
       ? await this.prisma.user.findMany({
           where: { id: { in: histUserIds } },
@@ -846,20 +852,50 @@ export class FinancieroQueryService {
         const numNota = c.saleNote?.numero
           ? `Nota #${String(c.saleNote.numero).padStart(4, '0')}`
           : `#${c.id.slice(0, 8).toUpperCase()}`;
+
+        // Extraer usuario creador
+        const matchUser = c.saleNote?.orderId?.match(/^MANUAL:([^:]+):/);
+        const creatorId = matchUser ? matchUser[1] : null;
+        const creadorUser = creatorId ? histUserMap.get(creatorId) : defaultTenantUser;
+        const responsableNombre = creadorUser?.nombre || creadorUser?.email || (esManual ? 'Administración / Tienda' : 'Vendedor');
+        const responsableRol = creadorUser?.rol || (esManual ? 'Administrador' : 'Vendedor');
+
+        // Extraer concepto y observación de la línea
+        const line = c.saleNote?.lines?.[0];
+        const concepto = line?.nombre || (c.saleNote?.orderId?.startsWith('MANUAL')
+          ? 'Registro de deuda anterior / Saldo inicial'
+          : 'Venta a crédito directa en mostrador');
+
+        let observacion = '';
+        if (line?.serie && line.serie.startsWith('OBS: ')) {
+          observacion = line.serie.replace(/^OBS:\s*/, '').trim();
+        }
+
         movimientos.push({
           id: `cobro-directo-${c.id}`,
           tipo: 'DEUDA_INICIAL',
-          titulo: `Deuda / Saldo a Crédito (${numNota})`,
+          titulo: esManual ? `Saldo Anterior (${numNota})` : `Deuda / Saldo a Crédito (${numNota})`,
           numeroCodigo: numNota,
-          descripcion: c.saleNote?.orderId?.startsWith('MANUAL')
-            ? 'Registro de deuda anterior / Saldo migrado a cuenta corriente'
-            : 'Venta a crédito directa en mostrador',
+          descripcion: concepto,
+          observacion: observacion || null,
           monto: Number(c.montoTotal),
           estado: c.estado,
           fecha: c.createdAt,
+          registradoPor: responsableNombre,
+          registradoPorRol: responsableRol,
+          procesadoPor: responsableNombre,
+          procesadoPorRol: responsableRol,
+          vendedorNombre: responsableNombre,
+          vendedorRol: responsableRol,
           detalles: {
             tipoPago: 'CREDITO',
-            notas: c.saleNote?.orderId,
+            concepto,
+            observacion: observacion || null,
+            registradoPor: responsableNombre,
+            registradoPorRol: responsableRol,
+            fechaEmision: c.createdAt,
+            fechaVencimiento: c.fechaVencimiento,
+            notas: observacion || c.saleNote?.orderId,
           },
         });
       }
@@ -1176,6 +1212,29 @@ export class FinancieroQueryService {
       throw new BadRequestException('No se pudo determinar la sucursal para asociar la deuda del cliente.');
     }
 
+    // Resolver fechaCreacion precisa sin desfase horario
+    let fechaCreacion: Date;
+    if (!fechaEmision) {
+      fechaCreacion = new Date();
+    } else if (typeof fechaEmision === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(fechaEmision)) {
+      const [y, m, d] = fechaEmision.split('-').map(Number);
+      const now = new Date();
+      fechaCreacion = new Date(y, m - 1, d, now.getHours(), now.getMinutes(), now.getSeconds());
+    } else {
+      fechaCreacion = new Date(fechaEmision);
+    }
+
+    // Resolver fechaVencimiento sin desfase
+    let vencimiento: Date;
+    if (!fechaVencimiento) {
+      vencimiento = new Date(Date.now() + 30 * 86400000);
+    } else if (typeof fechaVencimiento === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(fechaVencimiento)) {
+      const [vy, vm, vd] = fechaVencimiento.split('-').map(Number);
+      vencimiento = new Date(vy, vm - 1, vd, 23, 59, 59);
+    } else {
+      vencimiento = new Date(fechaVencimiento);
+    }
+
     const lastNote = await this.prisma.saleNote.findFirst({
       orderBy: { numero: 'desc' },
       select: { numero: true },
@@ -1183,14 +1242,15 @@ export class FinancieroQueryService {
     const numero = (lastNote?.numero || 0) + 1;
     const saleNoteId = crypto.randomUUID();
     const cobroId = crypto.randomUUID();
-    const fechaCreacion = fechaEmision ? new Date(fechaEmision) : new Date();
+    const orderId = `MANUAL:${userId || 'SISTEMA'}:${Date.now()}`;
+    const serieValor = (notas && notas.trim()) ? `OBS: ${notas.trim()}` : 'SALDO ANTERIOR';
 
     const saleNote = await this.prisma.saleNote.create({
       data: {
         id: saleNoteId,
         tenantId: effectiveTenantId,
         numero,
-        orderId: `MANUAL-${Date.now()}`,
+        orderId,
         clientId,
         subtotal: montoNum,
         descuento: 0,
@@ -1203,7 +1263,7 @@ export class FinancieroQueryService {
               id: crypto.randomUUID(),
               productId: 'SALDO-ANTERIOR',
               nombre: concepto.trim(),
-              serie: 'SALDO ANTERIOR',
+              serie: serieValor,
               talla: '—',
               cantidad: 1,
               precioUnitario: montoNum,
@@ -1213,10 +1273,6 @@ export class FinancieroQueryService {
         },
       },
     });
-
-    const vencimiento = fechaVencimiento
-      ? new Date(fechaVencimiento)
-      : new Date(Date.now() + 30 * 86400000);
 
     const cobro = await this.prisma.cobro.create({
       data: {
@@ -1232,6 +1288,31 @@ export class FinancieroQueryService {
         createdAt: fechaCreacion,
       },
     });
+
+    try {
+      const u = userId ? await this.prisma.user.findUnique({ where: { id: userId }, select: { email: true, rol: true } }) : null;
+      await this.prisma.auditLog.create({
+        data: {
+          tenantId: effectiveTenantId,
+          userId: userId || null,
+          userEmail: u?.email || null,
+          userRol: (u?.rol as any) || null,
+          accion: 'CREAR',
+          entidad: 'DEUDA_MANUAL',
+          entidadId: cobroId,
+          detalles: {
+            clientId,
+            saleNoteId,
+            monto: montoNum,
+            concepto: concepto.trim(),
+            notas: notas?.trim() || null,
+            fechaEmision: fechaCreacion,
+          },
+        },
+      });
+    } catch (e) {
+      this.logger.warn(`No se pudo registrar audit log de saldo anterior: ${e}`);
+    }
 
     await this.prisma.client.update({
       where: { id: clientId },

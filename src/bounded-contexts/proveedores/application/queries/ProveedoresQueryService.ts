@@ -888,8 +888,28 @@ export class ProveedoresQueryService {
     }
 
     const entryId = crypto.randomUUID();
-    const fechaCreacion = fechaEmision ? new Date(fechaEmision) : new Date();
-    const fechaVenc = fechaVencimiento ? new Date(fechaVencimiento) : new Date(Date.now() + 30 * 86400000);
+    // Resolver fechaCreacion precisa sin desfase horario
+    let fechaCreacion: Date;
+    if (!fechaEmision) {
+      fechaCreacion = new Date();
+    } else if (typeof fechaEmision === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(fechaEmision)) {
+      const [y, m, d] = fechaEmision.split('-').map(Number);
+      const now = new Date();
+      fechaCreacion = new Date(y, m - 1, d, now.getHours(), now.getMinutes(), now.getSeconds());
+    } else {
+      fechaCreacion = new Date(fechaEmision);
+    }
+
+    // Resolver fechaVencimiento sin desfase
+    let fechaVenc: Date;
+    if (!fechaVencimiento) {
+      fechaVenc = new Date(Date.now() + 30 * 86400000);
+    } else if (typeof fechaVencimiento === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(fechaVencimiento)) {
+      const [vy, vm, vd] = fechaVencimiento.split('-').map(Number);
+      fechaVenc = new Date(vy, vm - 1, vd, 23, 59, 59);
+    } else {
+      fechaVenc = new Date(fechaVencimiento);
+    }
 
     const obsTexto = `[SALDO ANTERIOR / DEUDA PREVIA] ${concepto.trim()}${notas ? ' - ' + notas.trim() : ''}`;
 
