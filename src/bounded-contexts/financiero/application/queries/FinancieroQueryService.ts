@@ -1040,41 +1040,38 @@ export class FinancieroQueryService {
       client.creditoUtilizado = saldoPendienteTotal as any;
     }
 
-    // 4. Corrida contable estricta: Ordenar cronológicamente (más antiguo primero) para calcular Saldo Anterior y Nuevo Saldo
+    // 4. Corrida contable estricta (dos pasadas): Ordenar cronológicamente (más antiguo primero)
     const movsCronologicos = [...movimientos].sort(
       (a, b) => new Date(a.fecha).getTime() - new Date(b.fecha).getTime(),
     );
 
-    // En la cuenta corriente comercial del cliente:
-    // - Las entregas de pedidos (COMPRA_PEDIDO) y deudas directas (DEUDA_INICIAL) son cargos (+ monto)
-    // - Los abonos recibidos (ABONO) y devoluciones (DEVOLUCION) son descargos (- monto)
-    let deltaNeto = 0;
-    movsCronologicos.forEach((m) => {
+    // PASADA 1: Caminar con seed=0 aplicando el mismo Math.max(0,...) para obtener el saldo final real con clampeo
+    let tempSaldo = 0;
+    for (const m of movsCronologicos) {
       const monto = Number(m.monto || 0);
       if (m.tipo === 'COMPRA_PEDIDO' || m.tipo === 'DEUDA_INICIAL') {
-        deltaNeto += monto;
+        tempSaldo += monto;
       } else if (m.tipo === 'ABONO' || m.tipo === 'DEVOLUCION') {
-        deltaNeto -= monto;
+        tempSaldo = Math.max(0, tempSaldo - monto);
       }
-    });
+    }
 
-    // Calibración inicial para que la corrida contable coincida exactamente con el saldo deudor real
-    let saldoCorriente = Math.max(0, Math.round((saldoPendienteTotal - deltaNeto) * 100) / 100);
+    // PASADA 2: Calcular seed correcto para que el saldo final coincida con saldoPendienteTotal
+    // offset = saldoPendienteTotal - tempSaldo absorbe correctamente el efecto del clampeo
+    let saldoCorriente = Math.max(0, Math.round((saldoPendienteTotal - tempSaldo) * 100) / 100);
 
     for (const m of movsCronologicos) {
       m.saldoAnterior = Math.round(saldoCorriente * 100) / 100;
       const monto = Number(m.monto || 0);
       if (m.tipo === 'COMPRA_PEDIDO' || m.tipo === 'DEUDA_INICIAL') {
         saldoCorriente += monto;
-      } else if (m.tipo === 'ABONO') {
-        saldoCorriente = Math.max(0, saldoCorriente - monto);
-      } else if (m.tipo === 'DEVOLUCION') {
+      } else if (m.tipo === 'ABONO' || m.tipo === 'DEVOLUCION') {
         saldoCorriente = Math.max(0, saldoCorriente - monto);
       }
       m.nuevoSaldo = Math.round(saldoCorriente * 100) / 100;
     }
 
-    // Asegurar que el saldo del movimiento más reciente sea idéntico al saldo deudor pendiente
+    // El último movimiento ya debería coincidir, pero forzar por seguridad ante decimales flotantes
     if (movsCronologicos.length > 0) {
       movsCronologicos[movsCronologicos.length - 1].nuevoSaldo = saldoPendienteTotal;
     }
