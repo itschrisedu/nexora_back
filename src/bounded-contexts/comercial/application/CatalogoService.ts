@@ -247,7 +247,10 @@ export class CatalogoService {
           let listaTallasFinal: Array<{
             tallaId: string;
             numero: number;
+            cantidad: number;
             stock: number;
+            cantidadReservada: number;
+            reserved: number;
             disponible: number;
           }> = [];
 
@@ -266,7 +269,10 @@ export class CatalogoService {
               return {
                 tallaId: tOficial.id,
                 numero: tOficial.numero,
+                cantidad: stockQty,
                 stock: stockQty,
+                cantidadReservada: reservedQty,
+                reserved: reservedQty,
                 disponible: Math.max(0, stockQty - reservedQty),
               };
             });
@@ -275,12 +281,17 @@ export class CatalogoService {
             listaTallasFinal = sortedStock.map((st) => ({
               tallaId: st.tallaId,
               numero: st.talla?.numero || 0,
+              cantidad: st.quantity || 0,
               stock: st.quantity || 0,
+              cantidadReservada: st.reservedQuantity || 0,
+              reserved: st.reservedQuantity || 0,
               disponible: Math.max(0, (st.quantity || 0) - (st.reservedQuantity || 0)),
             }));
           }
 
           const totalStock = listaTallasFinal.reduce((acc, curr) => acc + curr.stock, 0);
+          const totalReservado = listaTallasFinal.reduce((acc, curr) => acc + (curr.cantidadReservada || 0), 0);
+          const totalDisponible = listaTallasFinal.reduce((acc, curr) => acc + (curr.disponible || 0), 0);
 
           return {
             id: p.id,
@@ -291,6 +302,8 @@ export class CatalogoService {
             serieId: p.serieId,
             serieNombre: p.serie?.nombre || '',
             totalStock,
+            totalReservado,
+            totalDisponible,
             tallas: listaTallasFinal,
           };
         });
@@ -437,6 +450,8 @@ export class CatalogoService {
           numero: number;
           cantidad: number;
           stock: number;
+          cantidadReservada: number;
+          reserved: number;
           disponible: number;
           ratio: number;
           cantidadSerie: number;
@@ -459,6 +474,8 @@ export class CatalogoService {
               numero: tOficial.numero,
               cantidad: stockQty,
               stock: stockQty,
+              cantidadReservada: reservedQty,
+              reserved: reservedQty,
               disponible: Math.max(0, stockQty - reservedQty),
               ratio: 1, // 1 par por talla para Media Docena estándar
               cantidadSerie: 1,
@@ -472,6 +489,8 @@ export class CatalogoService {
             numero: st.talla?.numero || 0,
             cantidad: st.quantity || 0,
             stock: st.quantity || 0,
+            cantidadReservada: st.reservedQuantity || 0,
+            reserved: st.reservedQuantity || 0,
             disponible: Math.max(0, (st.quantity || 0) - (st.reservedQuantity || 0)),
             ratio: 1,
             cantidadSerie: 1,
@@ -479,6 +498,8 @@ export class CatalogoService {
         }
 
         const totalStock = listaTallasFinal.reduce((acc, t) => acc + t.stock, 0);
+        const totalReservado = listaTallasFinal.reduce((acc, t) => acc + (t.cantidadReservada || 0), 0);
+        const totalDisponible = listaTallasFinal.reduce((acc, t) => acc + (t.disponible || 0), 0);
 
         return {
           id: p.id,
@@ -491,6 +512,8 @@ export class CatalogoService {
           serieId: p.serie?.id || p.serieId,
           supplierId: p.supplierId || m.supplierId || null,
           totalStock,
+          totalReservado,
+          totalDisponible,
           tallas: listaTallasFinal,
         };
       }),
