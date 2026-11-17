@@ -687,11 +687,24 @@ export class FinancieroQueryService {
       });
     });
 
-    // 2. Abonos realizados — Consolidar en pagos únicos si pertenecen al mismo recibo o transacción
-    const abonosAgrupadosMap = new Map<string, any>();
+    // 2. Abonos realizados — Consolidar estrictamente en pagos únicos netos (ocultando división interna por notas)
+    const todosAbonosLista: Array<{
+      id: string;
+      cobroId: string;
+      monto: number;
+      metodo: string;
+      notas: string;
+      createdAt: Date;
+      userId?: string;
+      cajero: any;
+      sucursalCajero: string;
+      esOtraSucursal: boolean;
+      reciboTag: string | null;
+      referencia: string;
+    }> = [];
 
     cobros.forEach((c) => {
-      c.abonos.forEach((a) => {
+      (c.abonos || []).forEach((a) => {
         const cajero = histUserMap.get(a.userId);
         const sucursalCajero = (cajero as any)?.tenant?.name || 'Administración Central';
         const esOtraSucursal = Boolean(cajero?.tenantId && c.tenantId && cajero.tenantId !== c.tenantId);
@@ -700,64 +713,142 @@ export class FinancieroQueryService {
         const matchRecibo = a.notas?.match(/\[(REC-[A-Z0-9]+)\]/i);
         const reciboTag = matchRecibo ? matchRecibo[1] : null;
 
-        // Si tiene reciboTag se agrupa por ese identificador único. Si no, por fecha (mismo minuto) + usuario + método
-        const keyGroup = reciboTag
-          ? `recibo_${reciboTag}`
-          : `abono_${a.userId}_${a.metodo}_${new Date(a.createdAt).toISOString().slice(0, 16)}`;
+        const limpiaNota = a.notas
+          ? a.notas.replace(/\[REC-[A-Z0-9]+\]/gi, '').replace(/\[PRONTO PAGO.*?\]/gi, '').trim()
+          : '';
+        const esNotaGenerica =
+          !limpiaNota ||
+          limpiaNota.toLowerCase() === 'abono unificado a cuenta' ||
+          limpiaNota.toLowerCase() === 'liquidación total en 24h';
+        const comprobanteAbono = !esNotaGenerica ? limpiaNota : '';
 
-        if (abonosAgrupadosMap.has(keyGroup)) {
-          const existing = abonosAgrupadosMap.get(keyGroup);
-          existing.monto = Math.round((existing.monto + Number(a.monto)) * 100) / 100;
-          if (c.saleNote?.numero) {
-            existing.notasAfectadas.add(`#${String(c.saleNote.numero).padStart(4, '0')}`);
-          }
-        } else {
-          const notasAfectadas = new Set<string>();
-          if (c.saleNote?.numero) {
-            notasAfectadas.add(`#${String(c.saleNote.numero).padStart(4, '0')}`);
-          }
-          const limpiaNota = a.notas ? a.notas.replace(/\[REC-[A-Z0-9]+\]/i, '').trim() : '';
-          const esNotaGenerica = !limpiaNota || limpiaNota.toLowerCase() === 'abono unificado a cuenta';
-          const comprobanteAbono = !esNotaGenerica ? limpiaNota : undefined;
-
-          abonosAgrupadosMap.set(keyGroup, {
-            id: `abono-grp-${a.id}`,
-            tipo: 'ABONO',
-            reciboRef: reciboTag,
-            titulo: reciboTag ? `Abono a Cuenta (#${reciboTag})` : `Abono a Cobro #${c.saleNote?.numero || c.id.slice(0, 8).toUpperCase()}`,
-            numeroCodigo: reciboTag || comprobanteAbono || undefined,
-            monto: Number(a.monto),
-            metodo: a.metodo,
-            notas: a.notas,
-            comprobante: comprobanteAbono,
-            referencia: comprobanteAbono,
-            numeroTransaccion: comprobanteAbono,
-            fecha: a.createdAt,
-            cobradoPor: cajero?.nombre || 'Usuario del sistema',
-            cobradoPorEmail: cajero?.email || '',
-            cobradoPorRol: cajero?.rol || '',
-            cobradoPorSucursal: sucursalCajero,
-            esCobroOtraSucursal: esOtraSucursal,
-            notasAfectadas,
-          });
-        }
+        todosAbonosLista.push({
+          id: a.id,
+          cobroId: c.id,
+          monto: Number(a.monto),
+          metodo: a.metodo || 'EFECTIVO',
+          notas: a.notas || '',
+          createdAt: new Date(a.createdAt),
+          userId: a.userId,
+          cajero,
+          sucursalCajero,
+          esOtraSucursal,
+          reciboTag,
+          referencia: comprobanteAbono,
+        });
       });
     });
 
-    abonosAgrupadosMap.forEach((abonoGrp) => {
-      let desc = `Método: ${abonoGrp.metodo}`;
-      if (abonoGrp.comprobante) {
-        desc += ` • Trans/Comp: #${abonoGrp.comprobante.replace(/^#/, '')}`;
-      } else if (abonoGrp.notas) {
-        const limpiaNota = abonoGrp.notas.replace(/\[REC-[A-Z0-9]+\]/i, '').trim();
-        if (limpiaNota && limpiaNota.toLowerCase() !== 'abono unificado a cuenta') desc += ` • ${limpiaNota}`;
+    // Ordenar cronológicamente para agrupar cascada de pagos
+    todosAbonosLista.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+
+    const abonosConsolidados: Array<{
+      id: string;
+      tipo: 'ABONO';
+      reciboRef?: string;
+      titulo: string;
+      numeroCodigo?: string;
+      monto: number;
+      metodo: string;
+      comprobante?: string;
+      referencia?: string;
+      numeroTransaccion?: string;
+      fecha: string;
+      createdAtMs: number;
+      userId?: string;
+      cobradoPor: string;
+      cobradoPorEmail: string;
+      cobradoPorRol: string;
+      cobradoPorSucursal: string;
+      esCobroOtraSucursal: boolean;
+    }> = [];
+
+    todosAbonosLista.forEach((item) => {
+      const itemTime = item.createdAt.getTime();
+
+      // Buscar si este abono pertenece al mismo evento / transacción de pago
+      const match = abonosConsolidados.find((g) => {
+        // 1. Coincidencia por recibo unificado
+        if (item.reciboTag && g.reciboRef && item.reciboTag === g.reciboRef) {
+          return true;
+        }
+        // 2. Coincidencia temporal: mismo método en ventana de hasta 3 minutos (180,000 ms)
+        const diffMs = Math.abs(itemTime - g.createdAtMs);
+        if (diffMs <= 180000 && item.metodo === g.metodo) {
+          // Si ambos tienen reciboRef distinto, no unir
+          if (item.reciboTag && g.reciboRef && item.reciboTag !== g.reciboRef) {
+            return false;
+          }
+          // Si ambos tienen referencia bancaria distinta, no unir
+          if (item.referencia && g.referencia && item.referencia !== g.referencia) {
+            return false;
+          }
+          return true;
+        }
+        return false;
+      });
+
+      if (match) {
+        match.monto = Math.round((match.monto + item.monto) * 100) / 100;
+        if (!match.reciboRef && item.reciboTag) {
+          match.reciboRef = item.reciboTag;
+          match.titulo = `Abono a Cuenta (#${item.reciboTag})`;
+          match.numeroCodigo = item.reciboTag;
+        }
+        if (!match.referencia && item.referencia) {
+          match.referencia = item.referencia;
+          match.comprobante = item.referencia;
+          match.numeroTransaccion = item.referencia;
+        }
+      } else {
+        const rTag = item.reciboTag;
+        const refFinal = item.referencia || undefined;
+        abonosConsolidados.push({
+          id: `abono-grp-${item.id}`,
+          tipo: 'ABONO',
+          reciboRef: rTag || undefined,
+          titulo: rTag ? `Abono a Cuenta (#${rTag})` : 'Abono a Cuenta',
+          numeroCodigo: rTag || refFinal || undefined,
+          monto: item.monto,
+          metodo: item.metodo,
+          comprobante: refFinal,
+          referencia: refFinal,
+          numeroTransaccion: refFinal,
+          fecha: item.createdAt.toISOString(),
+          createdAtMs: itemTime,
+          userId: item.userId,
+          cobradoPor: item.cajero?.nombre || 'Usuario del sistema',
+          cobradoPorEmail: item.cajero?.email || '',
+          cobradoPorRol: item.cajero?.rol || '',
+          cobradoPorSucursal: item.sucursalCajero,
+          esCobroOtraSucursal: item.esOtraSucursal,
+        });
       }
-      if (abonoGrp.notasAfectadas.size > 0) {
-        desc += ` (Aplicado a ${Array.from(abonoGrp.notasAfectadas).join(', ')})`;
+    });
+
+    abonosConsolidados.forEach((abonoGrp) => {
+      let desc = `Método: ${abonoGrp.metodo}`;
+      if (abonoGrp.referencia) {
+        desc += ` • Trans/Comp: #${abonoGrp.referencia.replace(/^#/, '')}`;
       }
       movimientos.push({
-        ...abonoGrp,
+        id: abonoGrp.id,
+        tipo: abonoGrp.tipo,
+        reciboRef: abonoGrp.reciboRef,
+        titulo: abonoGrp.titulo,
+        numeroCodigo: abonoGrp.numeroCodigo,
         descripcion: desc,
+        monto: abonoGrp.monto,
+        metodo: abonoGrp.metodo,
+        comprobante: abonoGrp.comprobante,
+        referencia: abonoGrp.referencia,
+        numeroTransaccion: abonoGrp.numeroTransaccion,
+        fecha: abonoGrp.fecha,
+        cobradoPor: abonoGrp.cobradoPor,
+        cobradoPorEmail: abonoGrp.cobradoPorEmail,
+        cobradoPorRol: abonoGrp.cobradoPorRol,
+        cobradoPorSucursal: abonoGrp.cobradoPorSucursal,
+        esCobroOtraSucursal: abonoGrp.esCobroOtraSucursal,
       });
     });
 

@@ -26,6 +26,7 @@ export class RegistrarAbonoHandler {
     }
 
     const abonoId = crypto.randomUUID();
+    const reciboRef = `REC-${Date.now().toString().slice(-6)}`;
     let notasFinal = command.notas;
     let esProntoPago24h = false;
 
@@ -39,6 +40,10 @@ export class RegistrarAbonoHandler {
         const tag = '[PRONTO PAGO 24H: RECLASIFICADO A CONTADO]';
         notasFinal = notasFinal ? `${tag} ${notasFinal.trim()}` : `${tag} Liquidación total en 24h`;
       }
+    }
+
+    if (!notasFinal?.includes('[REC-')) {
+      notasFinal = `[${reciboRef}] ${notasFinal ? notasFinal.trim() : 'Abono a cuenta'}`.trim();
     }
 
     cobro.registrarAbono(
