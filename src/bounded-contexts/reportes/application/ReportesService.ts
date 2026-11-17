@@ -2682,7 +2682,7 @@ export class ReportesService {
       }),
       this.prisma.user.findMany({
         where: { id: { in: userIds } },
-        select: { id: true, name: true, apellido: true },
+        select: { id: true, nombre: true },
       }),
     ]);
 
@@ -2723,8 +2723,7 @@ export class ReportesService {
 
     const userMap = new Map<string, string>();
     users.forEach((u) => {
-      const uNombre = [u.name, u.apellido].filter(Boolean).join(' ').trim() || 'Vendedor';
-      userMap.set(u.id, uNombre);
+      userMap.set(u.id, u.nombre || 'Vendedor');
     });
 
     // Helper formato docenas

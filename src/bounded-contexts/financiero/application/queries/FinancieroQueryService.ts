@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, BadRequestException, Optional } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, Optional, Logger } from '@nestjs/common';
 import { PrismaService } from '../../../../shared/infrastructure/prisma/prisma.service';
 import { EncryptionService } from '../../../../shared/infrastructure/encryption/encryption.service';
 import { CobroEstado, DeudaEstado } from '@prisma/client';
@@ -6,6 +6,8 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 
 @Injectable()
 export class FinancieroQueryService {
+  private readonly logger = new Logger(FinancieroQueryService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly encryptionService: EncryptionService,
