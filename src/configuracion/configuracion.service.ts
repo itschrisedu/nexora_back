@@ -87,10 +87,16 @@ export class ConfiguracionService implements OnModuleInit {
         },
       });
       for (const dup of duplicates) {
+        // Respetar series exclusivas de modelos específicos
+        if (dup.nombre.includes('_M_')) continue;
+
         if (
-          dup.nombre.startsWith('ADULTO_') ||
+          dup.nombre.startsWith('ADULTO_(') ||
           dup.nombre.startsWith('ADULTO (') ||
-          dup.nombre.startsWith('JUVENIL_') ||
+          dup.nombre.startsWith('ADULTO_3') ||
+          dup.nombre.startsWith('ADULTO_4') ||
+          dup.nombre.startsWith('JUVENIL_(') ||
+          dup.nombre.startsWith('JUVENIL (') ||
           dup.nombre.startsWith('SERIE_')
         ) {
           const canonName = dup.nombre.startsWith('JUVENIL') ? 'JUVENIL' : 'ADULTO';
