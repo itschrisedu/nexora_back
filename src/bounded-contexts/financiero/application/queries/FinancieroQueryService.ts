@@ -1069,13 +1069,8 @@ export class FinancieroQueryService {
       m.saldoAnterior = Math.round(saldoAcumulado * 100) / 100;
       const monto = Number(m.monto || 0);
 
-      // Sólo cargos a crédito (pedidos a crédito o deudas iniciales manuales) suman a la deuda
-      const esCargoCredito =
-        (m.tipo === 'COMPRA_PEDIDO' && m.detalles?.tipoPago !== 'CONTADO') ||
-        m.tipo === 'DEUDA_INICIAL';
-
-      if (esCargoCredito) {
-        // En una entrega o cargo a crédito, se incrementa la deuda acumulada
+      if (m.tipo === 'COMPRA_PEDIDO' || m.tipo === 'DEUDA_INICIAL') {
+        // En una entrega o cargo, se incrementa la deuda acumulada
         saldoAcumulado = Math.round((saldoAcumulado + monto) * 100) / 100;
       } else if (m.tipo === 'ABONO' || m.tipo === 'DEVOLUCION') {
         // En un abono o devolución descontada de cartera, se reduce la deuda acumulada
