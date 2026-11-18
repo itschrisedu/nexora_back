@@ -314,9 +314,30 @@ export class FacturacionSriService {
   // ══════════════════════════════════════════
 
   async listarFacturas(tenantId: string) {
-    return this.prisma.facturaElectronica.findMany({
+    const facturas = await this.prisma.facturaElectronica.findMany({
       where: { tenantId },
       orderBy: { createdAt: 'desc' },
+    });
+
+    const saleNoteIds = facturas.map((f) => f.saleNoteId).filter(Boolean) as string[];
+    const saleNotes = saleNoteIds.length > 0
+      ? await this.prisma.saleNote.findMany({
+          where: { id: { in: saleNoteIds } },
+          select: { id: true, total: true, subtotal: true },
+        })
+      : [];
+    const totalBySaleNote = new Map(saleNotes.map((sn) => [sn.id, Number(sn.total)]));
+
+    return facturas.map((f) => {
+      let ambiente = '1';
+      if (f.claveAcceso && f.claveAcceso.length >= 24) {
+        ambiente = f.claveAcceso.charAt(23);
+      }
+      return {
+        ...f,
+        ambiente,
+        total: f.saleNoteId ? totalBySaleNote.get(f.saleNoteId) || 0 : 0,
+      };
     });
   }
 
