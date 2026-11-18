@@ -889,7 +889,13 @@ export class ConfiguracionService implements OnModuleInit {
       where: { nombre: nombreUpper },
       include: { tallas: { orderBy: { numero: 'asc' } } },
     });
-    if (exists) return exists;
+    if (exists) {
+      // Si la serie ya existe, actualizar su rango de tallas con las nuevas tallas recibidas
+      return this.updateSeries(exists.id, {
+        tallasDesde: dto.tallasDesde,
+        tallasHasta: dto.tallasHasta,
+      });
+    }
 
     if (dto.tallasHasta < dto.tallasDesde) {
       throw new ConflictException('El rango de tallas es inválido: "tallasHasta" debe ser >= "tallasDesde"');
