@@ -943,23 +943,71 @@ export class ConfiguracionService {
    * Elimina una serie si no tiene productos asociados.
    */
   async deleteSeries(id: string) {
+    const CANONICAL_NAMES = ['ADULTO', 'JUVENIL', 'NINO', 'NINO_PEQUENO_A', 'BEBE', 'TALLA_GRANDE'];
+
     const existing = await this.prisma.seriesConfig.findUnique({
       where: { id },
-      include: { products: { select: { id: true } } },
+      include: { products: { select: { id: true } }, tallas: true },
     });
     if (!existing) throw new NotFoundException('Serie no encontrada');
 
-    if (existing.products.length > 0) {
+    // Proteger las 6 series canónicas de eliminación accidental
+    if (CANONICAL_NAMES.includes(existing.nombre)) {
       throw new ConflictException(
-        `No se puede eliminar la serie "${existing.nombre}" porque tiene ${existing.products.length} producto(s) asociado(s). Elimine los productos primero.`
+        `No se puede eliminar la serie canónica "${existing.nombre}". Solo se pueden eliminar series duplicadas o personalizadas.`
       );
     }
 
-    // Eliminar tallas asociadas (cascade debería hacerlo, pero por seguridad)
+    // Si la serie duplicada tiene productos asociados, reasignarlos a la serie canónica correspondiente
+    if (existing.products.length > 0) {
+      // Intentar encontrar la serie canónica por nombre base (ej. "ADULTO_(38-42)" -> "ADULTO")
+      const cleanName = existing.nombre.replace(/\s*\(\d+-\d+\)/g, '').replace(/_\(\d+-\d+\)/g, '').trim();
+      let canonicalSerie = await this.prisma.seriesConfig.findFirst({
+        where: { nombre: cleanName, id: { not: id } },
+      });
+
+      // Si no se encuentra por nombre limpio, buscar por coincidencia parcial en las canónicas
+      if (!canonicalSerie) {
+        for (const canonName of CANONICAL_NAMES) {
+          if (cleanName.toUpperCase().includes(canonName) || canonName.includes(cleanName.toUpperCase())) {
+            canonicalSerie = await this.prisma.seriesConfig.findFirst({
+              where: { nombre: canonName },
+            });
+            if (canonicalSerie) break;
+          }
+        }
+      }
+
+      if (canonicalSerie) {
+        // Reasignar todos los productos de la serie duplicada a la serie canónica
+        await this.prisma.product.updateMany({
+          where: { serieId: id },
+          data: { serieId: canonicalSerie.id },
+        });
+        this.logger.log(`Reasignados ${existing.products.length} producto(s) de "${existing.nombre}" a "${canonicalSerie.nombre}"`);
+      } else {
+        // Si no hay serie canónica de respaldo, desvincular los productos (serieId = null)
+        await this.prisma.product.updateMany({
+          where: { serieId: id },
+          data: { serieId: null as any },
+        });
+        this.logger.warn(`Desvinculados ${existing.products.length} producto(s) de serie "${existing.nombre}" (sin serie canónica de respaldo)`);
+      }
+    }
+
+    // Eliminar stock asociado a las tallas de esta serie
+    const tallaIds = existing.tallas.map(t => t.id);
+    if (tallaIds.length > 0) {
+      await this.prisma.stockByTalla.deleteMany({
+        where: { tallaId: { in: tallaIds } },
+      });
+    }
+
+    // Eliminar tallas asociadas
     await this.prisma.tallaConfig.deleteMany({ where: { serieId: id } });
     await this.prisma.seriesConfig.delete({ where: { id } });
 
-    this.logger.log(`Serie "${existing.nombre}" eliminada`);
+    this.logger.log(`Serie duplicada "${existing.nombre}" eliminada correctamente`);
     return { message: `Serie "${existing.nombre}" eliminada correctamente` };
   }
 
