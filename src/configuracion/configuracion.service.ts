@@ -51,7 +51,7 @@ export class ConfiguracionService implements OnModuleInit {
   async onModuleInit(): Promise<void> {
     try {
       const canonical = [
-        { nombre: 'ADULTO', desde: 38, hasta: 43 },
+        { nombre: 'ADULTO', desde: 38, hasta: 42 },
         { nombre: 'JUVENIL', desde: 34, hasta: 38 },
         { nombre: 'NINO', desde: 27, hasta: 32 },
         { nombre: 'NINO_PEQUENO_A', desde: 21, hasta: 26 },
