@@ -78,6 +78,35 @@ export class ConfiguracionService implements OnModuleInit {
           }
         }
       }
+      // Limpiar series duplicadas generadas erróneamente (ej. ADULTO_(38-42), SERIE_...)
+      const duplicates = await this.prisma.seriesConfig.findMany({
+        where: {
+          nombre: {
+            notIn: ['ADULTO', 'JUVENIL', 'NINO', 'NINO_PEQUENO_A', 'BEBE', 'TALLA_GRANDE'],
+          },
+        },
+      });
+      for (const dup of duplicates) {
+        if (
+          dup.nombre.startsWith('ADULTO_') ||
+          dup.nombre.startsWith('ADULTO (') ||
+          dup.nombre.startsWith('JUVENIL_') ||
+          dup.nombre.startsWith('SERIE_')
+        ) {
+          const canonName = dup.nombre.startsWith('JUVENIL') ? 'JUVENIL' : 'ADULTO';
+          const canonSerie = await this.prisma.seriesConfig.findUnique({ where: { nombre: canonName } });
+          if (canonSerie) {
+            await this.prisma.product.updateMany({
+              where: { serieId: dup.id },
+              data: { serieId: canonSerie.id },
+            });
+          }
+          await this.prisma.tallaConfig.deleteMany({ where: { serieId: dup.id } });
+          await this.prisma.seriesConfig.delete({ where: { id: dup.id } });
+          this.logger.log(`Serie duplicada eliminada: ${dup.nombre}`);
+        }
+      }
+
       this.logger.log('Series canónicas maestras verificadas y aseguradas');
     } catch (err: any) {
       this.logger.warn(`Error al verificar series canónicas: ${err.message}`);
@@ -899,13 +928,6 @@ export class ConfiguracionService implements OnModuleInit {
     if (dto.tallasDesde !== undefined && dto.tallasHasta !== undefined) {
       if (dto.tallasHasta < dto.tallasDesde) {
         throw new ConflictException('El rango de tallas es inválido');
-      }
-
-      const SERIES_CANONICAS = ['ADULTO', 'JUVENIL', 'NINO', 'NINO_PEQUENO_A', 'BEBE', 'TALLA_GRANDE'];
-      if (SERIES_CANONICAS.includes(existing.nombre)) {
-        throw new BadRequestException(
-          `La serie maestra "${existing.nombre}" define un estándar del sistema y no puede modificarse globalmente. Para asignar un rango distinto a un modelo específico, selecciona o crea la serie correspondiente en ese modelo.`,
-        );
       }
 
       const nuevosNumeros = new Set<number>();
