@@ -1478,11 +1478,34 @@ export class FinancieroQueryService {
         estado: { in: [CobroEstado.PENDIENTE, CobroEstado.PARCIALMENTE_PAGADO] },
         saldoPendiente: { gt: 0 },
       },
-      include: { saleNote: true },
+      include: { saleNote: true, abonos: true },
       orderBy: { createdAt: 'asc' },
     });
 
-    const cobrosPendientesTotal = cobrosPendientes.reduce((sum, c) => sum + Number(c.saldoPendiente), 0);
+    // Conciliación contable estricta: Garantizar que la suma de cobros pendientes coincida con Total Facturado - Total Abonado
+    const todosCobrosCliente = await this.prisma.cobro.findMany({
+      where: { clientId, tipo: 'CREDITO' },
+      include: { abonos: true },
+    });
+    const totalFacturadoCredito = todosCobrosCliente.reduce((s, c) => s + Number(c.montoTotal || 0), 0);
+    const totalAbonadoCredito = todosCobrosCliente.reduce((s, c) => s + c.abonos.reduce((sa, a) => sa + Number(a.monto || 0), 0), 0);
+    const deudaContableReal = Math.max(0, Math.round((totalFacturadoCredito - totalAbonadoCredito) * 100) / 100);
+
+    let cobrosPendientesTotal = cobrosPendientes.reduce((sum, c) => sum + Number(c.saldoPendiente), 0);
+
+    // Si existe discrepancia histórica en saldos de cobros individuales, sincronizar el cobro más reciente para proteger el dinero del negocio
+    if (cobrosPendientes.length > 0 && Math.abs(cobrosPendientesTotal - deudaContableReal) > 0.01) {
+      const diff = Math.round((deudaContableReal - cobrosPendientesTotal) * 100) / 100;
+      const ultimoCobro = cobrosPendientes[cobrosPendientes.length - 1];
+      const nuevoSaldoCobro = Math.max(0, Math.round((Number(ultimoCobro.saldoPendiente) + diff) * 100) / 100);
+      ultimoCobro.saldoPendiente = nuevoSaldoCobro as any;
+      await this.prisma.cobro.update({
+        where: { id: ultimoCobro.id },
+        data: { saldoPendiente: nuevoSaldoCobro },
+      });
+      cobrosPendientesTotal = deudaContableReal;
+    }
+
     const saldoAnterior = Math.round(cobrosPendientesTotal * 100) / 100;
 
     const reciboRef = `REC-${Date.now().toString().slice(-6)}`;
