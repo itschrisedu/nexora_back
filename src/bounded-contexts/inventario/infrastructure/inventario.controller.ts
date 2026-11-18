@@ -82,7 +82,7 @@ export class InventarioController {
     private readonly encryption: EncryptionService,
     @Inject('IProductoRepository')
     private readonly productoRepository: IProductoRepository,
-  ) {}
+  ) { }
 
   // ══════════════════════════════
   // QUERIES
@@ -1052,8 +1052,8 @@ export class InventarioController {
         ...(finalAlternates !== undefined
           ? { alternateSupplierIds: finalAlternates }
           : dto.alternateSupplierIds !== undefined
-          ? { alternateSupplierIds: dto.alternateSupplierIds }
-          : {}),
+            ? { alternateSupplierIds: dto.alternateSupplierIds }
+            : {}),
       },
     });
 
@@ -1160,7 +1160,7 @@ export class InventarioController {
                   await this.prisma.stockByTalla.deleteMany({ where: { productId: dup.id } });
                   await this.prisma.product.delete({ where: { id: dup.id } });
                   this.logger.log(`Variante duplicada vacía eliminada: ${dup.code}`);
-                } catch (_) {}
+                } catch (_) { }
               }
             }
           }
@@ -1218,7 +1218,7 @@ export class InventarioController {
                     reservedQuantity: 0,
                   },
                 });
-              } catch (_) {}
+              } catch (_) { }
             }
           } else {
             // NO EXISTÍA: Crear la variante para este color, esta serie y este proveedor
@@ -1310,7 +1310,7 @@ export class InventarioController {
             await this.prisma.product.delete({ where: { id: unp.id } });
             this.logger.log(`Variante residual vacía eliminada: ${unp.code}`);
             continue;
-          } catch (_) {}
+          } catch (_) { }
         }
         await this.prisma.product.update({
           where: { id: unp.id },
@@ -1422,7 +1422,7 @@ export class InventarioController {
               try {
                 await this.prisma.stockByTalla.deleteMany({ where: { productId: dup.id } });
                 await this.prisma.product.delete({ where: { id: dup.id } });
-              } catch (_) {}
+              } catch (_) { }
             }
           }
         }
@@ -1477,7 +1477,7 @@ export class InventarioController {
                   reservedQuantity: 0,
                 },
               });
-            } catch (_) {}
+            } catch (_) { }
           }
         } else {
           // No existía para este color y proveedor: crear variante con stock inicial en 0
@@ -1775,9 +1775,9 @@ export class InventarioController {
 
       const parentModel = product.modelId
         ? await tx.productModel.findUnique({
-            where: { id: product.modelId },
-            select: { baseCode: true, supplierId: true },
-          })
+          where: { id: product.modelId },
+          select: { baseCode: true, supplierId: true },
+        })
         : null;
 
       if (!supplierSigla && parentModel?.supplierId) {
@@ -1792,9 +1792,9 @@ export class InventarioController {
 
       const serieRecord = targetSerieId
         ? await tx.seriesConfig.findUnique({
-            where: { id: targetSerieId },
-            select: { nombre: true },
-          })
+          where: { id: targetSerieId },
+          select: { nombre: true },
+        })
         : null;
 
       if (parentModel?.baseCode && targetColor && serieRecord?.nombre) {
@@ -1854,8 +1854,8 @@ export class InventarioController {
         const effectiveSup = targetSup || parentModel?.supplierId || null;
         const supCondition: any = effectiveSup
           ? (parentModel?.supplierId && effectiveSup === parentModel.supplierId
-              ? { OR: [{ supplierId: effectiveSup }, { supplierId: null }] }
-              : { supplierId: effectiveSup })
+            ? { OR: [{ supplierId: effectiveSup }, { supplierId: null }] }
+            : { supplierId: effectiveSup })
           : { supplierId: null };
 
         await tx.product.updateMany({
