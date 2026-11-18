@@ -755,6 +755,7 @@ export class FinancieroQueryService {
       numeroTransaccion?: string;
       fecha: string;
       createdAtMs: number;
+      lastItemTimeMs: number;
       userId?: string;
       cobradoPor: string;
       cobradoPorEmail: string;
@@ -766,20 +767,19 @@ export class FinancieroQueryService {
     todosAbonosLista.forEach((item) => {
       const itemTime = item.createdAt.getTime();
 
-      // Buscar si este abono pertenece al mismo evento / transacción de pago
+      // Buscar si este abono pertenece a la misma transacción o sesión de cobro del cliente
       const match = abonosConsolidados.find((g) => {
-        // 1. Coincidencia por recibo unificado
+        // 1. Coincidencia por recibo unificado idéntico
         if (item.reciboTag && g.reciboRef && item.reciboTag === g.reciboRef) {
           return true;
         }
-        // 2. Coincidencia temporal: mismo método en ventana de hasta 3 minutos (180,000 ms)
-        const diffMs = Math.abs(itemTime - g.createdAtMs);
-        if (diffMs <= 180000 && item.metodo === g.metodo) {
-          // Si ambos tienen reciboRef distinto, no unir
-          if (item.reciboTag && g.reciboRef && item.reciboTag !== g.reciboRef) {
-            return false;
-          }
-          // Si ambos tienen referencia bancaria distinta, no unir
+        // 2. Coincidencia por misma sesión de cobro comercial:
+        // Si fueron registrados con el mismo usuario/cajero en una ventana continua de hasta 15 minutos (900,000 ms)
+        // medidos respecto al último abono registrado en este grupo
+        const diffMs = Math.abs(itemTime - g.lastItemTimeMs);
+        const mismoUsuario = !item.userId || !g.userId || item.userId === g.userId;
+        if (diffMs <= 900000 && mismoUsuario) {
+          // Si ambos tienen referencia bancaria distinta y explícita, no unir
           if (item.referencia && g.referencia && item.referencia !== g.referencia) {
             return false;
           }
@@ -790,6 +790,11 @@ export class FinancieroQueryService {
 
       if (match) {
         match.monto = Math.round((match.monto + item.monto) * 100) / 100;
+        match.lastItemTimeMs = itemTime;
+        // Unificar métodos si son distintos (ej: EFECTIVO / TRANSFERENCIA)
+        if (item.metodo && match.metodo && !match.metodo.includes(item.metodo)) {
+          match.metodo = `${match.metodo} / ${item.metodo}`;
+        }
         if (!match.reciboRef && item.reciboTag) {
           match.reciboRef = item.reciboTag;
           match.titulo = `Abono a Cuenta (#${item.reciboTag})`;
@@ -816,6 +821,7 @@ export class FinancieroQueryService {
           numeroTransaccion: refFinal,
           fecha: item.createdAt.toISOString(),
           createdAtMs: itemTime,
+          lastItemTimeMs: itemTime,
           userId: item.userId,
           cobradoPor: item.cajero?.nombre || 'Usuario del sistema',
           cobradoPorEmail: item.cajero?.email || '',
@@ -1040,40 +1046,26 @@ export class FinancieroQueryService {
       client.creditoUtilizado = saldoPendienteTotal as any;
     }
 
-    // 4. Corrida contable estricta (dos pasadas): Ordenar cronológicamente (más antiguo primero)
+    // 4. Corrida contable estricta: Reconstrucción retrospectiva exacta desde el saldo deudor actual
     const movsCronologicos = [...movimientos].sort(
       (a, b) => new Date(a.fecha).getTime() - new Date(b.fecha).getTime(),
     );
 
-    // PASADA 1: Caminar con seed=0 aplicando el mismo Math.max(0,...) para obtener el saldo final real con clampeo
-    let tempSaldo = 0;
-    for (const m of movsCronologicos) {
+    let saldo = Math.round(saldoPendienteTotal * 100) / 100;
+
+    for (let i = movsCronologicos.length - 1; i >= 0; i--) {
+      const m = movsCronologicos[i];
       const monto = Number(m.monto || 0);
+      m.nuevoSaldo = Math.round(saldo * 100) / 100;
+
       if (m.tipo === 'COMPRA_PEDIDO' || m.tipo === 'DEUDA_INICIAL') {
-        tempSaldo += monto;
+        // En una entrega o cargo, antes de comprar el saldo era menor
+        saldo = Math.max(0, Math.round((saldo - monto) * 100) / 100);
       } else if (m.tipo === 'ABONO' || m.tipo === 'DEVOLUCION') {
-        tempSaldo = Math.max(0, tempSaldo - monto);
+        // En un abono o descargo, antes de pagar el saldo era mayor
+        saldo = Math.round((saldo + monto) * 100) / 100;
       }
-    }
-
-    // PASADA 2: Calcular seed correcto para que el saldo final coincida con saldoPendienteTotal
-    // offset = saldoPendienteTotal - tempSaldo absorbe correctamente el efecto del clampeo
-    let saldoCorriente = Math.max(0, Math.round((saldoPendienteTotal - tempSaldo) * 100) / 100);
-
-    for (const m of movsCronologicos) {
-      m.saldoAnterior = Math.round(saldoCorriente * 100) / 100;
-      const monto = Number(m.monto || 0);
-      if (m.tipo === 'COMPRA_PEDIDO' || m.tipo === 'DEUDA_INICIAL') {
-        saldoCorriente += monto;
-      } else if (m.tipo === 'ABONO' || m.tipo === 'DEVOLUCION') {
-        saldoCorriente = Math.max(0, saldoCorriente - monto);
-      }
-      m.nuevoSaldo = Math.round(saldoCorriente * 100) / 100;
-    }
-
-    // El último movimiento ya debería coincidir, pero forzar por seguridad ante decimales flotantes
-    if (movsCronologicos.length > 0) {
-      movsCronologicos[movsCronologicos.length - 1].nuevoSaldo = saldoPendienteTotal;
+      m.saldoAnterior = Math.round(saldo * 100) / 100;
     }
 
     // Invertir para mostrar el más reciente arriba en la vista del usuario
