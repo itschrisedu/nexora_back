@@ -850,6 +850,35 @@ export class ConfiguracionService implements OnModuleInit {
   // ══════════════════════════════
 
   async getAllSeries() {
+    const CANONICAL_BASE = [
+      { nombre: 'ADULTO', desde: 38, hasta: 42 },
+      { nombre: 'JUVENIL', desde: 34, hasta: 38 },
+      { nombre: 'NINO', desde: 27, hasta: 32 },
+      { nombre: 'NINO_PEQUENO_A', desde: 21, hasta: 26 },
+      { nombre: 'BEBE', desde: 18, hasta: 20 },
+      { nombre: 'TALLA_GRANDE', desde: 43, hasta: 45 },
+    ];
+    for (const c of CANONICAL_BASE) {
+      let s = await this.prisma.seriesConfig.findUnique({
+        where: { nombre: c.nombre },
+        include: { tallas: true },
+      });
+      if (!s) {
+        s = await this.prisma.seriesConfig.create({
+          data: { nombre: c.nombre },
+          include: { tallas: true },
+        });
+      }
+      for (let n = c.desde; n <= c.hasta; n++) {
+        const hasTalla = s.tallas.some(t => t.numero === n);
+        if (!hasTalla) {
+          await this.prisma.tallaConfig.create({
+            data: { numero: n, serieId: s.id },
+          });
+        }
+      }
+    }
+
     return this.prisma.seriesConfig.findMany({
       include: { tallas: { orderBy: { numero: 'asc' } } },
       orderBy: { nombre: 'asc' },
@@ -932,8 +961,11 @@ export class ConfiguracionService implements OnModuleInit {
     });
     if (!existing) throw new NotFoundException('Serie no encontrada');
 
-    // Actualizar nombre si se proporcionó
-    if (dto.nombre) {
+    const CANONICAL_NAMES = ['ADULTO', 'JUVENIL', 'NINO', 'NINO_PEQUENO_A', 'BEBE', 'TALLA_GRANDE'];
+    const esCanonica = CANONICAL_NAMES.includes(existing.nombre);
+
+    // Actualizar nombre si se proporcionó (las series canónicas nunca cambian su nombre oficial)
+    if (dto.nombre && !esCanonica) {
       const nombreUpper = dto.nombre.toUpperCase().trim().replace(/\s+/g, '_');
       const conflict = await this.prisma.seriesConfig.findFirst({
         where: { nombre: nombreUpper, id: { not: id } },
