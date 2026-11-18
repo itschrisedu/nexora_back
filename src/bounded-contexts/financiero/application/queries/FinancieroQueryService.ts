@@ -1046,26 +1046,38 @@ export class FinancieroQueryService {
       client.creditoUtilizado = saldoPendienteTotal as any;
     }
 
-    // 4. Corrida contable estricta: Reconstrucción retrospectiva exacta desde el saldo deudor actual
+    // 4. Corrida contable estricta: Cronológica desde el movimiento más antiguo hacia el más reciente
     const movsCronologicos = [...movimientos].sort(
       (a, b) => new Date(a.fecha).getTime() - new Date(b.fecha).getTime(),
     );
 
-    let saldo = Math.round(saldoPendienteTotal * 100) / 100;
-
-    for (let i = movsCronologicos.length - 1; i >= 0; i--) {
-      const m = movsCronologicos[i];
+    let saldoAcumulado = 0;
+    for (const m of movsCronologicos) {
+      m.saldoAnterior = Math.round(saldoAcumulado * 100) / 100;
       const monto = Number(m.monto || 0);
-      m.nuevoSaldo = Math.round(saldo * 100) / 100;
 
       if (m.tipo === 'COMPRA_PEDIDO' || m.tipo === 'DEUDA_INICIAL') {
-        // En una entrega o cargo, antes de comprar el saldo era menor
-        saldo = Math.max(0, Math.round((saldo - monto) * 100) / 100);
+        // En una entrega o cargo, se incrementa la deuda acumulada
+        saldoAcumulado = Math.round((saldoAcumulado + monto) * 100) / 100;
       } else if (m.tipo === 'ABONO' || m.tipo === 'DEVOLUCION') {
-        // En un abono o descargo, antes de pagar el saldo era mayor
-        saldo = Math.round((saldo + monto) * 100) / 100;
+        // En un abono o devolución, se reduce la deuda acumulada
+        saldoAcumulado = Math.max(0, Math.round((saldoAcumulado - monto) * 100) / 100);
       }
-      m.saldoAnterior = Math.round(saldo * 100) / 100;
+      m.nuevoSaldo = Math.round(saldoAcumulado * 100) / 100;
+    }
+
+    // El saldo pendiente total contable del cliente es exactamente el saldo final resultante de su libro mayor
+    const saldoFinalContable = movsCronologicos.length > 0
+      ? movsCronologicos[movsCronologicos.length - 1].nuevoSaldo
+      : saldoPendienteTotal;
+
+    // Sincronizar creditoUtilizado en la base de datos con la realidad contable estricta
+    if (Math.abs(Number(client.creditoUtilizado || 0) - saldoFinalContable) > 0.01) {
+      await this.prisma.client.update({
+        where: { id: clientId },
+        data: { creditoUtilizado: saldoFinalContable },
+      });
+      client.creditoUtilizado = saldoFinalContable as any;
     }
 
     // Invertir para mostrar el más reciente arriba en la vista del usuario
@@ -1088,7 +1100,7 @@ export class FinancieroQueryService {
       resumen: {
         totalPedidos: pedidos.length,
         totalComprado: pedidos.reduce((sum, p) => sum + Number(p.montoTotal), 0),
-        saldoPendienteTotal,
+        saldoPendienteTotal: saldoFinalContable,
         totalAbonado,
       },
       pedidos,
