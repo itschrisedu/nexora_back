@@ -183,6 +183,27 @@ export class FinancieroQueryService {
       // Continuar si la BD no permite update masivo
     }
 
+    // 1.5. Consultar devoluciones de clientes para incluir en el cálculo de saldo
+    let devolucionesPorCliente = new Map<string, number>();
+    try {
+      const devoluciones = await this.prisma.clienteDevolucion.findMany({
+        where: {
+          ...(tenantId ? { tenantId } : {}),
+          estado: { not: 'RECHAZADA' },
+        },
+        select: {
+          clientId: true,
+          deudaDescontada: true,
+        },
+      });
+      for (const d of devoluciones) {
+        const prev = devolucionesPorCliente.get(d.clientId) || 0;
+        devolucionesPorCliente.set(d.clientId, prev + Number(d.deudaDescontada || 0));
+      }
+    } catch (devErr) {
+      // Continuar si la tabla no existe aún
+    }
+
     // 2. Obtener todos los cobros con sus notas de venta y abonos
     const cobros = await this.prisma.cobro.findMany({
       where,
@@ -480,6 +501,7 @@ export class FinancieroQueryService {
         notasPedido: order?.notas || null,
         lines: finalLines,
         facturaSri: cobro.saleNoteId ? facturasMap.get(cobro.saleNoteId) || null : null,
+        devolucionesDescontadasCliente: devolucionesPorCliente.get(cobro.clientId) || 0,
       };
     });
   }
@@ -1034,17 +1056,8 @@ export class FinancieroQueryService {
 
     const saldoPendienteTotal = Math.max(
       0,
-      cobrosPendientesReales.reduce((sum, c) => sum + Number(c.saldoPendiente), 0) - Number(client.saldoAFavor || 0),
+      Math.round((cobrosPendientesReales.reduce((sum, c) => sum + Number(c.saldoPendiente), 0) - Number(client.saldoAFavor || 0)) * 100) / 100,
     );
-
-    // Auto-reconciliación estricta de creditoUtilizado en la base de datos
-    if (Math.abs(Number(client.creditoUtilizado || 0) - saldoPendienteTotal) > 0.01) {
-      await this.prisma.client.update({
-        where: { id: clientId },
-        data: { creditoUtilizado: saldoPendienteTotal },
-      });
-      client.creditoUtilizado = saldoPendienteTotal as any;
-    }
 
     // 4. Corrida contable estricta: Cronológica desde el movimiento más antiguo hacia el más reciente
     const movsCronologicos = [...movimientos].sort(
@@ -1056,20 +1069,29 @@ export class FinancieroQueryService {
       m.saldoAnterior = Math.round(saldoAcumulado * 100) / 100;
       const monto = Number(m.monto || 0);
 
-      if (m.tipo === 'COMPRA_PEDIDO' || m.tipo === 'DEUDA_INICIAL') {
-        // En una entrega o cargo, se incrementa la deuda acumulada
+      // Sólo cargos a crédito (pedidos a crédito o deudas iniciales manuales) suman a la deuda
+      const esCargoCredito =
+        (m.tipo === 'COMPRA_PEDIDO' && m.detalles?.tipoPago !== 'CONTADO') ||
+        m.tipo === 'DEUDA_INICIAL';
+
+      if (esCargoCredito) {
+        // En una entrega o cargo a crédito, se incrementa la deuda acumulada
         saldoAcumulado = Math.round((saldoAcumulado + monto) * 100) / 100;
       } else if (m.tipo === 'ABONO' || m.tipo === 'DEVOLUCION') {
-        // En un abono o devolución, se reduce la deuda acumulada
+        // En un abono o devolución descontada de cartera, se reduce la deuda acumulada
         saldoAcumulado = Math.max(0, Math.round((saldoAcumulado - monto) * 100) / 100);
       }
       m.nuevoSaldo = Math.round(saldoAcumulado * 100) / 100;
     }
 
-    // El saldo pendiente total contable del cliente es exactamente el saldo final resultante de su libro mayor
-    const saldoFinalContable = movsCronologicos.length > 0
-      ? movsCronologicos[movsCronologicos.length - 1].nuevoSaldo
-      : saldoPendienteTotal;
+    // Reconciliación contable estricta: Si existe una diferencia residual entre la corrida de movimientos
+    // y los cobros pendientes oficiales en BD, ajustar el último saldo para que coincida exactamente con saldoPendienteTotal
+    if (movsCronologicos.length > 0 && Math.abs(saldoAcumulado - saldoPendienteTotal) > 0.01) {
+      const ultimoMov = movsCronologicos[movsCronologicos.length - 1];
+      ultimoMov.nuevoSaldo = saldoPendienteTotal;
+    }
+
+    const saldoFinalContable = saldoPendienteTotal;
 
     // Sincronizar creditoUtilizado en la base de datos con la realidad contable estricta
     if (Math.abs(Number(client.creditoUtilizado || 0) - saldoFinalContable) > 0.01) {
