@@ -101,6 +101,16 @@ export class ConfiguracionService implements OnModuleInit {
               data: { serieId: canonSerie.id },
             });
           }
+          // Primero eliminar stockByTalla que referencian las tallas de esta serie duplicada
+          const tallasDup = await this.prisma.tallaConfig.findMany({
+            where: { serieId: dup.id },
+            select: { id: true },
+          });
+          if (tallasDup.length > 0) {
+            await this.prisma.stockByTalla.deleteMany({
+              where: { tallaId: { in: tallasDup.map(t => t.id) } },
+            });
+          }
           await this.prisma.tallaConfig.deleteMany({ where: { serieId: dup.id } });
           await this.prisma.seriesConfig.delete({ where: { id: dup.id } });
           this.logger.log(`Serie duplicada eliminada: ${dup.nombre}`);
