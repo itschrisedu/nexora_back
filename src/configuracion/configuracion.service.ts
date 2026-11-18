@@ -18,6 +18,7 @@ import {
   ConflictException,
   BadRequestException,
   ForbiddenException,
+  OnModuleInit,
 } from '@nestjs/common';
 import { PrismaService } from '../shared/infrastructure/prisma/prisma.service';
 import { EncryptionService } from '../shared/infrastructure/encryption/encryption.service';
@@ -38,7 +39,7 @@ import {
 } from './dto/configuracion.dto';
 
 @Injectable()
-export class ConfiguracionService {
+export class ConfiguracionService implements OnModuleInit {
   private readonly logger = new Logger(ConfiguracionService.name);
 
   constructor(
@@ -46,6 +47,42 @@ export class ConfiguracionService {
     private readonly encryption: EncryptionService,
     private readonly cloudinary: CloudinaryService,
   ) {}
+
+  async onModuleInit(): Promise<void> {
+    try {
+      const canonical = [
+        { nombre: 'ADULTO', desde: 38, hasta: 43 },
+        { nombre: 'JUVENIL', desde: 34, hasta: 38 },
+        { nombre: 'NINO', desde: 27, hasta: 32 },
+        { nombre: 'NINO_PEQUENO_A', desde: 21, hasta: 26 },
+        { nombre: 'BEBE', desde: 18, hasta: 20 },
+        { nombre: 'TALLA_GRANDE', desde: 43, hasta: 45 },
+      ];
+      for (const item of canonical) {
+        let s = await this.prisma.seriesConfig.findUnique({
+          where: { nombre: item.nombre },
+          include: { tallas: true },
+        });
+        if (!s) {
+          s = await this.prisma.seriesConfig.create({
+            data: { nombre: item.nombre },
+            include: { tallas: true },
+          });
+        }
+        for (let num = item.desde; num <= item.hasta; num++) {
+          const exists = s.tallas.some((t) => t.numero === num);
+          if (!exists) {
+            await this.prisma.tallaConfig.create({
+              data: { numero: num, serieId: s.id },
+            });
+          }
+        }
+      }
+      this.logger.log('Series canónicas maestras verificadas y aseguradas');
+    } catch (err: any) {
+      this.logger.warn(`Error al verificar series canónicas: ${err.message}`);
+    }
+  }
 
   // ══════════════════════════════
   // BUSINESS CONFIG
@@ -862,6 +899,13 @@ export class ConfiguracionService {
     if (dto.tallasDesde !== undefined && dto.tallasHasta !== undefined) {
       if (dto.tallasHasta < dto.tallasDesde) {
         throw new ConflictException('El rango de tallas es inválido');
+      }
+
+      const SERIES_CANONICAS = ['ADULTO', 'JUVENIL', 'NINO', 'NINO_PEQUENO_A', 'BEBE', 'TALLA_GRANDE'];
+      if (SERIES_CANONICAS.includes(existing.nombre)) {
+        throw new BadRequestException(
+          `La serie maestra "${existing.nombre}" define un estándar del sistema y no puede modificarse globalmente. Para asignar un rango distinto a un modelo específico, selecciona o crea la serie correspondiente en ese modelo.`,
+        );
       }
 
       const nuevosNumeros = new Set<number>();
