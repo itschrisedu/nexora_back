@@ -1120,20 +1120,38 @@ export class InventarioController {
           const costVal = rawCost > 0 ? rawCost : fallbackCost > 0 ? fallbackCost : 10;
           const saleVal = rawSale > 0 ? rawSale : fallbackSale > 0 ? fallbackSale : 13;
 
-          // Buscar si este color ya tiene variante con esta serie PARA ESTE PROVEEDOR
+          // Función auxiliar para extraer categoría canónica base (ADULTO, JUVENIL, etc.)
+          const getBaseCat = (nombre: string) => {
+            const up = (nombre || '').toUpperCase().trim();
+            for (const cat of ['ADULTO', 'JUVENIL', 'NINO_PEQUENO_A', 'NINO', 'BEBE', 'TALLA_GRANDE']) {
+              if (up.startsWith(cat)) return cat;
+            }
+            return up;
+          };
+          const targetCat = getBaseCat(serieConfig.nombre);
+
+          // Buscar si este color ya tiene variante con esta serie o con la misma categoría PARA ESTE PROVEEDOR
           const candidatos = prodsDeEsteProveedor.filter(
             (p) =>
               p.color.trim().toLowerCase() === colorName.toLowerCase() &&
-              (p.serieId === serieConfig.id || (p.serie && p.serie.nombre === serieConfig.nombre)),
+              (p.serieId === serieConfig.id ||
+                (p.serie && p.serie.nombre === serieConfig.nombre) ||
+                (p.serie && getBaseCat(p.serie.nombre) === targetCat)),
           );
           candidatos.sort((a, b) => {
             const sA = (a.stockByTalla || []).reduce((acc: number, s: any) => acc + (s.quantity || 0), 0);
             const sB = (b.stockByTalla || []).reduce((acc: number, s: any) => acc + (s.quantity || 0), 0);
-            return sB - sA;
+            if (sB !== sA) return sB - sA;
+            // Si ambas tienen igual stock, preferir código limpio original sin sufijo secuencial (-002, -003...)
+            const aHasSeq = /-\d{3}$/.test(a.code);
+            const bHasSeq = /-\d{3}$/.test(b.code);
+            if (aHasSeq && !bHasSeq) return 1;
+            if (!aHasSeq && bHasSeq) return -1;
+            return a.code.localeCompare(b.code);
           });
           const prodExistente = candidatos[0];
 
-          // Limpiar duplicados vacíos si existieran
+          // Limpiar duplicados vacíos si existieran (ej. variantes -002 residuales con 0 stock)
           if (candidatos.length > 1) {
             for (const dup of candidatos.slice(1)) {
               const dStk = (dup.stockByTalla || []).reduce((acc: number, s: any) => acc + (s.quantity || 0), 0);
@@ -1141,6 +1159,7 @@ export class InventarioController {
                 try {
                   await this.prisma.stockByTalla.deleteMany({ where: { productId: dup.id } });
                   await this.prisma.product.delete({ where: { id: dup.id } });
+                  this.logger.log(`Variante duplicada vacía eliminada: ${dup.code}`);
                 } catch (_) {}
               }
             }
@@ -1153,11 +1172,12 @@ export class InventarioController {
           const validTallaIds = new Set(tallasValidas.map(t => t.id));
 
           if (prodExistente) {
-            // Actualizar precios y proveedor en la variante existente de este proveedor
+            // Actualizar precios, serie asignada y proveedor en la variante existente
             await this.prisma.product.update({
               where: { id: prodExistente.id },
               data: {
                 active: true,
+                serieId: serieConfig.id,
                 ...(seriePrices && {
                   costPrice: costVal,
                   salePrice: saleVal,
@@ -1165,6 +1185,7 @@ export class InventarioController {
                 ...(finalSupplierId !== undefined && { supplierId: finalSupplierId }),
               },
             });
+            prodExistente.serieId = serieConfig.id;
 
             // Asegurar que existan las tallas válidas de la serie, PRESERVANDO el stock físico real existente
             for (const t of tallasValidas) {
@@ -1276,11 +1297,21 @@ export class InventarioController {
         }
       }
 
-      // 6. Desactivar variantes cuyas series fueron desmarcadas SOLO para este proveedor
+      // 6. Desactivar o purgar variantes cuyas series fueron desmarcadas SOLO para este proveedor
       const unselectedProducts = prodsDeEsteProveedor.filter(
         (p) => p.serieId && !dto.serieIds!.includes(p.serieId),
       );
       for (const unp of unselectedProducts) {
+        const stk = (unp.stockByTalla || []).reduce((acc: number, s: any) => acc + (s.quantity || 0), 0);
+        // Si no tiene stock y es un duplicado residual (ej. sufijo -002 o ya inactivo), eliminarlo
+        if (stk === 0 && (/-\d{3}$/.test(unp.code) || !unp.active)) {
+          try {
+            await this.prisma.stockByTalla.deleteMany({ where: { productId: unp.id } });
+            await this.prisma.product.delete({ where: { id: unp.id } });
+            this.logger.log(`Variante residual vacía eliminada: ${unp.code}`);
+            continue;
+          } catch (_) {}
+        }
         await this.prisma.product.update({
           where: { id: unp.id },
           data: { active: false },
